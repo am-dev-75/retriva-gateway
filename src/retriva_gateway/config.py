@@ -19,7 +19,7 @@ VERSION = "0.1.1"
 
 class Settings(BaseSettings):
     GATEWAY_HOST: str = "0.0.0.0"
-    GATEWAY_PORT: int = 8080
+    GATEWAY_PORT: int = 8002
     
     # Retriva Core URLs
     # We allow separate URLs for ingestion and chat to match docker-compose setup
