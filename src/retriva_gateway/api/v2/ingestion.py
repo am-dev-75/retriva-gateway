@@ -1,0 +1,113 @@
+# Copyright (C) 2026 Andrea Marson (am.dev.75@gmail.com)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status
+from typing import List, Optional, Dict, Any
+import uuid
+from pydantic import BaseModel
+from retriva_gateway.core.client import core_client
+from loguru import logger
+import json
+
+router = APIRouter(prefix="/ingestion", tags=["ingestion"])
+
+# Simple in-memory store for batches (for first implementation)
+# In production, this would be a database.
+batches: Dict[str, Dict[str, Any]] = {}
+
+class BatchCreateRequest(BaseModel):
+    metadata: Optional[Dict[str, Any]] = None
+
+class BatchResponse(BaseModel):
+    batch_id: str
+    status: str
+    files: List[Dict[str, Any]] = []
+    metadata: Optional[Dict[str, Any]] = None
+
+@router.post("/batches", response_model=BatchResponse)
+async def create_batch(request: BatchCreateRequest):
+    batch_id = str(uuid.uuid4())
+    batches[batch_id] = {
+        "batch_id": batch_id,
+        "status": "active",
+        "files": [],
+        "metadata": request.metadata or {}
+    }
+    return batches[batch_id]
+
+@router.post("/batches/{batch_id}/files")
+async def upload_file_to_batch(
+    batch_id: str,
+    file: UploadFile = File(...),
+    source_path: str = Form(...),
+    user_metadata: Optional[str] = Form(None)
+):
+    if batch_id not in batches:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    
+    # Merge batch metadata and per-file metadata
+    batch_metadata = batches[batch_id].get("metadata", {})
+    file_metadata = {}
+    if user_metadata:
+        try:
+            file_metadata = json.loads(user_metadata)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=422, detail="Invalid JSON in user_metadata")
+    
+    # Merged metadata (file metadata takes precedence if keys overlap)
+    merged_metadata = {**batch_metadata, **file_metadata}
+    
+    # Forward to Core
+    # Core expects multipart: file, source_path, user_metadata (JSON string)
+    try:
+        core_response = await core_client.upload_file_to_batch(
+            batch_id=batch_id, # This is just a path param in Gateway, not necessarily in Core
+            files={"file": (file.filename, file.file, file.content_type)},
+            data={
+                "source_path": source_path,
+                "user_metadata": json.dumps(merged_metadata)
+            }
+        )
+        
+        # Track file in batch
+        file_info = {
+            "filename": file.filename,
+            "source_path": source_path,
+            "job_id": core_response.get("job_id"),
+            "status": "accepted"
+        }
+        batches[batch_id]["files"].append(file_info)
+        
+        return file_info
+    except Exception as e:
+        logger.error(f"Failed to forward file to Core: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/batches/{batch_id}", response_model=BatchResponse)
+async def get_batch(batch_id: str):
+    if batch_id not in batches:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    
+    batch = batches[batch_id]
+    
+    # Update file statuses from Core
+    for file_info in batch["files"]:
+        if file_info.get("job_id"):
+            try:
+                job_status = await core_client.get_batch_status(file_info["job_id"])
+                file_info["status"] = job_status.get("status", "unknown")
+            except Exception as e:
+                logger.warning(f"Could not get status for job {file_info['job_id']}: {e}")
+    
+    return batch
