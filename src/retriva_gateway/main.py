@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from fastapi import FastAPI
+from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from retriva_gateway.api.router import api_router
 from retriva_gateway.config import settings
@@ -26,10 +27,33 @@ import sys
 logger.remove()
 logger.add(sys.stdout, format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level:7}</level> - <level>{message}</level>", level=settings.LOG_LEVEL)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Retriva Gateway starting up...")
+    logger.info("--- Configuration ---")
+    logger.info(f"GATEWAY_HOST: {settings.GATEWAY_HOST}")
+    logger.info(f"GATEWAY_PORT: {settings.GATEWAY_PORT}")
+    logger.info(f"RETRIVA_CORE_INGESTION_URL: {settings.RETRIVA_CORE_INGESTION_URL}")
+    logger.info(f"RETRIVA_CORE_CHAT_URL: {settings.RETRIVA_CORE_CHAT_URL}")
+    logger.info(f"GATEWAY_ENABLE_AUTH: {settings.GATEWAY_ENABLE_AUTH}")
+    logger.info(f"GATEWAY_ENABLE_ARTIFACTS: {settings.GATEWAY_ENABLE_ARTIFACTS}")
+    logger.info(f"GATEWAY_ENABLE_FOLDER_UPLOAD: {settings.GATEWAY_ENABLE_FOLDER_UPLOAD}")
+    logger.info(f"GATEWAY_ENABLE_SPEECH_INPUT: {settings.GATEWAY_ENABLE_SPEECH_INPUT}")
+    logger.info(f"GATEWAY_MAX_UPLOAD_MB: {settings.GATEWAY_MAX_UPLOAD_MB}")
+    logger.info(f"GATEWAY_UPLOAD_TMP_DIR: {settings.GATEWAY_UPLOAD_TMP_DIR}")
+    logger.info(f"GATEWAY_CORS_ORIGINS: {settings.GATEWAY_CORS_ORIGINS}")
+    logger.info(f"LOG_LEVEL: {settings.LOG_LEVEL}")
+    logger.info("---------------------")
+    
+    yield
+    
+    logger.info("Retriva Gateway shutting down...")
+
 app = FastAPI(
     title="Retriva Gateway",
     version="0.1.0",
-    description="Backend-for-Frontend for Retriva WebUI"
+    description="Backend-for-Frontend for Retriva WebUI",
+    lifespan=lifespan
 )
 
 # Exception handlers
@@ -51,27 +75,6 @@ app.add_middleware(
 # Include routers
 app.include_router(api_router)
 
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Retriva Gateway starting up...")
-    logger.info("--- Configuration ---")
-    logger.info(f"GATEWAY_HOST: {settings.GATEWAY_HOST}")
-    logger.info(f"GATEWAY_PORT: {settings.GATEWAY_PORT}")
-    logger.info(f"RETRIVA_CORE_INGESTION_URL: {settings.RETRIVA_CORE_INGESTION_URL}")
-    logger.info(f"RETRIVA_CORE_CHAT_URL: {settings.RETRIVA_CORE_CHAT_URL}")
-    logger.info(f"GATEWAY_ENABLE_AUTH: {settings.GATEWAY_ENABLE_AUTH}")
-    logger.info(f"GATEWAY_ENABLE_ARTIFACTS: {settings.GATEWAY_ENABLE_ARTIFACTS}")
-    logger.info(f"GATEWAY_ENABLE_FOLDER_UPLOAD: {settings.GATEWAY_ENABLE_FOLDER_UPLOAD}")
-    logger.info(f"GATEWAY_ENABLE_SPEECH_INPUT: {settings.GATEWAY_ENABLE_SPEECH_INPUT}")
-    logger.info(f"GATEWAY_MAX_UPLOAD_MB: {settings.GATEWAY_MAX_UPLOAD_MB}")
-    logger.info(f"GATEWAY_UPLOAD_TMP_DIR: {settings.GATEWAY_UPLOAD_TMP_DIR}")
-    logger.info(f"GATEWAY_CORS_ORIGINS: {settings.GATEWAY_CORS_ORIGINS}")
-    logger.info(f"LOG_LEVEL: {settings.LOG_LEVEL}")
-    logger.info("---------------------")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("Retriva Gateway shutting down...")
 
 if __name__ == "__main__":
     import uvicorn

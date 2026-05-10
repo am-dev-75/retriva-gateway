@@ -17,7 +17,7 @@ from typing import Optional, Dict, Any, List
 
 class ErrorDetail(BaseModel):
     code: str
-    message: str
+    message: Any
     details: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 class ErrorResponse(BaseModel):
