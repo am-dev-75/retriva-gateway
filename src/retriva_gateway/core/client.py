@@ -139,4 +139,21 @@ class CoreClient:
         response = await self._request("DELETE", self.ingestion_base_url, f"/api/v2/artifacts/{artifact_id}")
         return response.json()
 
+    # --- Metadata API ---
+    async def get_metadata_schema(self):
+        response = await self._request("GET", self.ingestion_base_url, "/api/v2/discovery/metadata/schema")
+        return response.json()
+
+    async def get_metadata_values(self, field: str):
+        response = await self._request("GET", self.ingestion_base_url, f"/api/v2/discovery/metadata/{field}/values")
+        return response.json()
+
+    async def count_documents(self, params: Optional[Dict[str, Any]] = None):
+        response = await self._request("GET", self.ingestion_base_url, "/api/v2/documents/count", params=params)
+        return response.json()
+
+    async def retrieval_query(self, payload: Dict[str, Any]):
+        response = await self._request("POST", self.chat_base_url, "/api/v2/retrieval/query", json=payload)
+        return response.json()
+
 core_client = CoreClient()

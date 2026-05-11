@@ -13,16 +13,16 @@
 # limitations under the License.
 
 from fastapi import APIRouter
-from retriva_gateway.api.v2 import health, capabilities, chat, kbs, documents, ingestion, artifacts, speech, metadata
+from retriva_gateway.core.client import core_client
 
-api_router = APIRouter(prefix="/gateway")
+router = APIRouter(prefix="/metadata", tags=["metadata"])
 
-api_router.include_router(health.router)
-api_router.include_router(capabilities.router)
-api_router.include_router(chat.router)
-api_router.include_router(kbs.router)
-api_router.include_router(documents.router)
-api_router.include_router(ingestion.router)
-api_router.include_router(artifacts.router)
-api_router.include_router(speech.router)
-api_router.include_router(metadata.router)
+@router.get("/schema")
+async def get_metadata_schema():
+    """Proxy Core metadata schema endpoint."""
+    return await core_client.get_metadata_schema()
+
+@router.get("/{field}/values")
+async def get_metadata_values(field: str):
+    """Proxy Core metadata field values endpoint."""
+    return await core_client.get_metadata_values(field)
