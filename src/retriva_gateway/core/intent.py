@@ -32,8 +32,8 @@ class IntentDetector:
     _schema_cache_time = 0
     CACHE_TTL = 300  # 5 minutes
 
-    CATALOG_LIST_REGEX = re.compile(r"^(?i)(list|show me all|what are the)\b.*(documents|files|records)")
-    CATALOG_COUNT_REGEX = re.compile(r"^(?i)(how many|count)\b.*(documents|files|records)")
+    CATALOG_LIST_REGEX = re.compile(r"(?i)^(list|show me all|what are the)\b.*(documents|files|records)")
+    CATALOG_COUNT_REGEX = re.compile(r"(?i)^(how many|count)\b.*(documents|files|records)")
     FILTER_REGEX = re.compile(r"(?i)@([a-zA-Z0-9_]+):([a-zA-Z0-9_]+)|in\s+([a-zA-Z0-9_]+)\s*(?:=|:)\s*([a-zA-Z0-9_]+)")
 
     @classmethod
@@ -59,7 +59,9 @@ class IntentDetector:
         schema = await cls._get_schema()
         valid_keys = set()
         if schema and isinstance(schema, dict):
-            if "properties" in schema:
+            if "keys" in schema:
+                valid_keys = set(schema["keys"])
+            elif "properties" in schema:
                 valid_keys = set(schema["properties"].keys())
             else:
                 valid_keys = set(schema.keys())

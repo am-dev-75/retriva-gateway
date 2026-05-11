@@ -15,8 +15,8 @@
 from fastapi import APIRouter
 from retriva_gateway.api.v2 import health, capabilities, chat, kbs, documents, ingestion, artifacts, speech, metadata
 
+# Legacy/internal router
 api_router = APIRouter(prefix="/gateway")
-
 api_router.include_router(health.router)
 api_router.include_router(capabilities.router)
 api_router.include_router(chat.router)
@@ -26,3 +26,11 @@ api_router.include_router(ingestion.router)
 api_router.include_router(artifacts.router)
 api_router.include_router(speech.router)
 api_router.include_router(metadata.router)
+
+# Public v2 router (matches Core structure)
+api_v2_router = APIRouter(prefix="/api/v2")
+api_v2_router.include_router(documents.router)
+api_v2_router.include_router(metadata.router)
+api_v2_router.include_router(ingestion.router)
+api_v2_router.include_router(artifacts.router)
+api_v2_router.include_router(capabilities.router)

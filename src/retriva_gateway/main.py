@@ -15,7 +15,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-from retriva_gateway.api.router import api_router
+from retriva_gateway.api.router import api_router, api_v2_router
 from retriva_gateway.config import settings
 from retriva_gateway.middleware.correlation import CorrelationIdMiddleware
 from retriva_gateway.middleware.errors import global_exception_handler
@@ -74,6 +74,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(api_router)
+app.include_router(api_v2_router)
 
 
 if __name__ == "__main__":

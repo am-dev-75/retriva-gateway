@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from retriva_gateway.core.client import core_client
@@ -25,22 +25,27 @@ class Document(BaseModel):
     kb_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
-@router.get("", response_model=List[Document])
-async def list_documents(kb_id: Optional[str] = None):
-    # Placeholder for document listing
-    # Since Core doesn't have a list endpoint yet, we return an empty list
-    return []
+@router.get("")
+async def list_documents(request: Request):
+    """Proxy Core document listing."""
+    return await core_client.list_documents(params=request.query_params)
 
-@router.get("/{doc_id}", response_model=Document)
+@router.get("/count")
+async def count_documents(request: Request):
+    """Proxy Core document counting."""
+    return await core_client.count_documents(params=request.query_params)
+
+@router.post("/filter")
+async def filter_documents(payload: Dict[str, Any]):
+    """Proxy Core document filtering via POST."""
+    return await core_client.filter_documents(payload)
+
+@router.get("/{doc_id}")
 async def get_document(doc_id: str):
-    # This could call Core v2 /api/v2/documents/{doc_id} if it existed
-    # For now, placeholder
-    raise HTTPException(status_code=404, detail="Document not found")
+    """Proxy Core document retrieval."""
+    return await core_client.get_document(doc_id)
 
 @router.delete("/{doc_id}")
 async def delete_document(doc_id: str):
-    try:
-        await core_client.delete_document(doc_id)
-        return {"status": "deleted"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Proxy Core document deletion."""
+    return await core_client.delete_document(doc_id)

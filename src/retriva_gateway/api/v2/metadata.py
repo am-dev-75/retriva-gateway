@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request, HTTPException
 from retriva_gateway.core.client import core_client
 
 router = APIRouter(prefix="/metadata", tags=["metadata"])
@@ -22,7 +22,15 @@ async def get_metadata_schema():
     """Proxy Core metadata schema endpoint."""
     return await core_client.get_metadata_schema()
 
+@router.get("/values")
+async def get_metadata_values(request: Request):
+    """Proxy Core metadata values endpoint."""
+    key = request.query_params.get("key")
+    if not key:
+        raise HTTPException(status_code=400, detail="Missing 'key' query parameter")
+    return await core_client.get_metadata_values(key)
+
 @router.get("/{field}/values")
-async def get_metadata_values(field: str):
-    """Proxy Core metadata field values endpoint."""
+async def get_metadata_values_compat(field: str):
+    """Legacy/Compat proxy for field values."""
     return await core_client.get_metadata_values(field)

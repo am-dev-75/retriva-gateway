@@ -141,19 +141,23 @@ class CoreClient:
 
     # --- Metadata API ---
     async def get_metadata_schema(self):
-        response = await self._request("GET", self.ingestion_base_url, "/api/v2/discovery/metadata/schema")
+        response = await self._request("GET", self.ingestion_base_url, "/api/v2/metadata/schema")
         return response.json()
 
     async def get_metadata_values(self, field: str):
-        response = await self._request("GET", self.ingestion_base_url, f"/api/v2/discovery/metadata/{field}/values")
+        response = await self._request("GET", self.ingestion_base_url, "/api/v2/metadata/values", params={"key": field})
         return response.json()
 
     async def count_documents(self, params: Optional[Dict[str, Any]] = None):
         response = await self._request("GET", self.ingestion_base_url, "/api/v2/documents/count", params=params)
         return response.json()
 
+    async def filter_documents(self, payload: Dict[str, Any]):
+        response = await self._request("POST", self.ingestion_base_url, "/api/v2/documents/filter", json=payload)
+        return response.json()
+
     async def retrieval_query(self, payload: Dict[str, Any]):
-        response = await self._request("POST", self.chat_base_url, "/api/v2/retrieval/query", json=payload)
+        response = await self._request("POST", self.ingestion_base_url, "/api/v2/retrieval/query", json=payload)
         return response.json()
 
 core_client = CoreClient()

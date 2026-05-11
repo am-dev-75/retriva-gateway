@@ -17,6 +17,11 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from retriva_gateway.core.client import core_client
 from retriva_gateway.core.intent import Intent, IntentDetector
 from loguru import logger
+from typing import Any, Dict
+import datetime
+import json
+
+router = APIRouter(tags=["chat"])
 
 def _transform_citations(core_sources: list) -> list:
     citations = []
@@ -70,7 +75,9 @@ async def chat(payload: Dict[str, Any]):
 
     if intent == Intent.CATALOG_DOCUMENT_COUNT:
         try:
-            params = {f"metadata.{k}": v for k, v in extracted_metadata.items()}
+            params = {}
+            if extracted_metadata:
+                params["user_metadata_filter"] = json.dumps(extracted_metadata)
             response = await core_client.count_documents(params=params)
             count = response.get("count", 0) if isinstance(response, dict) else 0
             return _synthesize_response(f"There are {count} documents in the catalog.", stream)
@@ -80,16 +87,35 @@ async def chat(payload: Dict[str, Any]):
 
     if intent == Intent.CATALOG_DOCUMENT_LIST:
         try:
-            params = {f"metadata.{k}": v for k, v in extracted_metadata.items()}
+            params = {}
+            if extracted_metadata:
+                params["user_metadata_filter"] = json.dumps(extracted_metadata)
             response = await core_client.list_documents(params=params)
-            docs = response.get("items", response) if isinstance(response, dict) else response
+            docs = []
+            if isinstance(response, dict):
+                docs = response.get("documents", response.get("items", []))
+            elif isinstance(response, list):
+                docs = response
             if not isinstance(docs, list):
                 docs = []
             count = len(docs)
             content = f"I found {count} documents in the catalog."
             if docs:
-                names = [d.get("name", d.get("title", "Unknown")) for d in docs[:5]]
-                content += "\nHere are some of them:\n" + "\n".join(f"- {name}" for name in names)
+                if count <= 5:
+                    content += "\nHere they are:\n"
+                else:
+                    content += "\nHere are the first 5:\n"
+                
+                names = []
+                for d in docs[:5]:
+                    title = d.get("page_title") or d.get("name") or d.get("title") or "Untitled"
+                    path = d.get("source_path")
+                    if path and path != title:
+                        names.append(f"{title} ({path})")
+                    else:
+                        names.append(title)
+                
+                content += "\n".join(f"- {name}" for name in names)
             return _synthesize_response(content, stream)
         except Exception as e:
             logger.error(f"Catalog list failed: {e}")
