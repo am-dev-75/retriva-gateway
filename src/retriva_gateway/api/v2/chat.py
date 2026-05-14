@@ -69,7 +69,8 @@ async def chat(request: ChatRequest):
         return JSONResponse(status_code=400, content={"detail": str(e)})
     
     core_payload = {
-        "query": message,
+        "model": "retriva",
+        "messages": [{"role": "user", "content": message}],
         "kb_ids": kb_ids,
         "metadata_filters": normalized_filters,
         "metadata_filter_mode": metadata_filter_mode,
@@ -80,10 +81,10 @@ async def chat(request: ChatRequest):
 
     try:
         if stream:
-            gen = await core_client.retrieval_query(core_payload, stream=True)
+            gen = await core_client.chat_completions(core_payload, stream=True)
             return StreamingResponse(gen, media_type="text/event-stream")
         else:
-            core_response = await core_client.retrieval_query(core_payload, stream=False)
+            core_response = await core_client.chat_completions(core_payload, stream=False)
             choice = core_response.get("choices", [{}])[0]
             choice_message = choice.get("message", {})
             raw_sources = core_response.get("sources", [])
