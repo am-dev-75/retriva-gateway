@@ -14,6 +14,11 @@
 
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
+from enum import Enum
+
+class MetadataFilterMode(str, Enum):
+    SOFT = "soft"
+    HARD = "hard"
 
 class ErrorDetail(BaseModel):
     code: str
@@ -36,3 +41,23 @@ class CapabilitiesResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str = "healthy"
     version: str = "0.1.0"
+
+class MetadataFilter(BaseModel):
+    field: str
+    operator: str
+    value: Optional[Any] = None
+
+class ChatRequest(BaseModel):
+    message: str
+    kb_ids: List[str] = ["default"]
+    metadata_filters: Optional[List[MetadataFilter]] = None
+    metadata_filter_mode: MetadataFilterMode = MetadataFilterMode.SOFT
+    stream: bool = False
+    filters: Optional[Dict[str, Any]] = None # Legacy support
+
+class SearchRequest(BaseModel):
+    query: str
+    metadata_filters: Optional[List[MetadataFilter]] = None
+    metadata_filter_mode: MetadataFilterMode = MetadataFilterMode.SOFT
+    limit: int = 50
+    filters: Optional[Dict[str, Any]] = None # Legacy support

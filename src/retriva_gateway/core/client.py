@@ -156,8 +156,28 @@ class CoreClient:
         response = await self._request("POST", self.ingestion_base_url, "/api/v2/documents/filter", json=payload)
         return response.json()
 
-    async def retrieval_query(self, payload: Dict[str, Any]):
-        response = await self._request("POST", self.ingestion_base_url, "/api/v2/retrieval/query", json=payload)
+    async def retrieval_query(self, payload: Dict[str, Any], stream: bool = False):
+        # Core v2 retrieval API at /api/v2/retrieval/query
+        if stream:
+            return self._stream_v2(self.ingestion_base_url, "/api/v2/retrieval/query", payload)
+        else:
+            response = await self._request("POST", self.ingestion_base_url, "/api/v2/retrieval/query", json=payload)
+            return response.json()
+
+    async def _stream_v2(self, base_url: str, path: str, payload: Dict[str, Any]) -> AsyncGenerator[bytes, None]:
+        url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+        headers = self._get_headers()
+        
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with client.stream("POST", url, json=payload, headers=headers) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if line:
+                        yield (line + "\n").encode("utf-8")
+
+    async def search_documents(self, payload: Dict[str, Any]):
+        # Core v2 document search API at /api/v2/documents/search
+        response = await self._request("POST", self.ingestion_base_url, "/api/v2/documents/search", json=payload)
         return response.json()
 
 core_client = CoreClient()

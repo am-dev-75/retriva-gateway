@@ -16,10 +16,14 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from retriva_gateway.core.client import core_client
 from retriva_gateway.core.intent import Intent, IntentDetector
+from retriva_gateway.core.filters import FilterManager
 from loguru import logger
 from typing import Any, Dict
 import datetime
 import json
+
+from retriva_gateway.core.models import ChatRequest
+from retriva_gateway.core.context import get_correlation_id
 
 router = APIRouter(tags=["chat"])
 
@@ -57,100 +61,53 @@ def _synthesize_response(content: str, stream: bool):
         return JSONResponse(content=web_ui_message)
 
 @router.post("/chat")
-async def chat(payload: Dict[str, Any]):
-    kb_ids = payload.get("kb_ids", ["default"])
-    message = payload.get("message", "")
-    stream = payload.get("stream", False)
-    explicit_filters = payload.get("filters", {})
-
-    intent, extracted_metadata = await IntentDetector.analyze(message)
+async def chat(request: ChatRequest):
+    corr_id = get_correlation_id() or "unknown"
+    kb_ids = request.kb_ids
+    message = request.message
+    stream = request.stream
     
-    # Explicit filters override natural language
-    if explicit_filters:
-        extracted_metadata = explicit_filters
-        if intent == Intent.PURE_RAG:
-            intent = Intent.METADATA_FILTERED_RAG
-
-    logger.debug(f"Chat request: kb_ids={kb_ids}, stream={stream}, message_len={len(message)}, intent={intent}, meta={extracted_metadata}")
-
-    if intent == Intent.CATALOG_DOCUMENT_COUNT:
-        try:
-            params = {}
-            if extracted_metadata:
-                params["user_metadata_filter"] = json.dumps(extracted_metadata)
-            response = await core_client.count_documents(params=params)
-            count = response.get("count", 0) if isinstance(response, dict) else 0
-            return _synthesize_response(f"There are {count} documents in the catalog.", stream)
-        except Exception as e:
-            logger.error(f"Catalog count failed: {e}")
-            raise
-
-    if intent == Intent.CATALOG_DOCUMENT_LIST:
-        try:
-            params = {}
-            if extracted_metadata:
-                params["user_metadata_filter"] = json.dumps(extracted_metadata)
-            response = await core_client.list_documents(params=params)
-            docs = []
-            if isinstance(response, dict):
-                docs = response.get("documents", response.get("items", []))
-            elif isinstance(response, list):
-                docs = response
-            if not isinstance(docs, list):
-                docs = []
-            count = len(docs)
-            content = f"I found {count} documents in the catalog."
-            if docs:
-                if count <= 5:
-                    content += "\nHere they are:\n"
-                else:
-                    content += "\nHere are the first 5:\n"
-                
-                names = []
-                for d in docs[:5]:
-                    title = d.get("page_title") or d.get("name") or d.get("title") or "Untitled"
-                    path = d.get("source_path")
-                    if path and path != title:
-                        names.append(f"{title} ({path})")
-                    else:
-                        names.append(title)
-                
-                content += "\n".join(f"- {name}" for name in names)
-            return _synthesize_response(content, stream)
-        except Exception as e:
-            logger.error(f"Catalog list failed: {e}")
-            raise
-
-    # For RAG variants
-    core_payload = {
-        "model": "retriva",
-        "messages": [{"role": "user", "content": message}],
-        "stream": stream,
-        "user_metadata_filter": {"kb_id": kb_ids[0]} if (kb_ids and kb_ids[0] != "default") else None
-    }
-
-    if intent == Intent.METADATA_FILTERED_RAG and extracted_metadata:
-        if core_payload["user_metadata_filter"] is None:
-            core_payload["user_metadata_filter"] = {}
-        core_payload["user_metadata_filter"].update(extracted_metadata)
+    # Priority: metadata_filters (list) > filters (dict)
+    explicit_filters = request.metadata_filters or request.filters
+    mode = request.metadata_filter_mode
 
     try:
-        # Route to the appropriate Core endpoint based on intent
-        if intent == Intent.METADATA_FILTERED_RAG:
-            # Reformat payload if /retrieval/query expects different shape
-            # Assuming it accepts OpenAI format for now based on previous chat.py logic
-            # but we use the new endpoint
-            if stream:
-                # Assuming retrieval_query doesn't stream, we fallback to chat_completions if stream=True
-                # Or we assume retrieval_query CAN stream if we want.
-                # Let's just use chat_completions for now if streaming, because retrieval_query might be a sync API.
-                # Actually, the user says "Route metadata-filtered semantic questions to Core /api/v2/retrieval/query."
-                # We will call retrieval_query.
-                pass
-            
-            core_response = await core_client.retrieval_query(core_payload)
-            # If retrieval_query doesn't return OpenAI format, we'd need to map it here.
-            # Assuming it does for this architectural draft.
+        metadata_filter_mode = FilterManager.validate_mode(mode)
+    except ValueError as e:
+        logger.error(f"[{corr_id}] Invalid metadata_filter_mode: {mode}")
+        return JSONResponse(status_code=400, content={"detail": str(e)})
+
+    # If explicit filters are provided, we skip intent detection and route directly to RAG
+    if explicit_filters:
+        intent = Intent.METADATA_FILTERED_RAG
+        extracted_metadata = explicit_filters
+        logger.info(f"[{corr_id}] Chat routing: direct RAG (filtered). mode={metadata_filter_mode}, filters={extracted_metadata}")
+    else:
+        # Preserve existing behavior for normal chat
+        intent, extracted_metadata = await IntentDetector.analyze(message)
+        logger.info(f"[{corr_id}] Chat routing: intent detection. intent={intent}, mode={metadata_filter_mode}, filters={extracted_metadata}")
+
+    # For RAG variants (including all filtered requests)
+    try:
+        normalized_filters = await FilterManager.normalize_v2(extracted_metadata)
+    except ValueError as e:
+        logger.error(f"[{corr_id}] Filter normalization failed: {e}")
+        return JSONResponse(status_code=400, content={"detail": str(e)})
+    
+    core_payload = {
+        "query": message,
+        "kb_ids": kb_ids,
+        "metadata_filters": normalized_filters,
+        "metadata_filter_mode": metadata_filter_mode,
+        "stream": stream
+    }
+
+    try:
+        if stream:
+            gen = await core_client.retrieval_query(core_payload, stream=True)
+            return StreamingResponse(gen, media_type="text/event-stream")
+        else:
+            core_response = await core_client.retrieval_query(core_payload, stream=False)
             choice = core_response.get("choices", [{}])[0]
             choice_message = choice.get("message", {})
             raw_sources = core_response.get("sources", [])
@@ -164,27 +121,6 @@ async def chat(payload: Dict[str, Any]):
                 "citations": citations
             }
             return JSONResponse(content=web_ui_message)
-
-        else:
-            # Intent.PURE_RAG or others default to chat_completions
-            if stream:
-                gen = core_client.chat_completions(core_payload, stream=True)
-                return StreamingResponse(await gen, media_type="text/event-stream")
-            else:
-                core_response = await core_client.chat_completions(core_payload, stream=False)
-                choice = core_response.get("choices", [{}])[0]
-                choice_message = choice.get("message", {})
-                raw_sources = core_response.get("sources", [])
-                citations = _transform_citations(raw_sources)
-
-                web_ui_message = {
-                    "id": core_response.get("id", f"msg_{datetime.datetime.now().timestamp()}"),
-                    "role": "assistant",
-                    "content": choice_message.get("content", ""),
-                    "timestamp": datetime.datetime.now().isoformat(),
-                    "citations": citations
-                }
-                return JSONResponse(content=web_ui_message)
     except Exception as e:
-        logger.error(f"Chat forwarding failed: {e}")
+        logger.error(f"[{corr_id}] Chat forwarding failed: {e}")
         raise
