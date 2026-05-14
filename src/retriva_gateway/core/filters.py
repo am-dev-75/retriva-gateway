@@ -45,13 +45,20 @@ class FilterManager:
         """Fetch valid metadata keys from Core."""
         try:
             schema = await core_client.get_metadata_schema()
+            keys = set()
             if isinstance(schema, dict) and "fields" in schema:
                 # Core v2 returns a list of MetadataFieldSchema objects
-                return {f["field"] for f in schema["fields"] if not f["field"].startswith("user_metadata.")}
+                for f in schema["fields"]:
+                    field = f.get("field", "")
+                    if field.startswith("user_metadata."):
+                        keys.add(field.replace("user_metadata.", ""))
+                    else:
+                        keys.add(field)
+                return keys
             elif isinstance(schema, dict) and "keys" in schema:
                 # Legacy Core v2
                 return set(schema["keys"])
-            return set()
+            return keys
         except Exception as e:
             logger.error(f"Failed to fetch metadata schema: {e}")
             return set()

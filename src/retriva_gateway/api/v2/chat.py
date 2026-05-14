@@ -15,7 +15,6 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from retriva_gateway.core.client import core_client
-from retriva_gateway.core.intent import Intent, IntentDetector
 from retriva_gateway.core.filters import FilterManager
 from loguru import logger
 from typing import Any, Dict
@@ -43,22 +42,6 @@ def _transform_citations(core_sources: list) -> list:
         })
     return citations
 
-def _synthesize_response(content: str, stream: bool):
-    if stream:
-        async def _stream_mock():
-            chunk = {"id": f"msg_{datetime.datetime.now().timestamp()}", "choices": [{"delta": {"content": content}}]}
-            yield f"data: {json.dumps(chunk)}\n\n".encode("utf-8")
-            yield b"data: [DONE]\n\n"
-        return StreamingResponse(_stream_mock(), media_type="text/event-stream")
-    else:
-        web_ui_message = {
-            "id": f"msg_{datetime.datetime.now().timestamp()}",
-            "role": "assistant",
-            "content": content,
-            "timestamp": datetime.datetime.now().isoformat(),
-            "citations": []
-        }
-        return JSONResponse(content=web_ui_message)
 
 @router.post("/chat")
 async def chat(request: ChatRequest):
@@ -68,7 +51,7 @@ async def chat(request: ChatRequest):
     stream = request.stream
     
     # Priority: metadata_filters (list) > filters (dict)
-    explicit_filters = request.metadata_filters or request.filters
+    explicit_filters = request.metadata_filters or request.filters or []
     mode = request.metadata_filter_mode
 
     try:
@@ -77,19 +60,10 @@ async def chat(request: ChatRequest):
         logger.error(f"[{corr_id}] Invalid metadata_filter_mode: {mode}")
         return JSONResponse(status_code=400, content={"detail": str(e)})
 
-    # If explicit filters are provided, we skip intent detection and route directly to RAG
-    if explicit_filters:
-        intent = Intent.METADATA_FILTERED_RAG
-        extracted_metadata = explicit_filters
-        logger.info(f"[{corr_id}] Chat routing: direct RAG (filtered). mode={metadata_filter_mode}, filters={extracted_metadata}")
-    else:
-        # Preserve existing behavior for normal chat
-        intent, extracted_metadata = await IntentDetector.analyze(message)
-        logger.info(f"[{corr_id}] Chat routing: intent detection. intent={intent}, mode={metadata_filter_mode}, filters={extracted_metadata}")
-
-    # For RAG variants (including all filtered requests)
+    # As per SDD architectural revision: No inference. 
+    # Use explicit filters provided by the UI only.
     try:
-        normalized_filters = await FilterManager.normalize_v2(extracted_metadata)
+        normalized_filters = await FilterManager.normalize_v2(explicit_filters)
     except ValueError as e:
         logger.error(f"[{corr_id}] Filter normalization failed: {e}")
         return JSONResponse(status_code=400, content={"detail": str(e)})
@@ -101,6 +75,8 @@ async def chat(request: ChatRequest):
         "metadata_filter_mode": metadata_filter_mode,
         "stream": stream
     }
+
+    logger.info(f"[{corr_id}] Chat routing: direct RAG. mode={metadata_filter_mode}, filters={normalized_filters}")
 
     try:
         if stream:
