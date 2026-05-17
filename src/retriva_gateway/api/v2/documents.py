@@ -117,9 +117,12 @@ async def search_documents(request: SearchRequest):
     
     search_payload = {
         "query": query,
+        "kb_ids": request.kb_ids,
         "metadata_filters": normalized_filters,
         "metadata_filter_mode": metadata_filter_mode,
-        "limit": limit
+        "limit": limit,
+        "is_discovery": True,
+        "case_sensitive": request.case_sensitive
     }
     
     # Step 15: Ensure document search never calls the chat/RAG path

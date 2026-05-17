@@ -57,7 +57,10 @@ class ChatRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
+    kb_ids: List[str] = ["default"]
     metadata_filters: Optional[List[MetadataFilter]] = None
     metadata_filter_mode: MetadataFilterMode = MetadataFilterMode.SOFT
     limit: int = 50
+    is_discovery: bool = False
+    case_sensitive: bool = False
     filters: Optional[Dict[str, Any]] = None # Legacy support
