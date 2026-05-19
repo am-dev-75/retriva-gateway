@@ -1,0 +1,998 @@
+openapi: 3.1.0
+info:
+  title: Retriva Gateway API
+  description: |
+    Retriva Gateway acts as the Backend-for-Frontend (BFF) for the Retriva WebUI
+    and provides a public-facing API for external integrations.
+
+    It exposes:
+    * `/gateway/*`: Backend-for-Frontend (BFF) routes specifically designed for the WebUI.
+    * `/api/v2/*`: Public-facing modern API routes.
+  version: 1.0.0
+  contact:
+    name: Andrea Marson
+    email: am.dev.75@gmail.com
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: http://localhost:8002
+    description: Retriva Gateway API
+
+tags:
+  - name: Gateway BFF
+    description: WebUI Backend-for-Frontend endpoints
+  - name: Documents v2
+    description: Document management (v2)
+  - name: Ingestion v2
+    description: Document ingestion (v2)
+  - name: Metadata v2
+    description: Metadata discovery (v2)
+  - name: Artifacts v2
+    description: Artifact management (v2)
+  - name: Capabilities v2
+    description: System capabilities (v2)
+  - name: Health
+    description: System health and status
+
+paths:
+  # --- Gateway BFF API ---
+  /gateway/health:
+    get:
+      tags: [Gateway BFF]
+      summary: Get health status
+      operationId: getGatewayHealth
+      responses:
+        "200":
+          description: Health report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /gateway/capabilities:
+    get:
+      tags: [Gateway BFF]
+      summary: Get Gateway capabilities
+      operationId: getGatewayCapabilities
+      responses:
+        "200":
+          description: Enabled features report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapabilitiesResponse"
+
+  /gateway/chat:
+    post:
+      tags: [Gateway BFF]
+      summary: Send a direct RAG chat message
+      operationId: sendGatewayChat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: WebUI friendly chat response or event stream
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      id: { type: string }
+                      role: { type: string }
+                      content: { type: string }
+                      timestamp: { type: string }
+                      citations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string }
+                            document_id: { type: string }
+                            filename: { type: string }
+                            text: { type: string }
+                  - type: string
+                    format: binary
+                    description: Server-Sent Events stream
+
+  /gateway/kbs:
+    get:
+      tags: [Gateway BFF]
+      summary: List knowledge bases
+      operationId: listGatewayKbs
+      responses:
+        "200":
+          description: KB list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeBase"
+    post:
+      tags: [Gateway BFF]
+      summary: Create a knowledge base
+      operationId: createGatewayKb
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeBase"
+      responses:
+        "200":
+          description: KB created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+
+  /gateway/kbs/{kb_id}:
+    get:
+      tags: [Gateway BFF]
+      summary: Get knowledge base details
+      operationId: getGatewayKb
+      parameters:
+        - name: kb_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: KB details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+        "404":
+          description: KB not found
+    patch:
+      tags: [Gateway BFF]
+      summary: Update knowledge base details
+      operationId: updateGatewayKb
+      parameters:
+        - name: kb_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeBase"
+      responses:
+        "200":
+          description: KB updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+    delete:
+      tags: [Gateway BFF]
+      summary: Delete knowledge base
+      operationId: deleteGatewayKb
+      parameters:
+        - name: kb_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: KB deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+
+  /gateway/ingestion/batches:
+    post:
+      tags: [Gateway BFF]
+      summary: Create ingestion batch
+      operationId: createGatewayBatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                metadata:
+                  type: object
+                  additionalProperties: {}
+      responses:
+        "200":
+          description: Ingestion batch created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batch_id: { type: string }
+                  status: { type: string }
+                  files:
+                    type: array
+                    items: { type: object }
+                  metadata:
+                    type: object
+
+  /gateway/ingestion/batches/{batch_id}/files:
+    post:
+      tags: [Gateway BFF]
+      summary: Upload file to batch
+      operationId: uploadGatewayFileToBatch
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, source_path]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                source_path:
+                  type: string
+                user_metadata:
+                  type: string
+                  description: Optional JSON-encoded metadata string
+      responses:
+        "200":
+          description: File uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  filename: { type: string }
+                  source_path: { type: string }
+                  job_id: { type: string }
+                  status: { type: string }
+
+  /gateway/ingestion/batches/{batch_id}:
+    get:
+      tags: [Gateway BFF]
+      summary: Get batch status
+      operationId: getGatewayBatch
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Batch status report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batch_id: { type: string }
+                  status: { type: string }
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        filename: { type: string }
+                        source_path: { type: string }
+                        job_id: { type: string }
+                        status: { type: string }
+                  metadata:
+                    type: object
+
+  /gateway/documents:
+    get:
+      tags: [Gateway BFF]
+      summary: List KB documents
+      operationId: listGatewayDocuments
+      parameters:
+        - name: kb_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: metadata_filter_mode
+          in: query
+          schema:
+            $ref: "#/components/schemas/MetadataFilterMode"
+            default: hard
+      responses:
+        "200":
+          description: Documents list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentResponse"
+
+  /gateway/documents/search:
+    post:
+      tags: [Gateway BFF]
+      summary: Discover and search documents (tags + filename only, metadata_filter_mode ignored)
+      operationId: searchGatewayDocuments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentResponse"
+
+  /gateway/documents/filter:
+    post:
+      tags: [Gateway BFF]
+      summary: Filter documents (POST compat redirect)
+      operationId: filterGatewayDocuments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: Filter results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentResponse"
+
+  /gateway/documents/{doc_id}:
+    get:
+      tags: [Gateway BFF]
+      summary: Get document details
+      operationId: getGatewayDocument
+      parameters:
+        - name: doc_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Document details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentResponse"
+    delete:
+      tags: [Gateway BFF]
+      summary: Delete document
+      operationId: deleteGatewayDocument
+      parameters:
+        - name: doc_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Document deleted
+
+  /gateway/metadata/schema:
+    get:
+      tags: [Gateway BFF]
+      summary: Get metadata schema
+      operationId: getGatewayMetadataSchema
+      responses:
+        "200":
+          description: Metadata field structure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetadataSchemaResponse"
+
+  /gateway/metadata/values:
+    get:
+      tags: [Gateway BFF]
+      summary: Get metadata key values
+      operationId: getGatewayMetadataValues
+      parameters:
+        - name: key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Key values
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetadataValuesResponse"
+
+  /gateway/metadata/{field}/values:
+    get:
+      tags: [Gateway BFF]
+      summary: Get metadata field values (legacy/compat route)
+      operationId: getGatewayMetadataValuesCompat
+      parameters:
+        - name: field
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Key values
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetadataValuesResponse"
+
+  /gateway/artifacts:
+    get:
+      tags: [Gateway BFF]
+      summary: List all artifacts
+      operationId: listGatewayArtifacts
+      responses:
+        "200":
+          description: List of artifacts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: object }
+    post:
+      tags: [Gateway BFF]
+      summary: Create artifact generation job
+      operationId: createGatewayArtifact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArtifactRequest"
+      responses:
+        "202":
+          description: Generation job accepted
+
+  /gateway/artifacts/{artifact_id}:
+    get:
+      tags: [Gateway BFF]
+      summary: Get artifact details/status
+      operationId: getGatewayArtifact
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Artifact status details
+    delete:
+      tags: [Gateway BFF]
+      summary: Delete artifact
+      operationId: deleteGatewayArtifact
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Artifact deleted
+
+  /gateway/artifacts/{artifact_id}/content:
+    get:
+      tags: [Gateway BFF]
+      summary: Stream artifact rendered content
+      operationId: downloadGatewayArtifact
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Streaming file
+
+  /gateway/speech/transcriptions:
+    post:
+      tags: [Gateway BFF]
+      summary: Speech transcription placeholder
+      operationId: createGatewayTranscription
+      responses:
+        "501":
+          description: Not implemented
+
+  # --- Public API v2 Proxy Routes ---
+  /api/v2/documents:
+    get:
+      tags: [Documents v2]
+      summary: List documents
+      operationId: listDocumentsV2
+      parameters:
+        - name: user_metadata_filter
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Documents list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentResponse"
+  
+  /api/v2/documents/count:
+    get:
+      tags: [Documents v2]
+      summary: Count documents
+      operationId: countDocumentsV2
+      parameters:
+        - name: user_metadata_filter
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Document count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+
+  /api/v2/documents/search:
+    post:
+      tags: [Documents v2]
+      summary: Search documents
+      operationId: searchDocumentsV2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentResponse"
+
+  /api/v2/documents/filter:
+    post:
+      tags: [Documents v2]
+      summary: Filter documents
+      operationId: filterDocumentsV2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: Filter results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentResponse"
+
+  /api/v2/documents/{doc_id}:
+    get:
+      tags: [Documents v2]
+      summary: Get document details
+      operationId: getDocumentV2
+      parameters:
+        - name: doc_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Document details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentResponse"
+    delete:
+      tags: [Documents v2]
+      summary: Delete document
+      operationId: deleteDocumentV2
+      parameters:
+        - name: doc_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Document deleted
+
+  /api/v2/metadata/schema:
+    get:
+      tags: [Metadata v2]
+      summary: Get metadata schema
+      operationId: getMetadataSchemaV2
+      responses:
+        "200":
+          description: Metadata field structure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetadataSchemaResponse"
+
+  /api/v2/metadata/values:
+    get:
+      tags: [Metadata v2]
+      summary: Get metadata key values
+      operationId: getMetadataValuesV2
+      parameters:
+        - name: key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Key values
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetadataValuesResponse"
+
+  /api/v2/metadata/{field}/values:
+    get:
+      tags: [Metadata v2]
+      summary: Get metadata field values (legacy/compat route)
+      operationId: getMetadataValuesCompatV2
+      parameters:
+        - name: field
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Key values
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetadataValuesResponse"
+
+  /api/v2/ingestion/batches:
+    post:
+      tags: [Ingestion v2]
+      summary: Create ingestion batch
+      operationId: createBatchV2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                metadata:
+                  type: object
+                  additionalProperties: {}
+      responses:
+        "200":
+          description: Ingestion batch created
+
+  /api/v2/ingestion/batches/{batch_id}/files:
+    post:
+      tags: [Ingestion v2]
+      summary: Upload file to batch
+      operationId: uploadFileToBatchV2
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, source_path]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                source_path:
+                  type: string
+                user_metadata:
+                  type: string
+                  description: Optional JSON-encoded metadata string
+      responses:
+        "200":
+          description: File uploaded
+
+  /api/v2/ingestion/batches/{batch_id}:
+    get:
+      tags: [Ingestion v2]
+      summary: Get batch status
+      operationId: getBatchV2
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Batch status report
+
+  /api/v2/artifacts:
+    get:
+      tags: [Artifacts v2]
+      summary: List all artifacts
+      operationId: listArtifactsV2
+      responses:
+        "200":
+          description: List of artifacts
+    post:
+      tags: [Artifacts v2]
+      summary: Create artifact generation job
+      operationId: createArtifactV2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArtifactRequest"
+      responses:
+        "202":
+          description: Generation job accepted
+
+  /api/v2/artifacts/{artifact_id}:
+    get:
+      tags: [Artifacts v2]
+      summary: Get artifact details/status
+      operationId: getArtifactV2
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Artifact status details
+    delete:
+      tags: [Artifacts v2]
+      summary: Delete artifact
+      operationId: deleteArtifactV2
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Artifact deleted
+
+  /api/v2/artifacts/{artifact_id}/content:
+    get:
+      tags: [Artifacts v2]
+      summary: Stream artifact rendered content
+      operationId: downloadArtifactV2
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Streaming file
+
+  /api/v2/capabilities:
+    get:
+      tags: [Capabilities v2]
+      summary: Get system capabilities
+      operationId: getCapabilitiesV2
+      responses:
+        "200":
+          description: System capabilities report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapabilitiesResponse"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status: { type: string, default: healthy }
+        version: { type: string, default: 0.1.0 }
+
+    CapabilitiesResponse:
+      type: object
+      properties:
+        chat: { type: boolean }
+        knowledge_bases: { type: boolean }
+        documents: { type: boolean }
+        ingestion: { type: boolean }
+        artifacts: { type: boolean }
+        folder_upload: { type: boolean }
+        speech_input: { type: boolean }
+        auth: { type: boolean }
+
+    KnowledgeBase:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+
+    ChatRequest:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+        kb_ids:
+          type: array
+          items: { type: string }
+          default: [default]
+        metadata_filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/MetadataFilter"
+        metadata_filter_mode:
+          $ref: "#/components/schemas/MetadataFilterMode"
+          default: soft
+        stream: { type: boolean, default: false }
+        filters:
+          type: object
+          description: "[DEPRECATED] Legacy search filter dict."
+
+    SearchRequest:
+      type: object
+      properties:
+        query: { type: string }
+        kb_ids:
+          type: array
+          items: { type: string }
+          default: [default]
+        metadata_filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/MetadataFilter"
+        metadata_filter_mode:
+          $ref: "#/components/schemas/MetadataFilterMode"
+          default: soft
+          description: >-
+            Filtering mode for RAG/chat queries only. Ignored for document
+            discovery (POST /gateway/documents/search) where tags are always
+            applied as strict filters.
+        limit: { type: integer, default: 50 }
+        is_discovery: { type: boolean, default: false }
+        case_sensitive: { type: boolean, default: false }
+        filters:
+          type: object
+          description: "[DEPRECATED] Legacy search filter dict."
+
+    ArtifactRequest:
+      type: object
+      required: [artifact_type, format]
+      properties:
+        artifact_type: { type: string }
+        format: { type: string }
+        parameters:
+          type: object
+          additionalProperties: {}
+
+    MetadataFilterOperator:
+      type: string
+      enum: [eq, neq, contains, in, exists]
+
+    MetadataFilter:
+      type: object
+      required: [field, operator]
+      properties:
+        field: { type: string }
+        operator:
+          $ref: "#/components/schemas/MetadataFilterOperator"
+        value: {}
+
+    MetadataFilterMode:
+      type: string
+      enum: [soft, hard]
+
+    MetadataFieldSchema:
+      type: object
+      required: [field, type, operators]
+      properties:
+        field: { type: string }
+        type: { type: string }
+        operators:
+          type: array
+          items:
+            $ref: "#/components/schemas/MetadataFilterOperator"
+
+    MetadataValueInfo:
+      type: object
+      required: [value, count]
+      properties:
+        value: { type: string }
+        count: { type: integer }
+
+    MetadataSchemaResponse:
+      type: object
+      required: [fields]
+      properties:
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/MetadataFieldSchema"
+
+    MetadataValuesResponse:
+      type: object
+      required: [key, values]
+      properties:
+        key: { type: string }
+        values:
+          type: array
+          items:
+            $ref: "#/components/schemas/MetadataValueInfo"
+
+    DocumentResponse:
+      type: object
+      required: [id, doc_id, source_path, page_title]
+      properties:
+        id: { type: string }
+        doc_id: { type: string }
+        kb_id: { type: string, default: default }
+        filename: { type: string }
+        size: { type: integer, default: 0 }
+        ingestion_status: { type: string, default: completed }
+        created_at: { type: string }
+        source_path: { type: string }
+        page_title: { type: string }
+        user_metadata: { type: object, additionalProperties: { type: string } }
+        metadata: { type: object, additionalProperties: { type: string } }
+        match_reasons:
+          type: array
+          items: { type: string }
