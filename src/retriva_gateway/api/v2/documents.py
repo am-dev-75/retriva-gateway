@@ -94,18 +94,16 @@ async def count_documents(
 
 @router.post("/search")
 async def search_documents(request: SearchRequest):
-    """Proxy Core document search with v2 filtering."""
+    """Proxy Core document search (discovery mode).
+
+    In discovery mode, ``metadata_filter_mode`` is not meaningful — tags
+    are always applied as strict filters.  Only the query (filename glob),
+    metadata_filters (tags), kb_ids, and case_sensitive flag are forwarded.
+    """
     corr_id = get_correlation_id() or "unknown"
     
     # Priority: metadata_filters (list) > filters (dict)
     filters = request.metadata_filters or request.filters or {}
-    mode = request.metadata_filter_mode
-    
-    try:
-        metadata_filter_mode = FilterManager.validate_mode(mode)
-    except ValueError as e:
-        logger.error(f"[{corr_id}] Invalid metadata_filter_mode: {mode}")
-        raise HTTPException(status_code=400, detail=str(e))
 
     query = request.query
     limit = request.limit
@@ -119,14 +117,12 @@ async def search_documents(request: SearchRequest):
         "query": query,
         "kb_ids": request.kb_ids,
         "metadata_filters": normalized_filters,
-        "metadata_filter_mode": metadata_filter_mode,
         "limit": limit,
         "is_discovery": True,
         "case_sensitive": request.case_sensitive
     }
     
-    # Step 15: Ensure document search never calls the chat/RAG path
-    logger.info(f"[{corr_id}] Discovery routing: search documents. query='{query}', mode={metadata_filter_mode}, filters={normalized_filters}")
+    logger.info(f"[{corr_id}] Discovery routing: search documents. query='{query}', filters={normalized_filters}")
     return await core_client.search_documents(search_payload)
 
 @router.post("/filter")

@@ -60,6 +60,14 @@ class TestRouting(unittest.TestCase):
         
         # Verify it called search_documents
         mock_search.assert_called_once()
+        # Verify metadata_filter_mode is NOT forwarded (discovery ignores it)
+        args, kwargs = mock_search.call_args
+        core_payload = args[0]
+        self.assertNotIn("metadata_filter_mode", core_payload)
+        # Verify metadata_filters (tags) ARE forwarded
+        self.assertTrue(len(core_payload.get("metadata_filters", [])) > 0)
+        # Verify is_discovery is set
+        self.assertTrue(core_payload.get("is_discovery"))
 
     def test_invalid_mode_returns_400(self):
         payload = {

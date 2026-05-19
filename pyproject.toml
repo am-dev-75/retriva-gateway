@@ -28,3 +28,8 @@ dependencies = [
 [tool.setuptools]
 package-dir = {"" = "src"}
 packages = ["retriva_gateway"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
