@@ -38,29 +38,9 @@ async def list_documents(
 ):
     """Proxy Core document listing with metadata normalization."""
     corr_id = get_correlation_id() or "unknown"
-    try:
-        mode = FilterManager.validate_mode(metadata_filter_mode)
-    except ValueError as e:
-        logger.error(f"[{corr_id}] Invalid metadata_filter_mode: {metadata_filter_mode}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-    # Extract query params that are not 'metadata_filter_mode'
-    filters = {k: v for k, v in request.query_params.items() if k != "metadata_filter_mode"}
-    # Normalize filters for Core v2
-    try:
-        normalized_filters = await FilterManager.normalize_v2(filters)
-    except ValueError as e:
-        logger.error(f"[{corr_id}] Filter normalization failed: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    
-    search_payload = {
-        "query": "",
-        "metadata_filters": normalized_filters,
-        "metadata_filter_mode": mode,
-        "limit": 100
-    }
-    logger.info(f"[{corr_id}] Discovery routing: list documents. mode={mode}, filters={normalized_filters}")
-    return await core_client.search_documents(search_payload)
+    params = dict(request.query_params)
+    logger.info(f"[{corr_id}] Discovery routing: list documents. params={params}")
+    return await core_client.list_documents(params)
 
 @router.get("/count")
 async def count_documents(
@@ -69,28 +49,9 @@ async def count_documents(
 ):
     """Proxy Core document counting with metadata normalization."""
     corr_id = get_correlation_id() or "unknown"
-    try:
-        mode = FilterManager.validate_mode(metadata_filter_mode)
-    except ValueError as e:
-        logger.error(f"[{corr_id}] Invalid metadata_filter_mode: {metadata_filter_mode}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-    filters = {k: v for k, v in request.query_params.items() if k != "metadata_filter_mode"}
-    try:
-        normalized_filters = await FilterManager.normalize_v2(filters)
-    except ValueError as e:
-        logger.error(f"[{corr_id}] Filter normalization failed: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    
-    search_payload = {
-        "query": "",
-        "metadata_filters": normalized_filters,
-        "metadata_filter_mode": mode,
-        "limit": 1
-    }
-    logger.info(f"[{corr_id}] Discovery routing: count documents. mode={mode}, filters={normalized_filters}")
-    result = await core_client.search_documents(search_payload)
-    return {"count": result.get("total", 0)}
+    params = dict(request.query_params)
+    logger.info(f"[{corr_id}] Discovery routing: count documents. params={params}")
+    return await core_client.count_documents(params)
 
 @router.post("/search")
 async def search_documents(request: SearchRequest):

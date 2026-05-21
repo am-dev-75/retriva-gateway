@@ -23,12 +23,43 @@ import httpx
 from loguru import logger
 import sys
 
-# Configure loguru
+# Configure loguru and intercept standard logging
+import logging
+
+class InterceptHandler(logging.Handler):
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        frame, depth = sys._getframe(6), 6
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
 logger.remove()
 logger.add(sys.stdout, format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level:7}</level> - <level>{message}</level>", level=settings.LOG_LEVEL)
 
+def _intercept_uvicorn_logging():
+    """Replace uvicorn's logging handlers with our InterceptHandler.
+    
+    Must be called AFTER uvicorn has finished its own logging setup,
+    otherwise uvicorn overwrites our handlers during startup.
+    """
+    logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
+    for name in ("uvicorn", "uvicorn.asgi", "uvicorn.access", "uvicorn.error"):
+        uv_logger = logging.getLogger(name)
+        uv_logger.handlers = [InterceptHandler()]
+        uv_logger.propagate = False
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Intercept uvicorn loggers now that uvicorn has fully initialised
+    _intercept_uvicorn_logging()
+
     logger.info("Retriva Gateway starting up...")
     logger.info("--- Configuration ---")
     logger.info(f"GATEWAY_HOST: {settings.GATEWAY_HOST}")
@@ -79,4 +110,4 @@ app.include_router(api_v2_router)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=settings.GATEWAY_HOST, port=settings.GATEWAY_PORT)
+    uvicorn.run(app, host=settings.GATEWAY_HOST, port=settings.GATEWAY_PORT, log_config=None)

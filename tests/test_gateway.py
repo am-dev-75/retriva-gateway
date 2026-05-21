@@ -31,10 +31,36 @@ def test_capabilities():
     assert "knowledge_bases" in data
     assert "ingestion" in data
 
-def test_kbs_list():
+def test_kbs_list_create_delete():
+    # Initial list should have at least the default KB
     response = client.get("/gateway/kbs")
     assert response.status_code == 200
-    assert isinstance(response.json(), list)
+    initial_list = response.json()
+    assert len(initial_list) >= 1
+    assert any(kb["id"] == "default" for kb in initial_list)
+
+    # Create a KB
+    response = client.post("/gateway/kbs", json={"name": "My New KB", "description": "New description"})
+    assert response.status_code == 200
+    new_kb = response.json()
+    assert new_kb["name"] == "My New KB"
+    assert new_kb["id"] == "my-new-kb"
+
+    # Verify listed
+    response = client.get("/gateway/kbs")
+    assert response.status_code == 200
+    current_list = response.json()
+    assert any(kb["id"] == "my-new-kb" for kb in current_list)
+
+    # Delete the KB
+    response = client.delete(f"/gateway/kbs/my-new-kb")
+    assert response.status_code == 200
+    assert response.json() == {"status": "deleted"}
+
+    # Verify not listed anymore
+    response = client.get("/gateway/kbs")
+    assert response.status_code == 200
+    assert not any(kb["id"] == "my-new-kb" for kb in response.json())
 
 def test_speech_placeholder():
     response = client.post("/gateway/speech/transcriptions")
