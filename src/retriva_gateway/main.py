@@ -41,7 +41,7 @@ class InterceptHandler(logging.Handler):
         logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
 logger.remove()
-logger.add(sys.stdout, format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level:7}</level> - <level>{message}</level>", level=settings.LOG_LEVEL)
+logger.add(sys.stdout, format="<green>[{time:YYYYMMDD HH:mm:ss}]</green> [<level>{level}</level>] <level>{message}</level>", level=settings.LOG_LEVEL)
 
 def _intercept_uvicorn_logging():
     """Replace uvicorn's logging handlers with our InterceptHandler.
