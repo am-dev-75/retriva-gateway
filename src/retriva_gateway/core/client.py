@@ -69,19 +69,42 @@ class CoreClient:
                         yield (line + "\n").encode("utf-8")
 
     # --- KB API ---
-    async def list_kbs(self):
-        # KB management might be in ingestion or chat? 
-        # Usually metadata/discovery is in ingestion v2
-        response = await self._request("GET", self.ingestion_base_url, "/api/v2/discovery/collections")
+    # All endpoints target Core's /api/v2/kbs (introduced in Phase 1-2 of
+    # the KB SDD). The Gateway is a pure pass-through: it adds no business
+    # logic and preserves Core's status codes via httpx.raise_for_status().
+    async def list_kbs(self) -> Dict[str, Any]:
+        """GET /api/v2/kbs -> {'kbs': [<KBResponse>, ...]}"""
+        response = await self._request("GET", self.ingestion_base_url, "/api/v2/kbs")
         return response.json()
 
-    async def create_kb(self, payload: Dict[str, Any]):
-        response = await self._request("POST", self.ingestion_base_url, "/api/v2/discovery/collections", json=payload)
+    async def get_kb(self, kb_id: str) -> Dict[str, Any]:
+        """GET /api/v2/kbs/{kb_id} -> <KBResponse>; 404 if unknown."""
+        response = await self._request(
+            "GET", self.ingestion_base_url, f"/api/v2/kbs/{kb_id}"
+        )
         return response.json()
 
-    async def delete_kb(self, kb_id: str):
-        response = await self._request("DELETE", self.ingestion_base_url, f"/api/v2/discovery/collections/{kb_id}")
+    async def create_kb(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """POST /api/v2/kbs -> <KBResponse> (201); 409 on slug collision."""
+        response = await self._request(
+            "POST", self.ingestion_base_url, "/api/v2/kbs", json=payload
+        )
         return response.json()
+
+    async def update_kb(self, kb_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """PATCH /api/v2/kbs/{kb_id} -> <KBResponse>."""
+        response = await self._request(
+            "PATCH", self.ingestion_base_url, f"/api/v2/kbs/{kb_id}", json=payload
+        )
+        return response.json()
+
+    async def delete_kb(self, kb_id: str) -> None:
+        """DELETE /api/v2/kbs/{kb_id} -> 204; 409 if kb_id == 'default'."""
+        await self._request(
+            "DELETE", self.ingestion_base_url, f"/api/v2/kbs/{kb_id}"
+        )
+        # 204 No Content — no body to return.
+        return None
 
     # --- Documents API ---
     async def list_documents(self, params: Optional[Dict[str, Any]] = None):

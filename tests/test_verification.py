@@ -15,10 +15,25 @@
 import pytest
 from fastapi.testclient import TestClient
 from retriva_gateway.main import app
+from unittest.mock import AsyncMock, patch
 import json
 import uuid
 
 client = TestClient(app)
+
+
+def _fake_core_kb(kb_id: str, name: str = None, document_count: int = 0):
+    """Build a Core-shaped KB response dict for tests."""
+    return {
+        "kb_id": kb_id,
+        "name": name or kb_id,
+        "description": None,
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+        "settings": {},
+        "document_count": document_count,
+    }
+
 
 def test_assertions():
     # 1. Gateway starts successfully & /gateway/health returns healthy.
@@ -33,21 +48,36 @@ def test_assertions():
     expected_keys = ["chat", "knowledge_bases", "documents", "ingestion", "artifacts", "folder_upload", "speech_input", "auth"]
     for key in expected_keys:
         assert key in caps
-    
-    # 3. Knowledge Bases can be listed, created, updated, and deleted through Gateway.
-    # List
-    response = client.get("/gateway/kbs")
-    assert response.status_code == 200
-    assert isinstance(response.json(), list)
-    # Create
-    response = client.post("/gateway/kbs", json={"id": "test-kb", "name": "Test KB"})
-    assert response.status_code == 200
-    # Update
-    response = client.patch("/gateway/kbs/test-kb", json={"id": "test-kb", "name": "Updated KB"})
-    assert response.status_code == 200
-    # Delete
-    response = client.delete("/gateway/kbs/test-kb")
-    assert response.status_code == 200
+
+    # 3. Knowledge Bases can be listed, created, updated, and deleted via the
+    # Gateway. After Phase 4 the Gateway is a pure pass-through to Core, so
+    # we stub ``core_client`` for unit-level verification (no running Core).
+    with patch(
+        "retriva_gateway.api.v2.kbs.core_client.list_kbs",
+        AsyncMock(return_value={"kbs": [_fake_core_kb("default", "default")]}),
+    ), patch(
+        "retriva_gateway.api.v2.kbs.core_client.create_kb",
+        AsyncMock(return_value=_fake_core_kb("test-kb", "Test KB")),
+    ), patch(
+        "retriva_gateway.api.v2.kbs.core_client.update_kb",
+        AsyncMock(return_value=_fake_core_kb("test-kb", "Updated KB")),
+    ), patch(
+        "retriva_gateway.api.v2.kbs.core_client.delete_kb",
+        AsyncMock(return_value=None),
+    ):
+        # List
+        response = client.get("/gateway/kbs")
+        assert response.status_code == 200
+        assert isinstance(response.json(), list)
+        # Create
+        response = client.post("/gateway/kbs", json={"name": "Test KB"})
+        assert response.status_code == 200
+        # Update
+        response = client.patch("/gateway/kbs/test-kb", json={"name": "Updated KB"})
+        assert response.status_code == 200
+        # Delete
+        response = client.delete("/gateway/kbs/test-kb")
+        assert response.status_code == 200
 
     # 4. Ingestion batches can be created.
     response = client.post("/gateway/ingestion/batches", json={"metadata": {"test": "val"}})

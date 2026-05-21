@@ -12,16 +12,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from fastapi import APIRouter, HTTPException
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel
+"""
+Gateway KB endpoints — Phase 4 of the KB SDD.
+
+The Gateway is now a **pure pass-through** to Retriva Core's
+``/api/v2/kbs`` API. There is no in-memory storage and no
+business logic here; the only work this module does is:
+
+1. Validate inbound request bodies against the WebUI-facing schema.
+2. Translate Core's response shape to the WebUI-facing shape:
+   - Core's ``kb_id`` -> WebUI's ``id``
+   - synthesize ``status`` as a constant (SDD RD-4)
+3. Let upstream ``httpx.HTTPStatusError`` propagate so the existing
+   ``global_exception_handler`` middleware preserves Core's status code
+   (404 / 409 / 422 / 500) without reinterpretation.
+"""
+
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, HTTPException, Response, status
+from loguru import logger
+from pydantic import BaseModel, Field
+
+from retriva_gateway.core.client import core_client
 
 router = APIRouter(prefix="/kbs", tags=["kbs"])
 
-import re
-import uuid
-from loguru import logger
-from retriva_gateway.core.client import core_client
+
+# ---------------------------------------------------------------------------
+# WebUI-facing models
+#
+# These are intentionally kept stable across this migration to avoid
+# changing the WebUI contract. The shape diverges from Core's ``KBResponse``
+# in two places (see ``_to_webui`` below):
+#   * ``id``     (Gateway) <- ``kb_id``  (Core)
+#   * ``status`` is synthesized (Core does not yet expose lifecycle state).
+# ---------------------------------------------------------------------------
 
 class KnowledgeBase(BaseModel):
     id: str
@@ -30,93 +56,106 @@ class KnowledgeBase(BaseModel):
     document_count: int = 0
     status: str = "active"
 
+
 class KBCreate(BaseModel):
+    """Create-KB request body.
+
+    The optional ``kb_id`` field implements SDD RD-1: callers may either
+    supply an explicit id (validated server-side by Core) or omit it and
+    let Core derive one from ``name``.
+    """
+
+    kb_id: Optional[str] = None
     name: str
     description: Optional[str] = None
 
-# In-memory mock storage
-_kbs: Dict[str, KnowledgeBase] = {
-    "default": KnowledgeBase(
-        id="default",
-        name="default",
-        description="Default Knowledge Base",
-        document_count=0,
-        status="active"
-    )
-}
 
-def slugify(text: str) -> str:
-    text = text.lower()
-    text = re.sub(r'[^\w\s-]', '', text)
-    text = re.sub(r'[-\s]+', '-', text).strip('-')
-    return text
+class KBUpdate(BaseModel):
+    """Patch-KB request body. Only supplied fields are applied."""
+
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Core -> WebUI translation
+# ---------------------------------------------------------------------------
+
+#: Synthesized lifecycle state (SDD RD-4). Core does not persist a status
+#: column yet; we surface a stable string the WebUI already handles. When
+#: Core gains a real state machine, replace this with ``core_kb["status"]``.
+_SYNTHESIZED_STATUS = "active"
+
+
+def _to_webui(core_kb: Dict[str, Any]) -> KnowledgeBase:
+    """Map a Core ``KBResponse`` dict to the WebUI-facing ``KnowledgeBase``.
+
+    Tolerant to missing optional fields so a Core schema extension (e.g.
+    new ``status``) does not break the Gateway until the mapping is
+    explicitly updated.
+    """
+    return KnowledgeBase(
+        id=core_kb["kb_id"],
+        name=core_kb["name"],
+        description=core_kb.get("description"),
+        document_count=core_kb.get("document_count", 0),
+        status=core_kb.get("status", _SYNTHESIZED_STATUS),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
 @router.get("", response_model=List[KnowledgeBase])
-async def list_kbs():
-    kbs = list(_kbs.values())
-    for kb in kbs:
-        try:
-            payload = {
-                "query": "",
-                "kb_ids": [kb.id],
-                "limit": 1,
-                "is_discovery": True
-            }
-            res = await core_client.search_documents(payload)
-            kb.document_count = res.get("total", 0)
-        except Exception as e:
-            logger.warning(f"Failed to fetch document count for KB {kb.id}: {e}")
-    return kbs
+async def list_kbs() -> List[KnowledgeBase]:
+    """List all KBs.
+
+    Core returns ``{"kbs": [<KBResponse>, ...]}``; the WebUI expects a bare
+    array. We unwrap and translate per-item.
+    """
+    payload = await core_client.list_kbs()
+    items = payload.get("kbs", []) if isinstance(payload, dict) else payload
+    return [_to_webui(kb) for kb in items]
+
 
 @router.post("", response_model=KnowledgeBase)
-async def create_kb(kb_in: KBCreate):
-    kb_id = slugify(kb_in.name)
-    if not kb_id:
-        kb_id = str(uuid.uuid4())[:8]
-    if kb_id in _kbs:
-        kb_id = f"{kb_id}-{str(uuid.uuid4())[:6]}"
-    
-    new_kb = KnowledgeBase(
-        id=kb_id,
-        name=kb_in.name,
-        description=kb_in.description,
-        document_count=0,
-        status="active"
-    )
-    _kbs[kb_id] = new_kb
-    return new_kb
+async def create_kb(kb_in: KBCreate) -> KnowledgeBase:
+    """Create a KB. Forwards to Core, which owns slugification and conflict
+    detection (SDD RD-1). Core returns 201 + body on success; the Gateway
+    surfaces 200 + body to remain wire-compatible with the existing WebUI
+    expectation (the WebUI checks only that the response is 2xx)."""
+    body = kb_in.model_dump(exclude_none=True)
+    created = await core_client.create_kb(body)
+    return _to_webui(created)
+
 
 @router.get("/{kb_id}", response_model=KnowledgeBase)
-async def get_kb(kb_id: str):
-    if kb_id in _kbs:
-        kb = _kbs[kb_id]
-        try:
-            payload = {
-                "query": "",
-                "kb_ids": [kb.id],
-                "limit": 1,
-                "is_discovery": True
-            }
-            res = await core_client.search_documents(payload)
-            kb.document_count = res.get("total", 0)
-        except Exception as e:
-            logger.warning(f"Failed to fetch document count for KB {kb_id}: {e}")
-        return kb
-    raise HTTPException(status_code=404, detail="Knowledge Base not found")
+async def get_kb(kb_id: str) -> KnowledgeBase:
+    """Fetch a single KB. 404 from Core is preserved by the middleware."""
+    core_kb = await core_client.get_kb(kb_id)
+    return _to_webui(core_kb)
+
 
 @router.patch("/{kb_id}", response_model=KnowledgeBase)
-async def update_kb(kb_id: str, kb_in: KBCreate):
-    if kb_id not in _kbs:
-        raise HTTPException(status_code=404, detail="Knowledge Base not found")
-    kb = _kbs[kb_id]
-    kb.name = kb_in.name
-    if kb_in.description is not None:
-        kb.description = kb_in.description
-    return kb
+async def update_kb(kb_id: str, kb_in: KBUpdate) -> KnowledgeBase:
+    """Update mutable fields. ``id`` is immutable.
+
+    Only fields the client explicitly sent are forwarded; this lets Core
+    distinguish "leave alone" (omit) from "set to empty" (send "").
+    """
+    body = kb_in.model_dump(exclude_none=True)
+    updated = await core_client.update_kb(kb_id, body)
+    return _to_webui(updated)
+
 
 @router.delete("/{kb_id}")
-async def delete_kb(kb_id: str):
-    if kb_id in _kbs:
-        del _kbs[kb_id]
-        return {"status": "deleted"}
-    raise HTTPException(status_code=404, detail="Knowledge Base not found")
+async def delete_kb(kb_id: str) -> Dict[str, str]:
+    """Delete a KB. Core runs the cascade (Phase 3).
+
+    The WebUI's existing client expects a JSON body shaped as
+    ``{"status": "deleted"}``; we synthesize it here because Core returns
+    204 with no body.
+    """
+    await core_client.delete_kb(kb_id)
+    return {"status": "deleted"}
