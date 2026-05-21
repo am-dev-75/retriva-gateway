@@ -4,6 +4,10 @@ Backend-for-Frontend (BFF) service for Retriva WebUI. It sits between the browse
 
 See https://github.com/am-dev-75/retriva for the core project.
 
+## API
+
+API is documented [here](docs/openapi.yaml).
+
 ## Quick Start
 
 ### 1. Install dependencies
