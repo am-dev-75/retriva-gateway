@@ -117,6 +117,8 @@ class CoreClient:
 
     async def delete_document(self, doc_id: str):
         response = await self._request("DELETE", self.ingestion_base_url, f"/api/v2/documents/{doc_id}")
+        if response.status_code == 204:
+            return None
         return response.json()
 
     # --- Ingestion API v2 ---

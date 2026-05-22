@@ -96,7 +96,10 @@ async def get_document(doc_id: str):
     """Proxy Core document retrieval."""
     return await core_client.get_document(doc_id)
 
-@router.delete("/{doc_id}")
+from fastapi import status
+
+@router.delete("/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(doc_id: str):
     """Proxy Core document deletion."""
-    return await core_client.delete_document(doc_id)
+    await core_client.delete_document(doc_id)
+    return None
