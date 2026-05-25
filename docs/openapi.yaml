@@ -124,7 +124,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/KnowledgeBase"
+              $ref: "#/components/schemas/KBCreate"
       responses:
         "200":
           description: KB created
@@ -168,7 +168,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/KnowledgeBase"
+              $ref: "#/components/schemas/KBUpdate"
       responses:
         "200":
           description: KB updated
@@ -864,6 +864,22 @@ components:
       required: [id, name]
       properties:
         id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        document_count: { type: integer, default: 0 }
+        status: { type: string, default: active }
+
+    KBCreate:
+      type: object
+      required: [name]
+      properties:
+        kb_id: { type: string }
+        name: { type: string }
+        description: { type: string }
+
+    KBUpdate:
+      type: object
+      properties:
         name: { type: string }
         description: { type: string }
 
