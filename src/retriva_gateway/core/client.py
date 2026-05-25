@@ -23,7 +23,7 @@ class CoreClient:
     def __init__(self):
         self.ingestion_base_url = settings.RETRIVA_CORE_INGESTION_URL
         self.chat_base_url = settings.RETRIVA_CORE_CHAT_URL
-        self.timeout = httpx.Timeout(60.0, connect=10.0)
+        self.timeout = httpx.Timeout(300.0, connect=10.0)
 
     def _get_headers(self) -> Dict[str, str]:
         headers = {}
