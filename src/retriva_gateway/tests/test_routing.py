@@ -23,11 +23,11 @@ class TestRouting(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
 
-    @patch("retriva_gateway.core.client.core_client.retrieval_query")
+    @patch("retriva_gateway.core.client.core_client.chat_completions")
     @patch("retriva_gateway.core.filters.FilterManager.get_valid_user_keys")
-    def test_chat_routing_to_rag(self, mock_keys, mock_retrieval):
+    def test_chat_routing_to_rag(self, mock_keys, mock_chat_completions):
         mock_keys.return_value = set()
-        mock_retrieval.return_value = {"choices": [{"message": {"content": "hello"}}], "sources": []}
+        mock_chat_completions.return_value = {"choices": [{"message": {"content": "hello"}}], "sources": []}
         
         payload = {
             "message": "test message",
@@ -38,9 +38,9 @@ class TestRouting(unittest.TestCase):
         response = self.client.post("/gateway/chat", json=payload)
         self.assertEqual(response.status_code, 200)
         
-        # Verify it called retrieval_query (RAG) and NOT search_documents (Discovery)
-        mock_retrieval.assert_called_once()
-        args, kwargs = mock_retrieval.call_args
+        # Verify it called chat_completions (RAG) and NOT search_documents (Discovery)
+        mock_chat_completions.assert_called_once()
+        args, kwargs = mock_chat_completions.call_args
         self.assertEqual(args[0]["metadata_filter_mode"], "hard")
 
     @patch("retriva_gateway.core.client.core_client.search_documents")

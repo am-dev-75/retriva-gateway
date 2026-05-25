@@ -68,8 +68,9 @@ class TestFilterManager(unittest.TestCase):
         filters = {"project": {"operator": "invalid", "value": "val"}}
         
         loop = asyncio.get_event_loop()
-        normalized = loop.run_until_complete(FilterManager.normalize_v2(filters))
-        self.assertEqual(normalized[0]["operator"], "eq")
+        with self.assertRaises(ValueError):
+            loop.run_until_complete(FilterManager.normalize_v2(filters))
+
 
 if __name__ == "__main__":
     unittest.main()
