@@ -19,6 +19,9 @@ from pydantic import BaseModel
 from retriva_gateway.core.client import core_client
 from loguru import logger
 import json
+import os
+from pathlib import Path
+from retriva_gateway.config import settings
 
 router = APIRouter(prefix="/ingestion", tags=["ingestion"])
 
@@ -28,6 +31,7 @@ batches: Dict[str, Dict[str, Any]] = {}
 
 class BatchCreateRequest(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
+    source_type: Optional[str] = "auto"
 
 class BatchResponse(BaseModel):
     batch_id: str
@@ -42,7 +46,8 @@ async def create_batch(request: BatchCreateRequest):
         "batch_id": batch_id,
         "status": "active",
         "files": [],
-        "metadata": request.metadata or {}
+        "metadata": request.metadata or {},
+        "source_type": request.source_type or "auto"
     }
     return batches[batch_id]
 
@@ -67,6 +72,29 @@ async def upload_file_to_batch(
     
     # Merged metadata (file metadata takes precedence if keys overlap)
     merged_metadata = {**batch_metadata, **file_metadata}
+    
+    batch_info = batches[batch_id]
+    
+    if batch_info.get("source_type") == "mediawiki_export":
+        # Stage file locally
+        file_bytes = await file.read()
+        target_path = Path(settings.GATEWAY_UPLOAD_TMP_DIR) / batch_id / source_path.lstrip("/")
+        
+        # Prevent path traversal
+        if not os.path.abspath(target_path).startswith(os.path.abspath(Path(settings.GATEWAY_UPLOAD_TMP_DIR) / batch_id)):
+            raise HTTPException(status_code=400, detail="Invalid source path")
+            
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(target_path, "wb") as f:
+            f.write(file_bytes)
+            
+        file_info = {
+            "filename": file.filename,
+            "source_path": source_path,
+            "status": "staged"
+        }
+        batch_info["files"].append(file_info)
+        return file_info
     
     # Forward to Core
     # Core expects multipart: file, source_path, user_metadata (JSON string)
@@ -111,3 +139,39 @@ async def get_batch(batch_id: str):
                 logger.warning(f"Could not get status for job {file_info['job_id']}: {e}")
     
     return batch
+
+
+class FinalizeBatchResponse(BaseModel):
+    job_id: str
+    status: str
+
+@router.post("/batches/{batch_id}/finalize", response_model=FinalizeBatchResponse)
+async def finalize_batch(batch_id: str):
+    if batch_id not in batches:
+        raise HTTPException(status_code=404, detail="Batch not found")
+        
+    batch_info = batches[batch_id]
+    if batch_info.get("source_type") != "mediawiki_export":
+        raise HTTPException(status_code=400, detail="Batch is not a staged mediawiki_export batch")
+        
+    staged_dir = Path(settings.GATEWAY_UPLOAD_TMP_DIR) / batch_id
+    if not staged_dir.exists() or not staged_dir.is_dir():
+        raise HTTPException(status_code=400, detail="No staged files found for batch")
+        
+    try:
+        core_response = await core_client.ingest_mediawiki_export({
+            "staged_dir": str(staged_dir.absolute()),
+            "kb_id": "default",
+            "user_metadata": batch_info.get("metadata", {})
+        })
+        
+        batch_info["status"] = "processing"
+        batch_info["job_id"] = core_response.get("job_id")
+        
+        return FinalizeBatchResponse(
+            job_id=core_response.get("job_id"),
+            status="accepted"
+        )
+    except Exception as e:
+        logger.error(f"Failed to finalize batch: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

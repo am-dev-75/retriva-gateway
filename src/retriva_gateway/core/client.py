@@ -139,6 +139,13 @@ class CoreClient:
         )
         return response.json()
 
+    async def ingest_mediawiki_export(self, payload: Dict[str, Any]):
+        response = await self._request(
+            "POST", self.ingestion_base_url,
+            "/api/v2/documents/mediawiki", json=payload
+        )
+        return response.json()
+
     async def get_batch_status(self, batch_id: str):
         response = await self._request("GET", self.ingestion_base_url, f"/api/v2/jobs/{batch_id}")
         return response.json()
