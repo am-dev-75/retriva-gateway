@@ -150,6 +150,10 @@ class CoreClient:
         response = await self._request("GET", self.ingestion_base_url, f"/api/v2/jobs/{batch_id}")
         return response.json()
 
+    async def list_jobs(self):
+        response = await self._request("GET", self.ingestion_base_url, "/api/v2/jobs")
+        return response.json()
+
     # --- Artifacts API v2 ---
     async def list_artifacts(self):
         response = await self._request("GET", self.ingestion_base_url, "/api/v2/artifacts")
