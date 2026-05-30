@@ -15,7 +15,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
-VERSION = "1.0.0-rc2"
+VERSION = "1.0.0-rc3"
 
 class Settings(BaseSettings):
     GATEWAY_HOST: str = "0.0.0.0"
