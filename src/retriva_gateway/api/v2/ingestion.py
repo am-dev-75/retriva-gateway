@@ -56,7 +56,8 @@ async def upload_file_to_batch(
     batch_id: str,
     file: UploadFile = File(...),
     source_path: str = Form(...),
-    user_metadata: Optional[str] = Form(None)
+    user_metadata: Optional[str] = Form(None),
+    kb_id: str = Form("default")
 ):
     if batch_id not in batches:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -104,7 +105,8 @@ async def upload_file_to_batch(
             files={"file": (file.filename, file.file, file.content_type)},
             data={
                 "source_path": source_path,
-                "user_metadata": json.dumps(merged_metadata)
+                "user_metadata": json.dumps(merged_metadata),
+                "kb_id": kb_id
             }
         )
         
