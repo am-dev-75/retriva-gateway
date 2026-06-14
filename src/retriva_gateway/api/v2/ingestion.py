@@ -111,11 +111,15 @@ async def upload_file_to_batch(
         )
         
         # Track file in batch
+        status_val = "accepted"
+        if not core_response.get("job_id") and core_response.get("status") == "already_exists":
+            status_val = "completed"
+            
         file_info = {
             "filename": file.filename,
             "source_path": source_path,
             "job_id": core_response.get("job_id"),
-            "status": "accepted"
+            "status": status_val
         }
         batches[batch_id]["files"].append(file_info)
         

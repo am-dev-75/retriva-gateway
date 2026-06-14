@@ -15,7 +15,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-from retriva_gateway.api.router import api_router, api_v2_router
+from retriva_gateway.api.router import api_router, api_v2_router, stt_router
 from retriva_gateway.config import settings
 from retriva_gateway.middleware.correlation import CorrelationIdMiddleware
 from retriva_gateway.middleware.errors import global_exception_handler
@@ -74,6 +74,11 @@ async def lifespan(app: FastAPI):
     logger.info(f"GATEWAY_UPLOAD_TMP_DIR: {settings.GATEWAY_UPLOAD_TMP_DIR}")
     logger.info(f"GATEWAY_CORS_ORIGINS: {settings.GATEWAY_CORS_ORIGINS}")
     logger.info(f"LOG_LEVEL: {settings.LOG_LEVEL}")
+    logger.info(f"STT_ENABLED: {settings.STT_ENABLED}")
+    if settings.STT_ENABLED:
+        logger.info(f"WHISPER_SERVER_URL: {settings.WHISPER_SERVER_URL}")
+        logger.info(f"STT_MAX_AUDIO_BYTES: {settings.STT_MAX_AUDIO_BYTES}")
+        logger.info(f"STT_REQUEST_TIMEOUT_SECONDS: {settings.STT_REQUEST_TIMEOUT_SECONDS}")
     logger.info("---------------------")
     
     yield
@@ -106,6 +111,7 @@ app.add_middleware(
 # Include routers
 app.include_router(api_router)
 app.include_router(api_v2_router)
+app.include_router(stt_router)  # Root-level: POST /stt/transcribe, GET /stt/health
 
 
 if __name__ == "__main__":

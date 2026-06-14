@@ -35,3 +35,8 @@ api_v2_router.include_router(metadata.router)
 api_v2_router.include_router(ingestion.router)
 api_v2_router.include_router(artifacts.router)
 api_v2_router.include_router(capabilities.router)
+api_v2_router.include_router(speech.router)
+
+# Root-level STT router — the /execute spec requires POST /stt/transcribe
+# to be reachable without any prefix.
+stt_router = speech.router

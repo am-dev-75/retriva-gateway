@@ -64,3 +64,9 @@ class SearchRequest(BaseModel):
     is_discovery: bool = False
     case_sensitive: bool = False
     filters: Optional[Dict[str, Any]] = None # Legacy support
+
+class TranscribeResponse(BaseModel):
+    text: str
+    language: Optional[str] = None
+    duration_ms: Optional[int] = None
+    model: Optional[str] = None

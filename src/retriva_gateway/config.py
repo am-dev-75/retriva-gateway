@@ -13,9 +13,10 @@
 # limitations under the License.
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 from typing import List
 
-VERSION = "1.0.0-rc3"
+VERSION = "1.1.0-rc0"
 
 class Settings(BaseSettings):
     GATEWAY_HOST: str = "0.0.0.0"
@@ -34,8 +35,21 @@ class Settings(BaseSettings):
     GATEWAY_UPLOAD_TMP_DIR: str = "/tmp/retriva-gateway-uploads"
     GATEWAY_CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000", "http://localhost:5174"]
     
+    # --- Speech-to-Text (Whisper) ---
+    STT_ENABLED: bool = True
+    WHISPER_SERVER_URL: str = "http://127.0.0.1:8080/inference"
+    STT_MAX_AUDIO_BYTES: int = 20_971_520          # 20 MiB
+    STT_REQUEST_TIMEOUT_SECONDS: int = 120
+
     LOG_LEVEL: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def _sync_speech_flag(self) -> "Settings":
+        """Keep the capability flag in sync: if STT is enabled, advertise speech_input."""
+        if self.STT_ENABLED:
+            self.GATEWAY_ENABLE_SPEECH_INPUT = True
+        return self
 
 settings = Settings()
