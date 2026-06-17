@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     STT_MAX_AUDIO_BYTES: int = 20_971_520          # 20 MiB
     STT_REQUEST_TIMEOUT_SECONDS: int = 120
 
+    # --- Dynamic Ingestion (Connected Sources) ---
+    DYNAMIC_INGESTION_ENABLED: bool = True
+    DYNAMIC_INGESTION_DATA_DIR: str = "/tmp/retriva-gateway-dynamic-sources"
+    ALLOWED_CONNECTOR_TYPES: List[str] = ["mediawiki"]
+    DEFAULT_TENANT_ID: str = "internal-company"
+    INTERNAL_SERVICE_TOKEN: str = ""  # Empty = auth disabled for internal endpoints
+
     LOG_LEVEL: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

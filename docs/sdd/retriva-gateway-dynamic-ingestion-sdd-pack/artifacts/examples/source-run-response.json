@@ -1,0 +1,10 @@
+{
+  "run_id": "run_example",
+  "source_id": "src_example",
+  "phase": "baseline_scan",
+  "status": "running",
+  "processed_items": 3420,
+  "failed_items": 0,
+  "skipped_items": 5,
+  "started_at": "2026-06-17T17:00:00Z"
+}

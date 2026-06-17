@@ -79,6 +79,10 @@ async def lifespan(app: FastAPI):
         logger.info(f"WHISPER_SERVER_URL: {settings.WHISPER_SERVER_URL}")
         logger.info(f"STT_MAX_AUDIO_BYTES: {settings.STT_MAX_AUDIO_BYTES}")
         logger.info(f"STT_REQUEST_TIMEOUT_SECONDS: {settings.STT_REQUEST_TIMEOUT_SECONDS}")
+    logger.info(f"DYNAMIC_INGESTION_ENABLED: {settings.DYNAMIC_INGESTION_ENABLED}")
+    if settings.DYNAMIC_INGESTION_ENABLED:
+        logger.info(f"DYNAMIC_INGESTION_DATA_DIR: {settings.DYNAMIC_INGESTION_DATA_DIR}")
+        logger.info(f"ALLOWED_CONNECTOR_TYPES: {settings.ALLOWED_CONNECTOR_TYPES}")
     logger.info("---------------------")
     
     yield

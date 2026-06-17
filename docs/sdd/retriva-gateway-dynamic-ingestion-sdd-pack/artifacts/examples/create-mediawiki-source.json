@@ -1,0 +1,29 @@
+{
+  "connector_type": "mediawiki",
+  "display_name": "R&D MediaWiki",
+  "target_kb_id": "rd_mediawiki",
+  "config": {
+    "api_url": "https://mediawiki.company.local/api.php",
+    "auth_mode": "bot_password",
+    "allowed_namespaces": [
+      0,
+      100,
+      102
+    ],
+    "include_categories": [
+      "R&D",
+      "Procedures"
+    ],
+    "exclude_categories": [
+      "Obsolete"
+    ],
+    "sync_interval_minutes": 15,
+    "delete_policy": "soft_delete",
+    "availability_policy": "hide_until_initial_sync_complete"
+  },
+  "secret_ref": "secret://retriva/m1/mediawiki/src_example",
+  "metadata": {
+    "source_system": "mediawiki",
+    "department": "rd"
+  }
+}

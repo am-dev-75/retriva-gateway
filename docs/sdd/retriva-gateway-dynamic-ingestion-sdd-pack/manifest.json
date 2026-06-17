@@ -1,0 +1,13 @@
+{
+  "name": "retriva-gateway-dynamic-ingestion-sdd-pack",
+  "created_at": "2026-06-17T19:20:00+02:00",
+  "purpose": "Google Antigravity SDD pack for adding dynamic ingestion support to Retriva Gateway",
+  "workflows": [
+    "/define",
+    "/architect",
+    "/execute",
+    "/verify"
+  ],
+  "feature": "Dynamic ingestion / Connected Sources / MediaWiki first connector",
+  "target_repo": "retriva-gateway"
+}

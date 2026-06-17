@@ -23,6 +23,12 @@ servers:
 tags:
   - name: Gateway BFF
     description: WebUI Backend-for-Frontend endpoints
+  - name: Connected Sources
+    description: Dynamic ingestion source management
+  - name: Connected Sources v2
+    description: Dynamic ingestion source management (v2)
+  - name: Internal
+    description: Internal worker API for connector processes
   - name: Documents v2
     description: Document management (v2)
   - name: Ingestion v2
@@ -839,6 +845,550 @@ paths:
               schema:
                 $ref: "#/components/schemas/CapabilitiesResponse"
 
+  # --- Connected Sources (Dynamic Ingestion) v2 Proxy Routes ---
+  /api/v2/sources:
+    post:
+      tags: [Connected Sources v2]
+      summary: Create a connected source
+      operationId: createSourceV2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSourceRequest"
+      responses:
+        "201":
+          description: Source created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceResponse"
+        "422":
+          description: Invalid connector type or config
+        "503":
+          description: Dynamic ingestion disabled
+    get:
+      tags: [Connected Sources v2]
+      summary: List connected sources
+      operationId: listSourcesV2
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        "200":
+          description: Source list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SourceResponse"
+
+  /api/v2/sources/{source_id}:
+    get:
+      tags: [Connected Sources v2]
+      summary: Get source details
+      operationId: getSourceV2
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Source details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceResponse"
+        "404":
+          description: Source not found
+    patch:
+      tags: [Connected Sources v2]
+      summary: Update source
+      operationId: updateSourceV2
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSourceRequest"
+      responses:
+        "200":
+          description: Source updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceResponse"
+    delete:
+      tags: [Connected Sources v2]
+      summary: Delete source
+      operationId: deleteSourceV2
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "204":
+          description: Source deleted
+
+  /api/v2/sources/{source_id}/sync:
+    post:
+      tags: [Connected Sources v2]
+      summary: Trigger manual sync
+      operationId: triggerSyncV2
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Sync run created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceRunResponse"
+        "409":
+          description: Source in invalid state for sync
+
+  /api/v2/sources/{source_id}/pause:
+    post:
+      tags: [Connected Sources v2]
+      summary: Pause source
+      operationId: pauseSourceV2
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Source paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceResponse"
+        "409":
+          description: Source cannot be paused from current state
+
+  /api/v2/sources/{source_id}/resume:
+    post:
+      tags: [Connected Sources v2]
+      summary: Resume source
+      operationId: resumeSourceV2
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Source resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceResponse"
+        "409":
+          description: Source is not paused
+
+  /api/v2/sources/{source_id}/status:
+    get:
+      tags: [Connected Sources v2]
+      summary: Get source status
+      operationId: getSourceStatusV2
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Source status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceStatusResponse"
+
+  /api/v2/sources/{source_id}/runs:
+    get:
+      tags: [Connected Sources v2]
+      summary: List sync runs
+      operationId: listRunsV2
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        "200":
+          description: Runs list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SourceRunResponse"
+
+  /api/v2/sources/{source_id}/runs/{run_id}:
+    get:
+      tags: [Connected Sources v2]
+      summary: Get run details
+      operationId: getRunV2
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Run details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceRunResponse"
+        "404":
+          description: Run not found
+
+  /api/v2/sources/{source_id}/items:
+    get:
+      tags: [Connected Sources v2]
+      summary: List synced items
+      operationId: listItemsV2
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        "200":
+          description: Items list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SourceItemState"
+
+  # --- Connected Sources (Dynamic Ingestion) ---
+  /gateway/sources:
+    post:
+      tags: [Connected Sources]
+      summary: Create a connected source
+      operationId: createSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSourceRequest"
+      responses:
+        "201":
+          description: Source created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceResponse"
+        "422":
+          description: Invalid connector type or config
+        "503":
+          description: Dynamic ingestion disabled
+    get:
+      tags: [Connected Sources]
+      summary: List connected sources
+      operationId: listSources
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        "200":
+          description: Source list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SourceResponse"
+
+  /gateway/sources/{source_id}:
+    get:
+      tags: [Connected Sources]
+      summary: Get source details
+      operationId: getSource
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Source details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceResponse"
+        "404":
+          description: Source not found
+    patch:
+      tags: [Connected Sources]
+      summary: Update source
+      operationId: updateSource
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSourceRequest"
+      responses:
+        "200":
+          description: Source updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceResponse"
+    delete:
+      tags: [Connected Sources]
+      summary: Delete source
+      operationId: deleteSource
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "204":
+          description: Source deleted
+
+  /gateway/sources/{source_id}/sync:
+    post:
+      tags: [Connected Sources]
+      summary: Trigger manual sync
+      operationId: triggerSync
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Sync run created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceRunResponse"
+        "409":
+          description: Source in invalid state for sync
+
+  /gateway/sources/{source_id}/pause:
+    post:
+      tags: [Connected Sources]
+      summary: Pause source
+      operationId: pauseSource
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Source paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceResponse"
+        "409":
+          description: Source cannot be paused from current state
+
+  /gateway/sources/{source_id}/resume:
+    post:
+      tags: [Connected Sources]
+      summary: Resume source
+      operationId: resumeSource
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Source resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceResponse"
+        "409":
+          description: Source is not paused
+
+  /gateway/sources/{source_id}/status:
+    get:
+      tags: [Connected Sources]
+      summary: Get source status
+      operationId: getSourceStatus
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+      responses:
+        "200":
+          description: Source status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceStatusResponse"
+
+  /gateway/sources/{source_id}/runs:
+    get:
+      tags: [Connected Sources]
+      summary: List sync runs
+      operationId: listRuns
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        "200":
+          description: Runs list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SourceRunResponse"
+
+  /gateway/sources/{source_id}/runs/{run_id}:
+    get:
+      tags: [Connected Sources]
+      summary: Get run details
+      operationId: getRun
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Run details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceRunResponse"
+        "404":
+          description: Run not found
+
+  /gateway/sources/{source_id}/items:
+    get:
+      tags: [Connected Sources]
+      summary: List synced items
+      operationId: listItems
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        "200":
+          description: Items list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SourceItemState"
+
+  # --- Internal Worker API ---
+  /gateway/internal/sources/{source_id}/runs/{run_id}/heartbeat:
+    post:
+      tags: [Internal]
+      summary: Worker heartbeat
+      operationId: workerHeartbeat
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+        - $ref: "#/components/parameters/RunId"
+        - $ref: "#/components/parameters/ServiceToken"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HeartbeatRequest"
+      responses:
+        "200":
+          description: OK
+
+  /gateway/internal/sources/{source_id}/runs/{run_id}/events:
+    post:
+      tags: [Internal]
+      summary: Batch item state updates
+      operationId: runEvents
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+        - $ref: "#/components/parameters/RunId"
+        - $ref: "#/components/parameters/ServiceToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventsRequest"
+      responses:
+        "200":
+          description: Events processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  processed: { type: integer }
+
+  /gateway/internal/sources/{source_id}/runs/{run_id}/complete:
+    post:
+      tags: [Internal]
+      summary: Complete or fail a run
+      operationId: completeRun
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+        - $ref: "#/components/parameters/RunId"
+        - $ref: "#/components/parameters/ServiceToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteRequest"
+      responses:
+        "200":
+          description: Run completed
+
+  /gateway/internal/sources/{source_id}/ingestion-session:
+    post:
+      tags: [Internal]
+      summary: Issue scoped ingestion context
+      operationId: createIngestionSession
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+        - $ref: "#/components/parameters/ServiceToken"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestionSessionRequest"
+      responses:
+        "200":
+          description: Ingestion session issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionSessionResponse"
+
+  /gateway/internal/sources/{source_id}/checkpoint:
+    get:
+      tags: [Internal]
+      summary: Get latest source checkpoint
+      operationId: getSourceCheckpoint
+      parameters:
+        - $ref: "#/components/parameters/SourceId"
+        - $ref: "#/components/parameters/ServiceToken"
+      responses:
+        "200":
+          description: Latest source checkpoint
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceCheckpointResponse"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Source or checkpoint not found
+
 components:
   schemas:
     HealthResponse:
@@ -1012,3 +1562,216 @@ components:
         match_reasons:
           type: array
           items: { type: string }
+
+    # --- Connected Sources schemas ---
+    SourceStatus:
+      type: string
+      enum: [CREATED, VALIDATING_CONNECTION, BASELINE_PENDING, BASELINE_RUNNING, CATCHUP_RUNNING, ACTIVE, PAUSED, DEGRADED, FAILED, DELETING, DELETED]
+
+    SyncMode:
+      type: string
+      enum: [baseline, catchup, incremental]
+
+    ConnectorType:
+      type: string
+      enum: [mediawiki]
+
+    RunPhase:
+      type: string
+      enum: [baseline_scan, catchup, incremental, validation]
+
+    RunStatus:
+      type: string
+      enum: [pending, running, completed, failed, cancelled]
+
+    ItemStatus:
+      type: string
+      enum: [pending, indexed, deleted, error]
+
+    CreateSourceRequest:
+      type: object
+      required: [connector_type, display_name, target_kb_id]
+      properties:
+        connector_type: { type: string }
+        display_name: { type: string }
+        target_kb_id: { type: string }
+        config: { type: object, additionalProperties: {} }
+        secret_ref: { type: string, nullable: true }
+        metadata: { type: object, additionalProperties: {} }
+        schedule: { type: string, nullable: true }
+        idempotency_key: { type: string, nullable: true }
+
+    UpdateSourceRequest:
+      type: object
+      properties:
+        display_name: { type: string }
+        config: { type: object, additionalProperties: {} }
+        schedule: { type: string }
+        metadata: { type: object, additionalProperties: {} }
+
+    SourceResponse:
+      type: object
+      required: [source_id, tenant_id, connector_type, display_name, target_kb_id, status, sync_mode, created_at, updated_at]
+      properties:
+        source_id: { type: string }
+        tenant_id: { type: string }
+        connector_type: { type: string }
+        display_name: { type: string }
+        target_kb_id: { type: string }
+        status:
+          $ref: "#/components/schemas/SourceStatus"
+        sync_mode:
+          $ref: "#/components/schemas/SyncMode"
+        schedule: { type: string, nullable: true }
+        config: { type: object, additionalProperties: {} }
+        has_secret: { type: boolean }
+        metadata: { type: object, additionalProperties: {} }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    SourceRunResponse:
+      type: object
+      required: [run_id, source_id, phase, status, started_at]
+      properties:
+        run_id: { type: string }
+        source_id: { type: string }
+        phase:
+          $ref: "#/components/schemas/RunPhase"
+        status:
+          $ref: "#/components/schemas/RunStatus"
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time, nullable: true }
+        processed_items: { type: integer, default: 0 }
+        failed_items: { type: integer, default: 0 }
+        skipped_items: { type: integer, default: 0 }
+        error_code: { type: string, nullable: true }
+
+    SourceStatusResponse:
+      type: object
+      required: [source_id, status, sync_mode]
+      properties:
+        source_id: { type: string }
+        status:
+          $ref: "#/components/schemas/SourceStatus"
+        sync_mode:
+          $ref: "#/components/schemas/SyncMode"
+        latest_run:
+          $ref: "#/components/schemas/SourceRunResponse"
+        has_checkpoint: { type: boolean }
+
+    SourceItemState:
+      type: object
+      required: [source_id, source_item_id]
+      properties:
+        source_id: { type: string }
+        source_item_id: { type: string }
+        source_revision: { type: string, nullable: true }
+        retriva_doc_id: { type: string, nullable: true }
+        content_hash: { type: string, nullable: true }
+        status:
+          $ref: "#/components/schemas/ItemStatus"
+        last_synced_at: { type: string, format: date-time }
+
+    HeartbeatRequest:
+      type: object
+      properties:
+        processed_items: { type: integer, nullable: true }
+        failed_items: { type: integer, nullable: true }
+        skipped_items: { type: integer, nullable: true }
+
+    ItemEvent:
+      type: object
+      required: [source_item_id]
+      properties:
+        source_item_id: { type: string }
+        source_revision: { type: string, nullable: true }
+        retriva_doc_id: { type: string, nullable: true }
+        content_hash: { type: string, nullable: true }
+        status:
+          $ref: "#/components/schemas/ItemStatus"
+
+    EventsRequest:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemEvent"
+
+    CompleteRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [completed, failed] }
+        error_code: { type: string, nullable: true }
+        error_message: { type: string, nullable: true }
+        checkpoint: { type: object, nullable: true, additionalProperties: {} }
+        processed_items: { type: integer, nullable: true }
+        failed_items: { type: integer, nullable: true }
+        skipped_items: { type: integer, nullable: true }
+
+    IngestionSessionRequest:
+      type: object
+      properties:
+        run_id: { type: string, nullable: true }
+
+    IngestionSessionResponse:
+      type: object
+      required: [kb_id, tenant_id, source_id, batch_metadata]
+      properties:
+        kb_id: { type: string }
+        tenant_id: { type: string }
+        source_id: { type: string }
+        run_id: { type: string, nullable: true }
+        batch_metadata: { type: object, additionalProperties: {} }
+
+    SourceCheckpointResponse:
+      type: object
+      required: [source_id, checkpoint_type, updated_at]
+      properties:
+        source_id:
+          type: string
+        checkpoint_type:
+          type: string
+          description: Connector-specific checkpoint type, e.g. mediawiki_recentchanges
+        baseline_started_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_seen_timestamp:
+          type: string
+          format: date-time
+          nullable: true
+        last_seen_rcid:
+          type: integer
+          nullable: true
+        cursor:
+          type: object
+          nullable: true
+          additionalProperties: {}
+        updated_at:
+          type: string
+          format: date-time
+
+  parameters:
+    SourceId:
+      name: source_id
+      in: path
+      required: true
+      schema: { type: string }
+      description: Connected source ID (e.g. src_a1b2c3d4e5f6)
+
+    RunId:
+      name: run_id
+      in: path
+      required: true
+      schema: { type: string }
+      description: Sync run ID (e.g. run_a1b2c3d4e5f6)
+
+    ServiceToken:
+      name: X-Service-Token
+      in: header
+      required: false
+      schema: { type: string }
+      description: Service authentication token for internal endpoints

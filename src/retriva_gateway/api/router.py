@@ -13,7 +13,8 @@
 # limitations under the License.
 
 from fastapi import APIRouter
-from retriva_gateway.api.v2 import health, capabilities, chat, kbs, documents, ingestion, artifacts, speech, metadata, system
+from retriva_gateway.api.v2 import health, capabilities, chat, kbs, documents, ingestion, artifacts, speech, metadata, system, sources
+from retriva_gateway.api.internal import sources as internal_sources
 
 # Legacy/internal router
 api_router = APIRouter(prefix="/gateway")
@@ -27,6 +28,8 @@ api_router.include_router(artifacts.router)
 api_router.include_router(speech.router)
 api_router.include_router(metadata.router)
 api_router.include_router(system.router)
+api_router.include_router(sources.router)
+api_router.include_router(internal_sources.router)
 
 # Public v2 router (matches Core structure)
 api_v2_router = APIRouter(prefix="/api/v2")
@@ -36,7 +39,9 @@ api_v2_router.include_router(ingestion.router)
 api_v2_router.include_router(artifacts.router)
 api_v2_router.include_router(capabilities.router)
 api_v2_router.include_router(speech.router)
+api_v2_router.include_router(sources.router)
 
 # Root-level STT router — the /execute spec requires POST /stt/transcribe
 # to be reachable without any prefix.
 stt_router = speech.router
+

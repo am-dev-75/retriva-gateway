@@ -1,0 +1,11 @@
+{
+  "source_id": "src_example",
+  "tenant_id": "internal-company",
+  "connector_type": "mediawiki",
+  "display_name": "R&D MediaWiki",
+  "target_kb_id": "rd_mediawiki",
+  "status": "BASELINE_PENDING",
+  "sync_mode": "baseline",
+  "created_at": "2026-06-17T17:00:00Z",
+  "updated_at": "2026-06-17T17:00:00Z"
+}
