@@ -80,7 +80,7 @@ class _SourceTestBase(unittest.TestCase):
             "retriva_gateway.api.internal.sources.settings"
         )
         self.mock_internal_settings = self.internal_settings_patcher.start()
-        self.mock_internal_settings.INTERNAL_SERVICE_TOKEN = ""
+        self.mock_internal_settings.GATEWAY_INTERNAL_SERVICE_TOKEN = ""
 
         self.connector_settings_patcher = patch(
             "retriva_gateway.core.connector_manager.settings"
@@ -439,7 +439,7 @@ class TestInternalEndpoints(_SourceTestBase):
 
     def test_internal_auth_required_when_configured(self):
         """When service token is set, missing header returns 401."""
-        self.mock_internal_settings.INTERNAL_SERVICE_TOKEN = "secret-token-123"
+        self.mock_internal_settings.GATEWAY_INTERNAL_SERVICE_TOKEN = "secret-token-123"
 
         create_r = self._create_source()
         source_id = create_r.json()["source_id"]
@@ -450,7 +450,7 @@ class TestInternalEndpoints(_SourceTestBase):
         self.assertEqual(r.status_code, 401)
 
     def test_internal_auth_passes_with_valid_token(self):
-        self.mock_internal_settings.INTERNAL_SERVICE_TOKEN = "secret-token-123"
+        self.mock_internal_settings.GATEWAY_INTERNAL_SERVICE_TOKEN = "secret-token-123"
 
         create_r = self._create_source()
         source_id = create_r.json()["source_id"]
@@ -502,7 +502,7 @@ class TestInternalEndpoints(_SourceTestBase):
         self.assertNotIn("secret_ref", body)
 
     def test_get_checkpoint_auth_required(self):
-        self.mock_internal_settings.INTERNAL_SERVICE_TOKEN = "secret-token-123"
+        self.mock_internal_settings.GATEWAY_INTERNAL_SERVICE_TOKEN = "secret-token-123"
 
         create_r = self._create_source()
         source_id = create_r.json()["source_id"]

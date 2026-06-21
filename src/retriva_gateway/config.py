@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     DYNAMIC_INGESTION_DATA_DIR: str = "/tmp/retriva-gateway-dynamic-sources"
     ALLOWED_CONNECTOR_TYPES: List[str] = ["mediawiki"]
     DEFAULT_TENANT_ID: str = "internal-company"
-    INTERNAL_SERVICE_TOKEN: str = ""  # Empty = auth disabled for internal endpoints
+    GATEWAY_INTERNAL_SERVICE_TOKEN: str = ""  # Empty = auth disabled for internal endpoints
 
     LOG_LEVEL: str = "INFO"
 

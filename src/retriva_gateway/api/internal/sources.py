@@ -15,7 +15,7 @@
 """Internal worker API for dynamic ingestion connectors.
 
 These endpoints are called by connector workers, not by the WebUI.
-When ``INTERNAL_SERVICE_TOKEN`` is configured, requests must include
+When ``GATEWAY_INTERNAL_SERVICE_TOKEN`` is configured, requests must include
 the ``X-Service-Token`` header.
 
 Endpoints:
@@ -57,7 +57,7 @@ router = APIRouter(prefix="/internal/sources", tags=["internal"])
 
 async def _verify_service_token(x_service_token: Optional[str] = Header(None)) -> None:
     """Verify service token if configured."""
-    if settings.INTERNAL_SERVICE_TOKEN and x_service_token != settings.INTERNAL_SERVICE_TOKEN:
+    if settings.GATEWAY_INTERNAL_SERVICE_TOKEN and x_service_token != settings.GATEWAY_INTERNAL_SERVICE_TOKEN:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing service token.",
