@@ -217,6 +217,13 @@ paths:
                 metadata:
                   type: object
                   additionalProperties: {}
+                source_type:
+                  type: string
+                  default: auto
+                  description: |
+                    Ingestion source type hint.  When set to `mediawiki_export`,
+                    the batch is routed to local staging for MediaWiki XML
+                    processing instead of direct file upload.
       responses:
         "200":
           description: Ingestion batch created
@@ -260,6 +267,16 @@ paths:
                 user_metadata:
                   type: string
                   description: Optional JSON-encoded metadata string
+                kb_id:
+                  type: string
+                  default: default
+                  description: Target knowledge base id.
+                force:
+                  type: boolean
+                  default: false
+                  description: |
+                    Force re-ingestion even if a catalog record already exists
+                    for the same content hash.  Forwarded to Retriva Core.
       responses:
         "200":
           description: File uploaded
@@ -272,6 +289,10 @@ paths:
                   source_path: { type: string }
                   job_id: { type: string }
                   status: { type: string }
+        "404":
+          description: Batch not found
+        "422":
+          description: Invalid JSON in user_metadata
 
   /gateway/ingestion/batches/{batch_id}:
     get:
@@ -305,6 +326,37 @@ paths:
                         status: { type: string }
                   metadata:
                     type: object
+
+  /gateway/ingestion/batches/{batch_id}/finalize:
+    post:
+      tags: [Gateway BFF]
+      summary: Finalize an ingestion batch
+      description: |
+        Triggers final processing of a batch (e.g. for `mediawiki_export`
+        source type, this starts the MediaWiki XML ingestion job).
+        Has no effect on regular file-upload batches that are already
+        processed incrementally.
+      operationId: finalizeGatewayBatch
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Batch finalized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id: { type: string }
+                  status: { type: string }
+        "404":
+          description: Batch not found
+        "400":
+          description: Batch cannot be finalized in its current state
 
   /gateway/documents:
     get:
@@ -403,7 +455,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        "204":
           description: Document deleted
 
   /gateway/metadata/schema:
@@ -527,14 +579,120 @@ paths:
         "200":
           description: Streaming file
 
-  /gateway/speech/transcriptions:
+  /gateway/stt/transcribe:
     post:
       tags: [Gateway BFF]
-      summary: Speech transcription placeholder
-      operationId: createGatewayTranscription
+      summary: Transcribe an audio file
+      operationId: transcribeGatewayAudio
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                language:
+                  type: string
+                  description: Optional language hint (ISO 639-1)
+                prompt:
+                  type: string
+                  description: Optional transcription prompt
       responses:
-        "501":
-          description: Not implemented
+        "200":
+          description: Transcription result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TranscribeResponse"
+        "400":
+          description: Empty or invalid audio file
+        "413":
+          description: Audio file too large
+        "503":
+          description: Speech-to-text is disabled
+
+  /gateway/stt/health:
+    get:
+      tags: [Gateway BFF]
+      summary: Check speech-to-text service health
+      operationId: getGatewaySttHealth
+      responses:
+        "200":
+          description: STT health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  whisper_url_configured: { type: boolean }
+
+  # --- System status (Gateway BFF) ---
+  /gateway/system/status:
+    get:
+      tags: [Gateway BFF]
+      summary: Get system status summary
+      operationId: getSystemStatus
+      responses:
+        "200":
+          description: System status with job counts and staged file count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemStatusResponse"
+
+  /gateway/system/status/detail:
+    get:
+      tags: [Gateway BFF]
+      summary: Get detailed system status (includes full job list)
+      operationId: getSystemStatusDetail
+      responses:
+        "200":
+          description: Detailed system status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemStatusDetailResponse"
+
+  /gateway/system/jobs:
+    get:
+      tags: [Gateway BFF]
+      summary: List recent ingestion jobs
+      operationId: listSystemJobs
+      responses:
+        "200":
+          description: List of job summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JobSummary"
+
+  /gateway/system/jobs/{job_id}:
+    get:
+      tags: [Gateway BFF]
+      summary: Get a specific job summary
+      operationId: getSystemJob
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobSummary"
+        "404":
+          description: Job not found
 
   # --- Public API v2 Proxy Routes ---
   /api/v2/documents:
@@ -547,6 +705,13 @@ paths:
           in: query
           schema:
             type: string
+        - name: metadata_filter_mode
+          in: query
+          schema:
+            type: string
+            enum: [hard, soft]
+            default: hard
+          description: How strictly metadata filters are applied during retrieval.
       responses:
         "200":
           description: Documents list
@@ -556,7 +721,7 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/DocumentResponse"
-  
+
   /api/v2/documents/count:
     get:
       tags: [Documents v2]
@@ -567,6 +732,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: metadata_filter_mode
+          in: query
+          schema:
+            type: string
+            enum: [hard, soft]
+            default: hard
       responses:
         "200":
           description: Document count
@@ -648,7 +819,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        "204":
           description: Document deleted
 
   /api/v2/metadata/schema:
@@ -717,6 +888,10 @@ paths:
                 metadata:
                   type: object
                   additionalProperties: {}
+                source_type:
+                  type: string
+                  default: auto
+                  description: Ingestion source type hint (e.g. `mediawiki_export`).
       responses:
         "200":
           description: Ingestion batch created
@@ -748,9 +923,21 @@ paths:
                 user_metadata:
                   type: string
                   description: Optional JSON-encoded metadata string
+                kb_id:
+                  type: string
+                  default: default
+                  description: Target knowledge base id.
+                force:
+                  type: boolean
+                  default: false
+                  description: Force re-ingestion even if a catalog record already exists.
       responses:
         "200":
           description: File uploaded
+        "404":
+          description: Batch not found
+        "422":
+          description: Invalid JSON in user_metadata
 
   /api/v2/ingestion/batches/{batch_id}:
     get:
@@ -766,6 +953,32 @@ paths:
       responses:
         "200":
           description: Batch status report
+
+  /api/v2/ingestion/batches/{batch_id}/finalize:
+    post:
+      tags: [Ingestion v2]
+      summary: Finalize an ingestion batch
+      operationId: finalizeBatchV2
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Batch finalized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id: { type: string }
+                  status: { type: string }
+        "404":
+          description: Batch not found
+        "400":
+          description: Batch cannot be finalized in its current state
 
   /api/v2/artifacts:
     get:
@@ -1063,6 +1276,59 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/SourceItemState"
+
+  # --- Speech-to-Text (v2) ---
+  /api/v2/stt/transcribe:
+    post:
+      tags: [Documents v2]
+      summary: Transcribe an audio file
+      operationId: transcribeAudioV2
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                language:
+                  type: string
+                  description: Optional language hint (ISO 639-1)
+                prompt:
+                  type: string
+                  description: Optional transcription prompt
+      responses:
+        "200":
+          description: Transcription result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TranscribeResponse"
+        "400":
+          description: Empty or invalid audio file
+        "413":
+          description: Audio file too large
+        "503":
+          description: Speech-to-text is disabled
+
+  /api/v2/stt/health:
+    get:
+      tags: [Documents v2]
+      summary: Check speech-to-text service health
+      operationId: getSttHealthV2
+      responses:
+        "200":
+          description: STT health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  whisper_url_configured: { type: boolean }
 
   # --- Connected Sources (Dynamic Ingestion) ---
   /gateway/sources:
@@ -1753,6 +2019,51 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    TranscribeResponse:
+      type: object
+      properties:
+        text: { type: string, description: Transcribed text }
+        language: { type: string, description: Detected language (ISO 639-1) }
+        duration_ms: { type: integer, description: Audio duration in milliseconds }
+        model: { type: string, description: Whisper model used }
+
+    SystemStatusResponse:
+      type: object
+      properties:
+        jobs:
+          type: object
+          description: Counts of jobs by status
+          additionalProperties: { type: integer }
+        staged_files: { type: integer, description: Number of files staged for ingestion }
+
+    SystemStatusDetailResponse:
+      type: object
+      properties:
+        jobs:
+          type: object
+          description: Counts of jobs by status
+          additionalProperties: { type: integer }
+        staged_files: { type: integer }
+        job_list:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobSummary"
+
+    JobSummary:
+      type: object
+      properties:
+        job_id: { type: string }
+        status: { type: string }
+        source: { type: string }
+        job_type: { type: string }
+        current_stage: { type: string }
+        stages_completed: { type: array, items: { type: string } }
+        stage_detail: { type: string, description: Human-readable detail about the current stage }
+        progress: { type: number, format: float, description: "0.0–1.0 progress indicator" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        error: { type: string }
 
   parameters:
     SourceId:
