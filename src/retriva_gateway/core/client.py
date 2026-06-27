@@ -150,6 +150,11 @@ class CoreClient:
         response = await self._request("GET", self.ingestion_base_url, f"/api/v2/jobs/{batch_id}")
         return response.json()
 
+    async def get_job(self, job_id: str):
+        """Fetch a single job's status from Core's v2 jobs API."""
+        response = await self._request("GET", self.ingestion_base_url, f"/api/v2/jobs/{job_id}")
+        return response.json()
+
     async def list_jobs(self):
         response = await self._request("GET", self.ingestion_base_url, "/api/v2/jobs")
         return response.json()
