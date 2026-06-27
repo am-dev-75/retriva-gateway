@@ -16,7 +16,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import model_validator
 from typing import List
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 
 class Settings(BaseSettings):
     GATEWAY_HOST: str = "0.0.0.0"
