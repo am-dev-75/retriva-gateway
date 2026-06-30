@@ -29,17 +29,22 @@ router = APIRouter(tags=["chat"])
 def _transform_citations(core_sources: list) -> list:
     citations = []
     for idx, src in enumerate(core_sources):
-        name = src.get("source", {}).get("name", "Unknown")
+        source_dict = src.get("source", {})
+        name = source_dict.get("name", "Unknown")
+        source_url = source_dict.get("url", "")
         doc_snippets = src.get("document", [])
         meta_list = src.get("metadata", [])
         doc_id = meta_list[0].get("source", "") if meta_list else ""
         text = "\n".join(doc_snippets)[:500]
-        citations.append({
+        citation = {
             "id": str(idx + 1),
             "document_id": doc_id,
             "filename": name,
             "text": text,
-        })
+        }
+        if source_url:
+            citation["source_url"] = source_url
+        citations.append(citation)
     return citations
 
 
