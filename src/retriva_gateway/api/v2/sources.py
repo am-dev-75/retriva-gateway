@@ -150,7 +150,18 @@ async def list_sources(
     _require_dynamic_ingestion()
 
     sources = await source_repo.list(settings.DEFAULT_TENANT_ID)
-    return [SourceResponse.from_source(s) for s in sources[offset:offset + limit]]
+    results = []
+    for s in sources[offset:offset + limit]:
+        resp = SourceResponse.from_source(s)
+        # Enrich with latest run and item counts
+        runs = await run_repo.list_by_source(s.source_id)
+        if runs:
+            latest = max(runs, key=lambda r: r.started_at)
+            resp.last_sync_at = latest.finished_at or latest.started_at
+            resp.indexed_item_count = latest.processed_items
+            resp.failed_item_count = latest.failed_items
+        results.append(resp)
+    return results
 
 
 @router.get("/{source_id}", response_model=SourceResponse)
@@ -161,7 +172,15 @@ async def get_source(source_id: str):
     source = await source_repo.get(source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
-    return SourceResponse.from_source(source)
+    resp = SourceResponse.from_source(source)
+    # Enrich with latest run and item counts
+    runs = await run_repo.list_by_source(source_id)
+    if runs:
+        latest = max(runs, key=lambda r: r.started_at)
+        resp.last_sync_at = latest.finished_at or latest.started_at
+        resp.indexed_item_count = latest.processed_items
+        resp.failed_item_count = latest.failed_items
+    return resp
 
 
 @router.patch("/{source_id}", response_model=SourceResponse)

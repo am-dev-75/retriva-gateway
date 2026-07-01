@@ -239,6 +239,9 @@ class SourceResponse(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str
+    last_sync_at: Optional[str] = None
+    indexed_item_count: int = 0
+    failed_item_count: int = 0
 
     @classmethod
     def from_source(cls, source: SourceInstance) -> "SourceResponse":
