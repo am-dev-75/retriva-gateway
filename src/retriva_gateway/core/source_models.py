@@ -45,6 +45,7 @@ class SyncMode(str, Enum):
 
 class ConnectorType(str, Enum):
     MEDIAWIKI = "mediawiki"
+    EMAIL_AGENT = "email_agent"
 
 
 class RunPhase(str, Enum):
@@ -111,6 +112,16 @@ class MediaWikiSourceConfig(BaseModel):
         if not v.startswith(("http://", "https://")):
             raise ValueError("api_url must start with http:// or https://")
         return v
+
+
+class EmailAgentSourceConfig(BaseModel):
+    """Configuration schema for an Email Agent connected source."""
+
+    smtp_host: str = "0.0.0.0"
+    smtp_port: int = Field(default=8025, ge=1, le=65535)
+    address_prefix: str = "retriva"
+    address_domain: str = ""
+    wait_for_job: bool = True
 
 
 # ---------------------------------------------------------------------------

@@ -32,6 +32,7 @@ from retriva_gateway.config import settings
 from retriva_gateway.core.source_models import (
     ConnectorType,
     MediaWikiSourceConfig,
+    EmailAgentSourceConfig,
     SourceInstance,
     SourceRun,
     RunStatus,
@@ -87,6 +88,26 @@ class MediaWikiConnectorDescriptor(ConnectorDescriptor):
 
 
 # ---------------------------------------------------------------------------
+# Email Agent descriptor
+# ---------------------------------------------------------------------------
+
+class EmailAgentConnectorDescriptor(ConnectorDescriptor):
+    """Descriptor for Email Agent connected sources."""
+
+    @property
+    def connector_type(self) -> ConnectorType:
+        return ConnectorType.EMAIL_AGENT
+
+    def validate_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse config through the EmailAgentSourceConfig pydantic model."""
+        validated = EmailAgentSourceConfig(**config)
+        return validated.model_dump()
+
+    def default_schedule(self) -> str:
+        return "*/1 * * * *"
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -112,6 +133,7 @@ class ConnectorRegistry:
 # Build the default registry with all known descriptors.
 connector_registry = ConnectorRegistry()
 connector_registry.register(MediaWikiConnectorDescriptor())
+connector_registry.register(EmailAgentConnectorDescriptor())
 
 
 # ---------------------------------------------------------------------------
