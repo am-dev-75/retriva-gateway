@@ -12,11 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import model_validator
-from typing import List
+import json
+from typing import Annotated, Any, List
 
-VERSION = "1.4.0"
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic import BeforeValidator, computed_field, model_validator
+
+VERSION = "1.5.0"
+
+
+def _parse_string_list(value: Any) -> list[str]:
+    """Parse env list values from JSON arrays or comma-separated strings."""
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return []
+        if raw.startswith("["):
+            parsed = json.loads(raw)
+            if not isinstance(parsed, list):
+                raise ValueError("expected a JSON array")
+            return [str(item).strip() for item in parsed if str(item).strip()]
+        return [item.strip() for item in raw.split(",") if item.strip()]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return value
+
+
+StringList = Annotated[List[str], NoDecode, BeforeValidator(_parse_string_list)]
 
 class Settings(BaseSettings):
     GATEWAY_HOST: str = "0.0.0.0"
@@ -27,13 +49,18 @@ class Settings(BaseSettings):
     RETRIVA_CORE_INGESTION_URL: str = "http://localhost:8000"
     RETRIVA_CORE_CHAT_URL: str = "http://localhost:8001"
     
-    GATEWAY_ENABLE_AUTH: bool = False
+    # --- Authentication ---
+    # Which auth provider to use. "none" = no authentication (default).
+    # Other values (e.g. "entra") require the corresponding Retriva Pro package.
+    RETRIVA_AUTH_PROVIDER: str = "none"
+    # Paths that bypass authentication (prefix match).
+    RETRIVA_AUTH_EXEMPT_PATHS: StringList = ["/health", "/ready", "/capabilities"]
     GATEWAY_ENABLE_ARTIFACTS: bool = True
     GATEWAY_ENABLE_FOLDER_UPLOAD: bool = True
     GATEWAY_ENABLE_SPEECH_INPUT: bool = False
     GATEWAY_MAX_UPLOAD_MB: int = 500
     GATEWAY_UPLOAD_TMP_DIR: str = "/tmp/retriva-gateway-uploads"
-    GATEWAY_CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000", "http://localhost:5174"]
+    GATEWAY_CORS_ORIGINS: StringList = ["http://localhost:5173", "http://localhost:3000", "http://localhost:5174"]
     
     # --- Speech-to-Text (Whisper) ---
     STT_ENABLED: bool = True
@@ -44,13 +71,19 @@ class Settings(BaseSettings):
     # --- Dynamic Ingestion (Connected Sources) ---
     DYNAMIC_INGESTION_ENABLED: bool = True
     DYNAMIC_INGESTION_DATA_DIR: str = "/tmp/retriva-gateway-dynamic-sources"
-    ALLOWED_CONNECTOR_TYPES: List[str] = ["mediawiki", "email_agent"]
+    ALLOWED_CONNECTOR_TYPES: StringList = ["mediawiki", "email_agent"]
     DEFAULT_TENANT_ID: str = "internal-company"
     GATEWAY_INTERNAL_SERVICE_TOKEN: str = ""  # Empty = auth disabled for internal endpoints
 
     LOG_LEVEL: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @computed_field
+    @property
+    def GATEWAY_ENABLE_AUTH(self) -> bool:
+        """Auth is enabled when a real provider is configured."""
+        return self.RETRIVA_AUTH_PROVIDER != "none"
 
     @model_validator(mode="after")
     def _sync_speech_flag(self) -> "Settings":
