@@ -18,6 +18,8 @@ from pydantic import BaseModel
 
 class Principal(BaseModel):
     id: str
+    name: str = ""
+    email: str = ""
     roles: List[str]
     permissions: List[str]
 
@@ -25,7 +27,7 @@ class Principal(BaseModel):
 correlation_id_ctx: ContextVar[Optional[str]] = ContextVar("correlation_id", default=None)
 principal_ctx: ContextVar[Principal] = ContextVar(
     "principal", 
-    default=Principal(id="anonymous", roles=["admin"], permissions=["*"])
+    default=Principal(id="anonymous", name="Anonymous", email="", roles=["admin"], permissions=["*"])
 )
 
 def get_correlation_id() -> Optional[str]:

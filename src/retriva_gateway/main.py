@@ -17,6 +17,8 @@ from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from retriva_gateway.api.router import api_router, api_v2_router, stt_router
 from retriva_gateway.config import settings
+from retriva_gateway.core.auth_provider import load_auth_provider
+from retriva_gateway.middleware.auth import AuthMiddleware
 from retriva_gateway.middleware.correlation import CorrelationIdMiddleware
 from retriva_gateway.middleware.errors import global_exception_handler
 import httpx
@@ -43,6 +45,12 @@ class InterceptHandler(logging.Handler):
 logger.remove()
 logger.add(sys.stdout, format="<green>[{time:YYYYMMDD HH:mm:ss}]</green> [<level>{level}</level>] <level>{message}</level>", level=settings.LOG_LEVEL)
 
+# --- Auth provider (single instance) ---
+# Loaded once at module level.  Fail-closed: if the provider is configured
+# but the corresponding package is not installed, this raises RuntimeError
+# immediately and prevents the Gateway from starting.
+_auth_provider = load_auth_provider(settings.RETRIVA_AUTH_PROVIDER)
+
 def _intercept_uvicorn_logging():
     """Replace uvicorn's logging handlers with our InterceptHandler.
     
@@ -66,7 +74,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"GATEWAY_PORT: {settings.GATEWAY_PORT}")
     logger.info(f"RETRIVA_CORE_INGESTION_URL: {settings.RETRIVA_CORE_INGESTION_URL}")
     logger.info(f"RETRIVA_CORE_CHAT_URL: {settings.RETRIVA_CORE_CHAT_URL}")
+    logger.info(f"RETRIVA_AUTH_PROVIDER: {settings.RETRIVA_AUTH_PROVIDER}")
     logger.info(f"GATEWAY_ENABLE_AUTH: {settings.GATEWAY_ENABLE_AUTH}")
+    if settings.GATEWAY_ENABLE_AUTH:
+        logger.info(f"RETRIVA_AUTH_EXEMPT_PATHS: {settings.RETRIVA_AUTH_EXEMPT_PATHS}")
     logger.info(f"GATEWAY_ENABLE_ARTIFACTS: {settings.GATEWAY_ENABLE_ARTIFACTS}")
     logger.info(f"GATEWAY_ENABLE_FOLDER_UPLOAD: {settings.GATEWAY_ENABLE_FOLDER_UPLOAD}")
     logger.info(f"GATEWAY_ENABLE_SPEECH_INPUT: {settings.GATEWAY_ENABLE_SPEECH_INPUT}")
@@ -84,9 +95,18 @@ async def lifespan(app: FastAPI):
         logger.info(f"DYNAMIC_INGESTION_DATA_DIR: {settings.DYNAMIC_INGESTION_DATA_DIR}")
         logger.info(f"ALLOWED_CONNECTOR_TYPES: {settings.ALLOWED_CONNECTOR_TYPES}")
     logger.info("---------------------")
+
+    # --- Auth provider lifecycle ---
+    # The provider instance was loaded at module level (_auth_provider).
+    # Here we run its async startup hook (e.g. OIDC discovery, JWKS fetch)
+    # and store it in app.state for runtime access.
+    await _auth_provider.on_startup()
+    app.state.auth_provider = _auth_provider
+    logger.info("Auth provider initialised: {}", type(_auth_provider).__name__)
     
     yield
     
+    await _auth_provider.on_shutdown()
     logger.info("Retriva Gateway shutting down...")
 
 app = FastAPI(
@@ -103,6 +123,15 @@ app.add_exception_handler(httpx.HTTPStatusError, global_exception_handler)
 app.add_exception_handler(Exception, global_exception_handler)
 
 # Middlewares
+# Registration order is reverse of execution order in Starlette:
+# Last registered runs first.  We want:
+#   Request → CORS → CorrelationId → Auth → Route handler
+# So register in this order:
+app.add_middleware(
+    AuthMiddleware,
+    auth_provider=_auth_provider,
+    exempt_paths=settings.RETRIVA_AUTH_EXEMPT_PATHS,
+)
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
