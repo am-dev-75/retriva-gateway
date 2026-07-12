@@ -120,6 +120,8 @@ async def create_source(request: CreateSourceRequest):
         connector_type=ct,
         display_name=request.display_name,
         target_kb_id=request.target_kb_id,
+        collection=request.collection,
+        kb_ids=request.kb_ids,
         status=SourceStatus.BASELINE_PENDING,
         sync_mode=SyncMode.BASELINE,
         schedule=request.schedule or descriptor.default_schedule(),
@@ -132,10 +134,12 @@ async def create_source(request: CreateSourceRequest):
     created = await source_repo.create(source)
 
     logger.info(
-        "Source created: source_id={} connector={} kb={}",
+        "Source created: source_id={} connector={} kb={} collection={} kb_ids={}",
         created.source_id,
         created.connector_type.value,
         created.target_kb_id,
+        created.collection,
+        created.kb_ids,
     )
 
     return SourceResponse.from_source(created)
@@ -199,6 +203,10 @@ async def update_source(source_id: str, request: UpdateSourceRequest):
         updates["schedule"] = request.schedule
     if request.metadata is not None:
         updates["metadata"] = request.metadata
+    if request.collection is not None:
+        updates["collection"] = request.collection
+    if request.kb_ids is not None:
+        updates["kb_ids"] = request.kb_ids
     if request.config is not None:
         # Re-validate config through the connector descriptor
         try:

@@ -148,6 +148,8 @@ class SourceInstance(BaseModel):
     connector_type: ConnectorType
     display_name: str
     target_kb_id: str
+    collection: str = ""  # Qdrant collection name (empty = default)
+    kb_ids: List[str] = Field(default_factory=list)  # KB IDs that receive ingested docs
     status: SourceStatus = SourceStatus.BASELINE_PENDING
     sync_mode: SyncMode = SyncMode.BASELINE
     schedule: Optional[str] = None  # cron expression
@@ -214,6 +216,8 @@ class CreateSourceRequest(BaseModel):
     connector_type: str
     display_name: str
     target_kb_id: str
+    collection: str = ""  # Qdrant collection name (empty = default)
+    kb_ids: List[str] = Field(default_factory=list)  # KB IDs receiving ingested docs
     config: Dict[str, Any] = Field(default_factory=dict)
     secret_ref: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -228,6 +232,8 @@ class UpdateSourceRequest(BaseModel):
     config: Optional[Dict[str, Any]] = None
     schedule: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    collection: Optional[str] = None
+    kb_ids: Optional[List[str]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +248,8 @@ class SourceResponse(BaseModel):
     connector_type: str
     display_name: str
     target_kb_id: str
+    collection: str = ""
+    kb_ids: List[str] = Field(default_factory=list)
     status: SourceStatus
     sync_mode: SyncMode
     schedule: Optional[str] = None
@@ -262,6 +270,8 @@ class SourceResponse(BaseModel):
             connector_type=source.connector_type.value,
             display_name=source.display_name,
             target_kb_id=source.target_kb_id,
+            collection=source.collection,
+            kb_ids=source.kb_ids,
             status=source.status,
             sync_mode=source.sync_mode,
             schedule=source.schedule,
