@@ -51,6 +51,7 @@ router = APIRouter(prefix="/kbs", tags=["kbs"])
 
 class KnowledgeBase(BaseModel):
     id: str
+    collection: str
     name: str
     description: Optional[str] = None
     document_count: int = 0
@@ -96,6 +97,7 @@ def _to_webui(core_kb: Dict[str, Any]) -> KnowledgeBase:
     """
     return KnowledgeBase(
         id=core_kb["kb_id"],
+        collection=core_kb.get("collection_name", ""),
         name=core_kb["name"],
         description=core_kb.get("description"),
         document_count=core_kb.get("document_count", 0),

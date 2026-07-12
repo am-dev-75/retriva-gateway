@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     DYNAMIC_INGESTION_DATA_DIR: str = "/tmp/retriva-gateway-dynamic-sources"
     ALLOWED_CONNECTOR_TYPES: StringList = ["mediawiki", "email_agent"]
     DEFAULT_TENANT_ID: str = "internal-company"
+    # Default Qdrant collection when auth is disabled or principal has no
+    # collection claim.  Matches Core's RETRIVA_DEFAULT_COLLECTION in
+    # single-tenant deployments.
+    RETRIVA_DEFAULT_COLLECTION: str = "retriva_chunks"
     GATEWAY_INTERNAL_SERVICE_TOKEN: str = ""  # Empty = auth disabled for internal endpoints
 
     LOG_LEVEL: str = "INFO"

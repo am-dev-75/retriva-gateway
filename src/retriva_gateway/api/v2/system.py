@@ -38,6 +38,16 @@ class JobSummary(BaseModel):
     error: Optional[str] = None
 
 
+class AuthResponse(BaseModel):
+    """Current authenticated principal information and collections."""
+    principal_id: str
+    name: str
+    allowed_collections: List[str] = Field(default_factory=list)
+    default_collection: Optional[str] = None
+    fallback_collection: str
+    is_anonymous: bool
+
+
 class SystemStatusResponse(BaseModel):
     jobs: Dict[str, int]
     staged_files: int
@@ -81,6 +91,21 @@ def _count_staged_files() -> int:
             if path.is_file():
                 staged_count += 1
     return staged_count
+
+
+@router.get("/auth", response_model=AuthResponse)
+async def get_auth_info():
+    """Get the current principal's collections and auth state."""
+    from retriva_gateway.core.context import get_principal
+    p = get_principal()
+    return AuthResponse(
+        principal_id=p.id,
+        name=p.name,
+        allowed_collections=p.allowed_collections,
+        default_collection=p.default_collection,
+        fallback_collection=settings.RETRIVA_DEFAULT_COLLECTION,
+        is_anonymous=(p.id == "anonymous")
+    )
 
 
 @router.get("/status", response_model=SystemStatusResponse)

@@ -16,22 +16,42 @@ from contextvars import ContextVar
 from typing import Optional, List
 from pydantic import BaseModel
 
+
 class Principal(BaseModel):
     id: str
     name: str = ""
     email: str = ""
     roles: List[str]
     permissions: List[str]
+    # Multi-collection authorization (populated by IAM providers).
+    # Empty lists = anonymous / legacy mode (no enforcement; use deployment default).
+    allowed_collections: List[str] = []
+    default_collection: Optional[str] = None
+    allowed_kbs: List[str] = []
+
 
 # Request Context Storage
 correlation_id_ctx: ContextVar[Optional[str]] = ContextVar("correlation_id", default=None)
 principal_ctx: ContextVar[Principal] = ContextVar(
-    "principal", 
+    "principal",
     default=Principal(id="anonymous", name="Anonymous", email="", roles=["admin"], permissions=["*"])
 )
+
+# The validated Qdrant collection for the current request.
+# Set by CollectionMiddleware after authorization; read by CoreClient._get_headers().
+# None = not yet resolved (pre-middleware or exempt path).
+active_collection_ctx: ContextVar[Optional[str]] = ContextVar(
+    "active_collection", default=None
+)
+
 
 def get_correlation_id() -> Optional[str]:
     return correlation_id_ctx.get()
 
+
 def get_principal() -> Principal:
     return principal_ctx.get()
+
+
+def get_active_collection() -> Optional[str]:
+    return active_collection_ctx.get()

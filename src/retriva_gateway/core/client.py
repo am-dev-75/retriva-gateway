@@ -15,7 +15,7 @@
 import httpx
 from typing import AsyncGenerator, Dict, Any, Optional, List
 from retriva_gateway.config import settings
-from retriva_gateway.core.context import get_correlation_id
+from retriva_gateway.core.context import get_correlation_id, get_active_collection
 from loguru import logger
 import json
 
@@ -30,6 +30,9 @@ class CoreClient:
         correlation_id = get_correlation_id()
         if correlation_id:
             headers["X-Correlation-ID"] = correlation_id
+        active_collection = get_active_collection()
+        if active_collection:
+            headers["X-Retriva-Collection"] = active_collection
         return headers
 
     async def _request(

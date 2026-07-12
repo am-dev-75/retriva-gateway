@@ -20,6 +20,7 @@ from retriva_gateway.config import settings
 from retriva_gateway.core.auth_provider import load_auth_provider
 from retriva_gateway.middleware.auth import AuthMiddleware
 from retriva_gateway.middleware.correlation import CorrelationIdMiddleware
+from retriva_gateway.middleware.collection import CollectionMiddleware
 from retriva_gateway.middleware.errors import global_exception_handler
 import httpx
 from loguru import logger
@@ -125,8 +126,9 @@ app.add_exception_handler(Exception, global_exception_handler)
 # Middlewares
 # Registration order is reverse of execution order in Starlette:
 # Last registered runs first.  We want:
-#   Request → CORS → CorrelationId → Auth → Route handler
-# So register in this order:
+#   Request → CORS → CorrelationId → Auth → Collection → Route handler
+# So register in this order (Collection, then Auth, then CorrelationId, then CORS):
+app.add_middleware(CollectionMiddleware)
 app.add_middleware(
     AuthMiddleware,
     auth_provider=_auth_provider,
