@@ -15,12 +15,16 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status
 from typing import List, Optional, Dict, Any
 import uuid
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from retriva_gateway.core.client import core_client
 from loguru import logger
 import json
 import os
+import re
+import base64
 from pathlib import Path
+from urllib.parse import urlparse
+import httpx
 from retriva_gateway.config import settings
 
 router = APIRouter(prefix="/ingestion", tags=["ingestion"])
@@ -183,3 +187,172 @@ async def finalize_batch(batch_id: str):
     except Exception as e:
         logger.error(f"Failed to finalize batch: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# URL fetch proxy — single-page, non-recursive
+# ---------------------------------------------------------------------------
+
+class FetchUrlRequest(BaseModel):
+    url: str
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("url must not be empty")
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("url must use http or https scheme")
+        if not parsed.netloc:
+            raise ValueError("url must include a host")
+        return v
+
+
+class FetchUrlResponse(BaseModel):
+    url: str
+    final_url: str
+    content: str
+    content_type: str
+    title: str = ""
+    is_binary: bool = False
+    filename: str = ""
+
+
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+
+# Content types that are text-based and can be returned as decoded strings.
+_TEXT_CONTENT_PREFIXES = ("text/", "application/json", "application/xml", "application/javascript")
+_TEXT_CONTENT_KEYWORDS = ("html", "xml", "json", "javascript")
+
+
+def _is_text_content(content_type: str) -> bool:
+    ct = content_type.lower()
+    if any(ct.startswith(p) for p in _TEXT_CONTENT_PREFIXES):
+        return True
+    if any(kw in ct for kw in _TEXT_CONTENT_KEYWORDS):
+        return True
+    return False
+
+
+def _extract_title(html: str) -> str:
+    m = _TITLE_RE.search(html)
+    if m:
+        return m.group(1).strip()
+    return ""
+
+
+def _extension_for_content_type(content_type: str) -> str:
+    """Return a sensible file extension for common content types."""
+    ct = content_type.lower().split(";")[0].strip()
+    mapping = {
+        "text/html": ".html",
+        "application/xhtml+xml": ".html",
+        "text/plain": ".txt",
+        "text/markdown": ".md",
+        "application/json": ".json",
+        "application/xml": ".xml",
+        "text/xml": ".xml",
+        "application/pdf": ".pdf",
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "image/svg+xml": ".svg",
+        "image/tiff": ".tiff",
+        "image/bmp": ".bmp",
+        "application/msword": ".doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+        "application/vnd.ms-excel": ".xls",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+        "application/vnd.ms-powerpoint": ".ppt",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+        "application/rtf": ".rtf",
+    }
+    return mapping.get(ct, "")
+
+
+def _filename_from_url(final_url: str, title: str, content_type: str) -> str:
+    """Build a filename from the URL path, page title, or content type."""
+    ext = _extension_for_content_type(content_type)
+
+    # Try to extract a filename from the URL path
+    parsed = urlparse(final_url)
+    path_name = os.path.basename(parsed.path)
+    if path_name:
+        # Strip query string and fragments, keep the base name
+        base, existing_ext = os.path.splitext(path_name)
+        if base and existing_ext:
+            return path_name
+        if base:
+            return base + ext
+
+    # Fall back to the page title (sanitized)
+    if title:
+        sanitized = re.sub(r"[^a-zA-Z0-9_\- ]", "", title).strip().replace(" ", "_")
+        if sanitized:
+            return sanitized + ext
+
+    return "downloaded" + ext
+
+
+@router.post("/fetch-url", response_model=FetchUrlResponse)
+async def fetch_url(request: FetchUrlRequest):
+    """Fetch a single web resource (page or file) and return its content.
+
+    This is a non-recursive fetch: only the requested URL is downloaded.
+    The returned content can then be submitted through the standard batch
+    upload flow (``/ingestion/batches/{id}/files``) for ingestion.
+
+    Text-based content (HTML, plain text, XML, JSON) is returned as a
+    decoded string in ``content``.  Binary content (PDF, images, Office
+    documents) is returned as a base64-encoded string in ``content`` with
+    ``is_binary=True``; the client must decode it before constructing a
+    ``File`` object.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=30.0,
+            follow_redirects=True,
+            max_redirects=5,
+        ) as client:
+            response = await client.get(
+                request.url,
+                headers={
+                    "User-Agent": "Retriva/1.0 (URL Ingestion Proxy)",
+                    "Accept": "*/*",
+                },
+            )
+            response.raise_for_status()
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Timed out fetching the requested URL")
+    except httpx.HTTPError as e:
+        logger.warning(f"fetch-url failed for {request.url}: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch URL: {e}")
+
+    content_type = response.headers.get("content-type", "application/octet-stream")
+    # Strip charset etc. for the is_binary check, but pass the full header to the client
+    ct_main = content_type.split(";")[0].strip()
+    is_binary = not _is_text_content(ct_main)
+
+    title = ""
+    if not is_binary:
+        text = response.text
+        title = _extract_title(text)
+        content = text
+    else:
+        content = base64.b64encode(response.content).decode("ascii")
+
+    final_url = str(response.url)
+    filename = _filename_from_url(final_url, title, ct_main)
+
+    return FetchUrlResponse(
+        url=request.url,
+        final_url=final_url,
+        content=content,
+        content_type=content_type,
+        title=title,
+        is_binary=is_binary,
+        filename=filename,
+    )
