@@ -18,7 +18,7 @@ from typing import Annotated, Any, List
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from pydantic import BeforeValidator, computed_field, model_validator
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 
 
 def _parse_string_list(value: Any) -> list[str]:
