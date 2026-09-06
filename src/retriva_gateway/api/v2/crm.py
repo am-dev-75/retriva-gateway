@@ -115,3 +115,71 @@ async def crm_get_icp(kb_id: str, collection_name: Optional[str] = None):
         )
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
+# --- ICP / CCO global variable text (user-editable) ---
+
+@router.get("/icp/{kb_id}/text")
+async def crm_get_icp_text(kb_id: str):
+    try:
+        return await core_client._request(
+            "GET", core_client.ingestion_base_url, f"/api/v2/crm/icp/{kb_id}/text",
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
+@router.put("/icp/{kb_id}/text")
+async def crm_save_icp_text(kb_id: str, body: dict):
+    try:
+        return await core_client._request(
+            "PUT", core_client.ingestion_base_url, f"/api/v2/crm/icp/{kb_id}/text",
+            json=body,
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
+@router.post("/icp/{kb_id}/update")
+async def crm_update_icp(kb_id: str, collection_name: Optional[str] = None):
+    params = {"collection_name": collection_name} if collection_name else None
+    try:
+        return await core_client._request(
+            "POST", core_client.ingestion_base_url, f"/api/v2/crm/icp/{kb_id}/update",
+            params=params,
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
+@router.get("/cco/{kb_id}/text")
+async def crm_get_cco_text(kb_id: str):
+    try:
+        return await core_client._request(
+            "GET", core_client.ingestion_base_url, f"/api/v2/crm/cco/{kb_id}/text",
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
+@router.put("/cco/{kb_id}/text")
+async def crm_save_cco_text(kb_id: str, body: dict):
+    try:
+        return await core_client._request(
+            "PUT", core_client.ingestion_base_url, f"/api/v2/crm/cco/{kb_id}/text",
+            json=body,
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
+@router.post("/cco/{kb_id}/update")
+async def crm_update_cco(kb_id: str, collection_name: Optional[str] = None):
+    params = {"collection_name": collection_name} if collection_name else None
+    try:
+        return await core_client._request(
+            "POST", core_client.ingestion_base_url, f"/api/v2/crm/cco/{kb_id}/update",
+            params=params,
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
