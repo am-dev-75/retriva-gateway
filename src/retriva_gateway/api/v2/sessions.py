@@ -61,16 +61,18 @@ async def upload_attachment(session_id: str, file: UploadFile = File(...), owner
 
 @router.get("/{session_id}/attachments")
 async def list_attachments(session_id: str):
-    return await core_client._request("GET", core_client.ingestion_base_url, f"/api/v2/sessions/{session_id}/attachments")
+    resp = await core_client._request("GET", core_client.ingestion_base_url, f"/api/v2/sessions/{session_id}/attachments")
+    return resp.json()
 
 
 @router.get("/{session_id}/attachments/{attachment_id}")
 async def get_attachment(session_id: str, attachment_id: str):
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "GET", core_client.ingestion_base_url,
             f"/api/v2/sessions/{session_id}/attachments/{attachment_id}",
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -78,10 +80,11 @@ async def get_attachment(session_id: str, attachment_id: str):
 @router.post("/{session_id}/attachments/{attachment_id}/parse")
 async def parse_attachment(session_id: str, attachment_id: str):
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "POST", core_client.ingestion_base_url,
             f"/api/v2/sessions/{session_id}/attachments/{attachment_id}/parse",
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -104,16 +107,18 @@ async def delete_attachment(session_id: str, attachment_id: str):
 
 @router.get("/{session_id}/artifacts")
 async def list_artifacts(session_id: str):
-    return await core_client._request("GET", core_client.ingestion_base_url, f"/api/v2/sessions/{session_id}/artifacts")
+    resp = await core_client._request("GET", core_client.ingestion_base_url, f"/api/v2/sessions/{session_id}/artifacts")
+    return resp.json()
 
 
 @router.get("/{session_id}/artifacts/{artifact_id}")
 async def get_artifact(session_id: str, artifact_id: str):
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "GET", core_client.ingestion_base_url,
             f"/api/v2/sessions/{session_id}/artifacts/{artifact_id}",
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 

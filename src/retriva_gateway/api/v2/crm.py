@@ -44,7 +44,8 @@ class QualifyRequest(BaseModel):
 @router.get("/health")
 async def crm_health():
     try:
-        return await core_client._request("GET", core_client.ingestion_base_url, "/api/v2/crm/health")
+        resp = await core_client._request("GET", core_client.ingestion_base_url, "/api/v2/crm/health")
+        return resp.json()
     except Exception as e:
         return {"status": "unavailable", "error": str(e)}
 
@@ -53,10 +54,11 @@ async def crm_health():
 async def crm_qualify(request: QualifyRequest):
     """Start a CRM qualification job."""
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "POST", core_client.ingestion_base_url, "/api/v2/crm/qualify",
             json=request.model_dump(),
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -64,9 +66,10 @@ async def crm_qualify(request: QualifyRequest):
 @router.get("/jobs/{job_id}")
 async def crm_get_job(job_id: str):
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "GET", core_client.ingestion_base_url, f"/api/v2/crm/jobs/{job_id}",
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -74,9 +77,10 @@ async def crm_get_job(job_id: str):
 @router.post("/jobs/{job_id}/cancel", status_code=status.HTTP_202_ACCEPTED)
 async def crm_cancel_job(job_id: str):
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "POST", core_client.ingestion_base_url, f"/api/v2/crm/jobs/{job_id}/cancel",
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -85,10 +89,11 @@ async def crm_cancel_job(job_id: str):
 async def crm_get_portfolio(kb_id: str, collection_name: Optional[str] = None):
     params = {"collection_name": collection_name} if collection_name else None
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "GET", core_client.ingestion_base_url, f"/api/v2/crm/portfolio/{kb_id}",
             params=params,
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -97,10 +102,11 @@ async def crm_get_portfolio(kb_id: str, collection_name: Optional[str] = None):
 async def crm_rebuild_portfolio(kb_id: str, collection_name: Optional[str] = None):
     params = {"collection_name": collection_name} if collection_name else None
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "POST", core_client.ingestion_base_url, f"/api/v2/crm/portfolio/{kb_id}/rebuild",
             params=params,
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -109,10 +115,11 @@ async def crm_rebuild_portfolio(kb_id: str, collection_name: Optional[str] = Non
 async def crm_get_icp(kb_id: str, collection_name: Optional[str] = None):
     params = {"collection_name": collection_name} if collection_name else None
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "GET", core_client.ingestion_base_url, f"/api/v2/crm/icp/{kb_id}",
             params=params,
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -122,9 +129,10 @@ async def crm_get_icp(kb_id: str, collection_name: Optional[str] = None):
 @router.get("/icp/{kb_id}/text")
 async def crm_get_icp_text(kb_id: str):
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "GET", core_client.ingestion_base_url, f"/api/v2/crm/icp/{kb_id}/text",
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -132,10 +140,11 @@ async def crm_get_icp_text(kb_id: str):
 @router.put("/icp/{kb_id}/text")
 async def crm_save_icp_text(kb_id: str, body: dict):
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "PUT", core_client.ingestion_base_url, f"/api/v2/crm/icp/{kb_id}/text",
             json=body,
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -144,10 +153,11 @@ async def crm_save_icp_text(kb_id: str, body: dict):
 async def crm_update_icp(kb_id: str, collection_name: Optional[str] = None):
     params = {"collection_name": collection_name} if collection_name else None
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "POST", core_client.ingestion_base_url, f"/api/v2/crm/icp/{kb_id}/update",
             params=params,
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -155,9 +165,10 @@ async def crm_update_icp(kb_id: str, collection_name: Optional[str] = None):
 @router.get("/cco/{kb_id}/text")
 async def crm_get_cco_text(kb_id: str):
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "GET", core_client.ingestion_base_url, f"/api/v2/crm/cco/{kb_id}/text",
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -165,10 +176,11 @@ async def crm_get_cco_text(kb_id: str):
 @router.put("/cco/{kb_id}/text")
 async def crm_save_cco_text(kb_id: str, body: dict):
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "PUT", core_client.ingestion_base_url, f"/api/v2/crm/cco/{kb_id}/text",
             json=body,
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -177,9 +189,10 @@ async def crm_save_cco_text(kb_id: str, body: dict):
 async def crm_update_cco(kb_id: str, collection_name: Optional[str] = None):
     params = {"collection_name": collection_name} if collection_name else None
     try:
-        return await core_client._request(
+        resp = await core_client._request(
             "POST", core_client.ingestion_base_url, f"/api/v2/crm/cco/{kb_id}/update",
             params=params,
         )
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
