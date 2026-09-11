@@ -61,7 +61,6 @@ async def upload_file_to_batch(
     file: UploadFile = File(...),
     source_path: str = Form(...),
     user_metadata: Optional[str] = Form(None),
-    kb_id: str = Form("default"),
     force: bool = Form(False),
 ):
     if batch_id not in batches:
@@ -78,7 +77,7 @@ async def upload_file_to_batch(
     
     # Merged metadata (file metadata takes precedence if keys overlap)
     merged_metadata = {**batch_metadata, **file_metadata}
-    
+
     batch_info = batches[batch_id]
     
     if batch_info.get("source_type") == "mediawiki_export":
@@ -111,7 +110,6 @@ async def upload_file_to_batch(
             data={
                 "source_path": source_path,
                 "user_metadata": json.dumps(merged_metadata),
-                "kb_id": kb_id,
                 "force": str(force).lower(),
             }
         )
