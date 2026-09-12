@@ -17,14 +17,89 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from retriva_gateway.core.client import core_client
 from retriva_gateway.core.filters import FilterManager
 from loguru import logger
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 import datetime
 import json
 
 from retriva_gateway.core.models import ChatRequest
 from retriva_gateway.core.context import get_correlation_id
+from retriva_gateway.config import settings
 
 router = APIRouter(tags=["chat"])
+
+
+def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse]:
+    """Decide whether this request should run the tool-calling agent loop.
+
+    Agent mode requires: tools enabled in config, a session_id, explicit
+    tools_enabled opt-in, and non-streaming.  Returns None for plain chat.
+    """
+    if not settings.AGENT_TOOLS_ENABLED:
+        return None
+    if not request.tools_enabled or not request.session_id:
+        return None
+    if request.stream:
+        # Agent mode is non-streaming in v1; fall back to plain chat.
+        logger.warning(f"[{corr_id}] agent mode requested with stream=True; using plain chat")
+        return None
+    return _AGENT_SENTINEL
+
+
+# Sentinel returned by _run_agent_mode when the agent path should run.
+_AGENT_SENTINEL = object()
+
+
+async def _agent_chat(request: ChatRequest, corr_id: str) -> JSONResponse:
+    """Run the bounded agent loop (async; called from the chat endpoint)."""
+    from retriva_gateway.agent.loop import (
+        AgentLoopError,
+        run_agent_loop,
+    )
+    from retriva_gateway.agent.tools import ToolContext, build_default_tool_registry
+
+    registry = build_default_tool_registry(
+        allow_list=settings.AGENT_TOOL_ALLOWLIST or None
+    )
+    ctx = ToolContext(
+        session_id=request.session_id or "",
+        kb_id=request.kb_ids[0] if request.kb_ids else "default",
+        allowed_attachment_ids=list(request.attachment_ids or []),
+        correlation_id=corr_id,
+    )
+    try:
+        result = await run_agent_loop(
+            user_message=request.message,
+            registry=registry,
+            ctx=ctx,
+            kb_ids=request.kb_ids,
+            metadata_filters=[f.model_dump() for f in (request.metadata_filters or [])],
+            metadata_filter_mode=request.metadata_filter_mode.value,
+        )
+    except AgentLoopError as e:
+        return JSONResponse(status_code=503, content={
+            "detail": (
+                f"Candidate qualification cannot be executed from this chat: "
+                f"{e}. I will not simulate scores or Web Research results."
+            )
+        })
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"[{corr_id}] agent loop failed")
+        return JSONResponse(status_code=502, content={
+            "detail": f"Agent loop failed: {e}",
+        })
+    return JSONResponse(content={
+        "id": f"msg_{datetime.datetime.now().timestamp()}",
+        "role": "assistant",
+        "content": result.content,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "citations": [],
+        "agent": {
+            "iterations": result.iterations,
+            "stopped_reason": result.stopped_reason,
+            "tool_calls": result.tool_calls_executed,
+        },
+    })
+
 
 def _transform_citations(core_sources: list) -> list:
     citations = []
@@ -54,7 +129,13 @@ async def chat(request: ChatRequest):
     kb_ids = request.kb_ids
     message = request.message
     stream = request.stream
-    
+
+    # Agent mode: bounded tool-calling loop over typed extension tools.
+    # Only when explicitly requested (tools_enabled + session_id) and
+    # enabled in config; plain chat otherwise (backward compatible).
+    if _run_agent_mode(request, corr_id) is not None:
+        return await _agent_chat(request, corr_id)
+
     # Priority: metadata_filters (list) > filters (dict)
     explicit_filters = request.metadata_filters or request.filters or []
     mode = request.metadata_filter_mode

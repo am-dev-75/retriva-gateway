@@ -79,6 +79,17 @@ class Settings(BaseSettings):
     RETRIVA_DEFAULT_COLLECTION: str = "retriva_chunks"
     GATEWAY_INTERNAL_SERVICE_TOKEN: str = ""  # Empty = auth disabled for internal endpoints
 
+    # --- Chat agent loop (typed extension tools) ---
+    # Master switch: when False, /gateway/chat behaves exactly as before
+    # (plain RAG passthrough) even when session_id/tools_enabled are sent.
+    AGENT_TOOLS_ENABLED: bool = True
+    # Allow-list of tool names the model may invoke. Empty = all registered.
+    AGENT_TOOL_ALLOWLIST: StringList = []
+    # Max LLM<->tool iterations per chat request (recursion protection).
+    AGENT_MAX_TOOL_ITERATIONS: int = 6
+    # Per-tool-call timeout in seconds.
+    AGENT_TOOL_TIMEOUT_SECONDS: float = 120.0
+
     LOG_LEVEL: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

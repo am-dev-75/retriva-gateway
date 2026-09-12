@@ -54,6 +54,15 @@ class ChatRequest(BaseModel):
     metadata_filter_mode: MetadataFilterMode = MetadataFilterMode.SOFT
     stream: bool = False
     filters: Optional[Dict[str, Any]] = None # Legacy support
+    # --- Agent mode (optional; plain chat when absent) ---
+    # Chat session owning any candidate attachments. When set together with
+    # tools_enabled, the Gateway runs the bounded tool-calling agent loop.
+    session_id: Optional[str] = None
+    # Explicit opt-in for the tool-calling agent loop.
+    tools_enabled: bool = False
+    # Attachment IDs the model may reference (must belong to session_id).
+    # Empty = no attachments available to the agent.
+    attachment_ids: Optional[List[str]] = None
 
 class SearchRequest(BaseModel):
     query: str

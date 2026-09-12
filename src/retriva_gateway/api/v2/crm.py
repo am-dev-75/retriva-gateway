@@ -50,6 +50,21 @@ async def crm_health():
         return {"status": "unavailable", "error": str(e)}
 
 
+@router.get("/readiness")
+async def crm_readiness():
+    """Structured qualification preflight/readiness (proxied from Core).
+
+    Reports web-research provider readiness (mock-only detection), ICP/CCO
+    readiness semantics, and whether qualification can proceed.  Consumed by
+    the chat agent preflight tool.
+    """
+    try:
+        resp = await core_client._request("GET", core_client.ingestion_base_url, "/api/v2/crm/readiness")
+        return resp.json()
+    except Exception as e:
+        return {"status": "unavailable", "error": str(e)}
+
+
 @router.post("/qualify", status_code=status.HTTP_202_ACCEPTED)
 async def crm_qualify(request: QualifyRequest):
     """Start a CRM qualification job."""
