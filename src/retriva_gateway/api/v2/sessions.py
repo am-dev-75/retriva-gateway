@@ -105,6 +105,20 @@ async def delete_attachment(session_id: str, attachment_id: str):
 # Artifacts
 # ---------------------------------------------------------------------------
 
+@router.get("/artifacts")
+async def list_all_artifacts(limit: int = 200):
+    """Artifact index across ALL sessions (most recent first).
+
+    Powers the frontend artifact page: users should not need to know
+    session IDs to find their generated reports.
+    """
+    resp = await core_client._request(
+        "GET", core_client.ingestion_base_url,
+        f"/api/v2/sessions/artifacts?limit={limit}",
+    )
+    return resp.json()
+
+
 @router.get("/{session_id}/artifacts")
 async def list_artifacts(session_id: str):
     resp = await core_client._request("GET", core_client.ingestion_base_url, f"/api/v2/sessions/{session_id}/artifacts")
