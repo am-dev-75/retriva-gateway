@@ -54,7 +54,7 @@ async def crm_health():
 async def crm_readiness():
     """Structured qualification preflight/readiness (proxied from Core).
 
-    Reports web-research provider readiness (mock-only detection), ICP/CCO
+    Reports web-research provider readiness (mock-only detection), ACP/CCO
     readiness semantics, and whether qualification can proceed.  Consumed by
     the chat agent preflight tool.
     """
@@ -126,7 +126,8 @@ async def crm_rebuild_portfolio(kb_id: str, collection_name: Optional[str] = Non
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
 
-@router.get("/icp/{kb_id}")
+@router.get("/acp/{kb_id}")
+@router.get("/icp/{kb_id}", deprecated=True)  # deprecated alias of /acp/
 async def crm_get_icp(kb_id: str, collection_name: Optional[str] = None):
     params = {"collection_name": collection_name} if collection_name else None
     try:
@@ -141,7 +142,8 @@ async def crm_get_icp(kb_id: str, collection_name: Optional[str] = None):
 
 # --- ICP / CCO global variable text (user-editable) ---
 
-@router.get("/icp/{kb_id}/text")
+@router.get("/acp/{kb_id}/text")
+@router.get("/icp/{kb_id}/text", deprecated=True)  # deprecated alias
 async def crm_get_icp_text(kb_id: str):
     try:
         resp = await core_client._request(
@@ -152,7 +154,8 @@ async def crm_get_icp_text(kb_id: str):
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
 
-@router.put("/icp/{kb_id}/text")
+@router.put("/acp/{kb_id}/text")
+@router.put("/icp/{kb_id}/text", deprecated=True)  # deprecated alias
 async def crm_save_icp_text(kb_id: str, body: dict):
     try:
         resp = await core_client._request(
@@ -164,7 +167,8 @@ async def crm_save_icp_text(kb_id: str, body: dict):
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
 
-@router.post("/icp/{kb_id}/update")
+@router.post("/acp/{kb_id}/update")
+@router.post("/icp/{kb_id}/update", deprecated=True)  # deprecated alias
 async def crm_update_icp(kb_id: str, collection_name: Optional[str] = None):
     params = {"collection_name": collection_name} if collection_name else None
     try:

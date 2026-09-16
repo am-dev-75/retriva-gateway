@@ -307,7 +307,7 @@ async def _tool_cancel_qualification_job(args: Dict[str, Any], ctx: ToolContext)
 
 
 async def _tool_get_qualification_readiness(args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
-    """Preflight: web-research provider readiness + ICP/CCO readiness."""
+    """Preflight: web-research provider readiness + ACP/CCO readiness."""
     return await _crm_request("GET", "/api/v2/crm/readiness")
 
 
@@ -325,7 +325,7 @@ def build_crm_tools() -> List[ToolDefinition]:
             description=(
                 "Check whether candidate qualification can proceed in the "
                 "selected knowledge base: web-research provider readiness "
-                "(mock-only configurations are rejected), ICP and CCO "
+                "(mock-only configurations are rejected), ACP and CCO "
                 "readiness. Call this BEFORE qualify_candidates."
             ),
             parameters={"type": "object", "properties": {}, "required": []},
@@ -369,7 +369,7 @@ def build_crm_tools() -> List[ToolDefinition]:
             description=(
                 "Get the status of an asynchronous qualification job: state, "
                 "progress, stage detail, candidate/result counts, warnings, "
-                "ICP/CCO versions, analysis mode."
+                "ACP/CCO versions, analysis mode."
             ),
             parameters={
                 "type": "object",
