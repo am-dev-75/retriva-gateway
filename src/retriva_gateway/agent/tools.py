@@ -159,7 +159,12 @@ async def _crm_request(method: str, path: str, **kwargs) -> Dict[str, Any]:
 
 async def _tool_qualify_candidates(args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
     attachment_id = args.get("attachment_id", "")
-    if ctx.allowed_attachment_ids and attachment_id not in ctx.allowed_attachment_ids:
+    if not attachment_id or not ctx.allowed_attachment_ids:
+        raise ToolExecutionError(
+            "missing_attachment",
+            "Attach a supported candidate workbook to the current chat session first.",
+        )
+    if attachment_id not in ctx.allowed_attachment_ids:
         raise ToolExecutionError(
             "identifier_not_allowed",
             "attachment_id is not an attachment of the current chat session.",
@@ -323,10 +328,16 @@ def build_crm_tools() -> List[ToolDefinition]:
         ToolDefinition(
             name="get_qualification_readiness",
             description=(
-                "Check whether candidate qualification can proceed in the "
-                "selected knowledge base: web-research provider readiness "
-                "(mock-only configurations are rejected), ACP and CCO "
-                "readiness. Call this BEFORE qualify_candidates."
+                "Report qualification readiness: active GLOBAL ACP, usable "
+                "authoritative GLOBAL CCO, job-level blocking_reasons, and Web "
+                "Research warnings. No KB selection is required. Call BEFORE "
+                "qualify_candidates. GENERAL_WEB degradation alone is not a "
+                "blocker: with official-site research enabled, invoke the "
+                "workflow even for an unparsed workbook. The workflow verifies "
+                "domains and defers only candidates requiring unavailable "
+                "external discovery. Do not infer candidate capability here. "
+                "Preserve explicit job-level blockers, including mock-only "
+                "configuration or unavailable qualification service."
             ),
             parameters={"type": "object", "properties": {}, "required": []},
             execute=_tool_get_qualification_readiness,
@@ -337,6 +348,14 @@ def build_crm_tools() -> List[ToolDefinition]:
                 "Start the deterministic Prospect Discovery & Qualification "
                 "pipeline for an attachment in the current chat session. "
                 "The attachment must already be uploaded to the session. "
+                "Invoke on workbook qualification requests unless readiness "
+                "reports a true job-level blocker. Uses active global ACP/CCO, "
+                "not a KB-selected profile. GENERAL_WEB is not mandatory when "
+                "official-site research is enabled: the workflow parses the "
+                "workbook, verifies supplied official websites, selects "
+                "VERIFIED_DOMAIN_RESEARCH per candidate, and defers candidates "
+                "requiring unavailable external discovery. Do not pre-parse "
+                "or make candidate research decisions in chat. "
                 "Returns a job_id for monitoring. If a job for the same "
                 "attachment is already running in this session, the existing "
                 "job is returned (status already_running) — do NOT start "
