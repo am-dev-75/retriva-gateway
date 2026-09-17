@@ -89,6 +89,41 @@ async def crm_get_job(job_id: str):
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
 
+@router.get("/jobs/{job_id}/results")
+async def crm_get_job_results(job_id: str):
+    """Proxy the structured per-candidate results of a completed job.
+
+    Pure transport: mirrors the CRM extension's /jobs/{job_id}/results
+    (409 until COMPLETED*, 410 after eviction). The E2E harness uses this
+    for acceptance checks and ACP/CCO binding verification.
+    """
+    try:
+        resp = await core_client._request(
+            "GET", core_client.ingestion_base_url,
+            f"/api/v2/crm/jobs/{job_id}/results",
+        )
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
+@router.get("/sessions/{session_id}/jobs")
+async def crm_list_session_jobs(session_id: str):
+    """Proxy the session-scoped job listing.
+
+    Enables clients (E2E harness, cross-turn chat resumption) to discover
+    the jobs of THEIR OWN session without relying on LLM-remembered job IDs.
+    """
+    try:
+        resp = await core_client._request(
+            "GET", core_client.ingestion_base_url,
+            f"/api/v2/crm/sessions/{session_id}/jobs",
+        )
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
 @router.post("/jobs/{job_id}/cancel", status_code=status.HTTP_202_ACCEPTED)
 async def crm_cancel_job(job_id: str):
     try:
