@@ -360,3 +360,136 @@ async def intel_schema():
 @router.get("/intelligence/review")
 async def intel_review_page():
     return await _proxy_intelligence("GET", "/review")
+
+
+# ---------------------------------------------------------------------------
+# Durable Completed-Job Archive (Milestone A) — pass-through mirrors of the
+# CRM extension's /archive/* endpoints: archived jobs, candidate results,
+# assessment drafts (incl. approve/reject/request-research), artifacts,
+# retry lineage, retry-from-archive and schema status.
+# ---------------------------------------------------------------------------
+
+async def _proxy_archive(method: str, sub_path: str, body=None,
+                         params: Optional[dict] = None):
+    """Forward to Core's /api/v2/crm/archive/* (pure transport)."""
+    try:
+        kwargs = {}
+        if body is not None:
+            kwargs["json"] = body
+        if params:
+            kwargs["params"] = {k: v for k, v in params.items()
+                                if v is not None}
+        resp = await core_client._request(
+            method, core_client.ingestion_base_url,
+            f"/api/v2/crm/archive{sub_path}", **kwargs)
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type"),
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=e.response.status_code, detail=e.response.text)
+
+
+@router.get("/archive/jobs")
+async def archive_list_jobs(session_id: Optional[str] = None,
+                            state: Optional[str] = None,
+                            limit: int = 50,
+                            offset: int = 0,
+                            order: str = "desc"):
+    return await _proxy_archive(
+        "GET", "/jobs", params={
+            "session_id": session_id, "state": state, "limit": limit,
+            "offset": offset, "order": order})
+
+
+@router.get("/archive/jobs/{job_id}")
+async def archive_get_job(job_id: str):
+    return await _proxy_archive("GET", f"/jobs/{job_id}")
+
+
+@router.get("/archive/jobs/{job_id}/results")
+async def archive_get_results(job_id: str):
+    return await _proxy_archive("GET", f"/jobs/{job_id}/results")
+
+
+@router.get("/archive/jobs/{job_id}/candidates/{candidate_id}")
+async def archive_get_candidate(job_id: str, candidate_id: str):
+    return await _proxy_archive(
+        "GET", f"/jobs/{job_id}/candidates/{candidate_id}")
+
+
+@router.get("/archive/jobs/{job_id}/lineage")
+async def archive_get_lineage(job_id: str):
+    return await _proxy_archive("GET", f"/jobs/{job_id}/lineage")
+
+
+@router.get("/archive/jobs/{job_id}/drafts")
+async def archive_list_drafts(job_id: str,
+                              review_status: Optional[str] = None,
+                              limit: int = 100,
+                              offset: int = 0):
+    return await _proxy_archive(
+        "GET", f"/jobs/{job_id}/drafts", params={
+            "review_status": review_status, "limit": limit,
+            "offset": offset})
+
+
+@router.get("/archive/jobs/{job_id}/artifacts")
+async def archive_list_artifacts(job_id: str):
+    return await _proxy_archive("GET", f"/jobs/{job_id}/artifacts")
+
+
+@router.post("/archive/jobs/{job_id}/retry")
+async def archive_retry_job(job_id: str, body: dict):
+    return await _proxy_archive("POST", f"/jobs/{job_id}/retry", body)
+
+
+@router.get("/archive/drafts")
+async def archive_list_all_drafts(review_status: Optional[str] = None,
+                                 limit: int = 100,
+                                 offset: int = 0):
+    return await _proxy_archive(
+        "GET", "/drafts", params={
+            "review_status": review_status, "limit": limit,
+            "offset": offset})
+
+
+@router.get("/archive/drafts/{draft_id}")
+async def archive_get_draft(draft_id: str):
+    return await _proxy_archive("GET", f"/drafts/{draft_id}")
+
+
+@router.post("/archive/drafts/{draft_id}/approve")
+async def archive_approve_draft(draft_id: str, body: dict):
+    return await _proxy_archive("POST", f"/drafts/{draft_id}/approve", body)
+
+
+@router.post("/archive/drafts/{draft_id}/reject")
+async def archive_reject_draft(draft_id: str, body: dict):
+    return await _proxy_archive("POST", f"/drafts/{draft_id}/reject", body)
+
+
+@router.post("/archive/drafts/{draft_id}/request-research")
+async def archive_request_research(draft_id: str, body: dict):
+    return await _proxy_archive(
+        "POST", f"/drafts/{draft_id}/request-research", body)
+
+
+@router.get("/archive/research-requests")
+async def archive_list_research_requests(status_filter: Optional[str] = None,
+                                         limit: int = 100):
+    return await _proxy_archive(
+        "GET", "/research-requests", params={
+            "status_filter": status_filter, "limit": limit})
+
+
+@router.get("/archive/artifacts/{artifact_id}/content")
+async def archive_read_artifact(artifact_id: str):
+    return await _proxy_archive("GET", f"/artifacts/{artifact_id}/content")
+
+
+@router.get("/archive/schema")
+async def archive_schema():
+    return await _proxy_archive("GET", "/schema")
