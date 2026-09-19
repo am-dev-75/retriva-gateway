@@ -39,6 +39,10 @@ class QualifyRequest(BaseModel):
     attachment_id: str
     kb_id: str = "default"
     collection_name: Optional[str] = None
+    # Request-level approved-store reuse policy, passed through to the
+    # CRM extension (PREFER_APPROVED | FORCE_REQUALIFICATION |
+    # COMPARE_WITH_APPROVED | ...).
+    reuse_policy: Optional[str] = None
 
 
 @router.get("/health")
@@ -250,3 +254,109 @@ async def crm_update_cco(kb_id: str, collection_name: Optional[str] = None):
         return resp.json()
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+# ---------------------------------------------------------------------------
+# Human-approved Company Intelligence Store (review API pass-through).
+# Pure transport: mirrors the CRM extension's /intelligence/* endpoints
+# (qualification review queue, approval/rejection/revocation, history,
+# comparison, metrics, schema status and the review UI page).
+# ---------------------------------------------------------------------------
+
+_INTEL_PATHS = {
+    ("GET", "/intelligence/assessments"),
+    ("POST", "/intelligence/assessments"),
+    ("GET", "/intelligence/assessments/{assessment_id}"),
+    ("POST", "/intelligence/assessments/{assessment_id}/submit-review"),
+    ("POST", "/intelligence/assessments/{assessment_id}/approve"),
+    ("GET", "/intelligence/companies/{identity_id}/history"),
+    ("GET", "/intelligence/companies/{identity_id}/latest-approved"),
+    ("GET", "/intelligence/assessments/{a_id}/compare/{b_id}"),
+    ("GET", "/intelligence/metrics"),
+    ("GET", "/intelligence/schema"),
+    ("GET", "/intelligence/review"),
+}
+
+
+async def _proxy_intelligence(method: str, sub_path: str, body=None):
+    try:
+        kwargs = {}
+        if body is not None:
+            kwargs["json"] = body
+        resp = await core_client._request(
+            method, core_client.ingestion_base_url,
+            f"/api/v2/crm/intelligence{sub_path}", **kwargs)
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type"),
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=e.response.text)
+
+
+@router.get("/intelligence/assessments")
+async def intel_list_assessments(status_filter: Optional[str] = None,
+                                  awaiting_review: bool = False):
+    return await _proxy_intelligence(
+        "GET",
+        f"/assessments?status_filter={status_filter or ''}"
+        f"&awaiting_review={'true' if awaiting_review else 'false'}")
+
+
+@router.post("/intelligence/assessments")
+async def intel_create_assessment(body: dict):
+    return await _proxy_intelligence("POST", "/assessments", body)
+
+
+@router.get("/intelligence/assessments/{assessment_id}")
+async def intel_get_assessment(assessment_id: str):
+    return await _proxy_intelligence(
+        "GET", f"/assessments/{assessment_id}")
+
+
+@router.post(
+    "/intelligence/assessments/{assessment_id}/submit-review")
+async def intel_submit_review(assessment_id: str):
+    return await _proxy_intelligence(
+        "POST", f"/assessments/{assessment_id}/submit-review", {})
+
+
+@router.post("/intelligence/assessments/{assessment_id}/approve")
+async def intel_approve(assessment_id: str, body: dict):
+    return await _proxy_intelligence(
+        "POST", f"/assessments/{assessment_id}/approve", body)
+
+
+@router.get("/intelligence/companies/{identity_id}/history")
+async def intel_company_history(identity_id: str):
+    return await _proxy_intelligence(
+        "GET", f"/companies/{identity_id}/history")
+
+
+@router.get(
+    "/intelligence/companies/{identity_id}/latest-approved")
+async def intel_latest_approved(identity_id: str):
+    return await _proxy_intelligence(
+        "GET", f"/companies/{identity_id}/latest-approved")
+
+
+@router.get("/intelligence/assessments/{a_id}/compare/{b_id}")
+async def intel_compare(a_id: str, b_id: str):
+    return await _proxy_intelligence("GET", f"/assessments/{a_id}/compare/{b_id}")
+
+
+@router.get("/intelligence/metrics")
+async def intel_metrics():
+    return await _proxy_intelligence("GET", "/metrics")
+
+
+@router.get("/intelligence/schema")
+async def intel_schema():
+    return await _proxy_intelligence("GET", "/schema")
+
+
+@router.get("/intelligence/review")
+async def intel_review_page():
+    return await _proxy_intelligence("GET", "/review")
