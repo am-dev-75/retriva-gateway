@@ -277,6 +277,8 @@ _INTEL_PATHS = {
     ("GET", "/intelligence/assessments/{assessment_id}/report"),
     ("GET", "/intelligence/apollo/readiness"),
     ("POST", "/intelligence/request-research"),
+    ("GET", "/intelligence/research-requests/{request_id}"),
+    ("POST", "/intelligence/research-requests/{request_id}/execute"),
 }
 
 
@@ -514,3 +516,15 @@ async def intel_apollo_readiness():
 async def intel_request_research(body: dict):
     return await _proxy_intelligence(
         "POST", "/request-research", body)
+
+
+@router.get("/intelligence/research-requests/{request_id}")
+async def intel_research_request_status(request_id: str):
+    return await _proxy_intelligence("GET", f"/research-requests/{request_id}")
+
+
+@router.post("/intelligence/research-requests/{request_id}/execute")
+async def intel_research_request_execute(request_id: str):
+    # Pure transport: the Core enforces the trusted service principal.
+    return await _proxy_intelligence(
+        "POST", f"/research-requests/{request_id}/execute")
