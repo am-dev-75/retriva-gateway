@@ -274,6 +274,9 @@ _INTEL_PATHS = {
     ("GET", "/intelligence/metrics"),
     ("GET", "/intelligence/schema"),
     ("GET", "/intelligence/review"),
+    ("GET", "/intelligence/assessments/{assessment_id}/report"),
+    ("GET", "/intelligence/apollo/readiness"),
+    ("POST", "/intelligence/request-research"),
 }
 
 
@@ -493,3 +496,21 @@ async def archive_read_artifact(artifact_id: str):
 @router.get("/archive/schema")
 async def archive_schema():
     return await _proxy_archive("GET", "/schema")
+
+
+@router.get("/intelligence/assessments/{assessment_id}/report")
+async def intel_assessment_report(assessment_id: str):
+    return await _proxy_intelligence(
+        "GET", f"/assessments/{assessment_id}/report")
+
+
+@router.get("/intelligence/apollo/readiness")
+async def intel_apollo_readiness():
+    """Zero-credit Apollo auth readiness (proxied from Core)."""
+    return await _proxy_intelligence("GET", "/apollo/readiness")
+
+
+@router.post("/intelligence/request-research")
+async def intel_request_research(body: dict):
+    return await _proxy_intelligence(
+        "POST", "/request-research", body)
