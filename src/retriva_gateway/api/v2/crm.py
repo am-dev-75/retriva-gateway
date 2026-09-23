@@ -23,7 +23,7 @@ The Gateway is a thin pass-through.
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 from loguru import logger
@@ -528,3 +528,34 @@ async def intel_research_request_execute(request_id: str):
     # Pure transport: the Core enforces the trusted service principal.
     return await _proxy_intelligence(
         "POST", f"/research-requests/{request_id}/execute")
+
+
+# ---------------------------------------------------------------------------
+# ERP import workflow (Phase 3 of the PostgreSQL Business Intelligence
+# program): thin passthrough subtree.  The CRM extension enforces all
+# semantics (tenant scoping, permissions, staging, approval, commit).
+# ---------------------------------------------------------------------------
+
+@router.api_route("/imports/{path:path}", methods=["GET", "POST"])
+async def crm_imports_passthrough(path: str, request: Request):
+    """Forward /api/v2/crm/imports/* to Core (body passthrough)."""
+    try:
+        kwargs: dict = {}
+        body = await request.body()
+        if body:
+            kwargs["content"] = body
+            content_type = request.headers.get("content-type")
+            if content_type:
+                kwargs["headers"] = {"Content-Type": content_type}
+        resp = await core_client._request(
+            request.method, core_client.ingestion_base_url,
+            f"/api/v2/crm/imports/{path}", **kwargs)
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type"),
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=e.response.text)

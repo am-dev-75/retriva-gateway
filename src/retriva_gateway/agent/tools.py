@@ -462,7 +462,185 @@ def build_crm_tools() -> List[ToolDefinition]:
             execute=_tool_cancel_qualification_job,
             destructive=True,
         ),
+        ToolDefinition(
+            name="analyze_company_import",
+            description=(
+                "Analyze an ERP company workbook (XLSX) attached to the "
+                "current chat session and stage it for review: companies, "
+                "customers, suppliers, VAT/registration identifiers, "
+                "domains, roles and firmographics. The analysis NEVER "
+                "changes canonical business data — it produces an import "
+                "batch with proposed changes, conflicts and a review URL; "
+                "a human must review, approve and commit before anything "
+                "is written. On a request to import companies from an "
+                "attached workbook, call this tool. If profile selection "
+                "is ambiguous the result says so — ask the user which "
+                "profile to use instead of guessing. Never invent "
+                "attachment ids. If a batch for the same workbook was "
+                "already analyzed, report its status instead of "
+                "re-analyzing."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "attachment_id": {
+                        "type": "string",
+                        "description": "Attachment ID of the ERP workbook "
+                                       "in the current session.",
+                    },
+                    "source_system": {
+                        "type": "string",
+                        "description": "Source system label for the "
+                                       "workbook (e.g. 'erp').",
+                    },
+                    "profile": {
+                        "type": "string",
+                        "description": "Import profile: AUTO (default) or "
+                                       "an explicit label such as "
+                                       "ERP_CUSTOMER_EXPORT_V1.",
+                    },
+                    "default_country": {
+                        "type": "string",
+                        "description": "Optional default country (ISO "
+                                       "code) for rows without one.",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Optional import notes recorded "
+                                       "with the batch.",
+                    },
+                },
+                "required": ["attachment_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_analyze_company_import,
+        ),
+        ToolDefinition(
+            name="commit_company_import",
+            description=(
+                "Commit an APPROVED ERP import batch into the company "
+                "database (transactional, idempotent). ONLY call this "
+                "after the user EXPLICITLY asks to commit an approved "
+                "import batch — never automatically after analysis, and "
+                "never for a batch that is not APPROVED. The batch must "
+                "have been analyzed with analyze_company_import and "
+                "approved through the review workflow. Returns the "
+                "reconciliation report of created/updated records."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "import_batch_id": {
+                        "type": "string",
+                        "description": "Import batch ID returned by "
+                                       "analyze_company_import.",
+                    },
+                    "idempotency_key": {
+                        "type": "string",
+                        "description": "Optional idempotency key: "
+                                       "recommitting the same approved "
+                                       "batch with the same key returns "
+                                       "the existing result.",
+                    },
+                },
+                "required": ["import_batch_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_commit_company_import,
+            destructive=True,
+        ),
     ]
+
+
+async def _tool_analyze_company_import(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """analyze_company_import: stage an ERP workbook for review."""
+    attachment_id = args.get("attachment_id", "")
+    if not attachment_id or not ctx.allowed_attachment_ids:
+        raise ToolExecutionError(
+            "missing_attachment",
+            "Attach the ERP workbook (XLSX) to the current chat session "
+            "first.",
+        )
+    if attachment_id not in ctx.allowed_attachment_ids:
+        raise ToolExecutionError(
+            "identifier_not_allowed",
+            "attachment_id is not an attachment of the current chat "
+            "session.",
+            http_status=403,
+        )
+    payload: Dict[str, Any] = {
+        "session_id": ctx.session_id,
+        "attachment_id": attachment_id,
+        "source_system": args.get("source_system") or "erp",
+        "profile": args.get("profile") or "AUTO",
+    }
+    if args.get("default_country"):
+        payload["default_country"] = args["default_country"]
+    if args.get("notes"):
+        payload["notes"] = args["notes"]
+    result = await _crm_request(
+        "POST", "/api/v2/crm/imports/analyze", json=payload)
+
+    if result.get("status") == "PROFILE_SELECTION_REQUIRED":
+        selection = result.get("profile_selection") or {}
+        result["chat_summary"] = (
+            "The workbook's layout does not match a single import profile "
+            "confidently "
+            f"(reason: {selection.get('reason')}). Ask the user to choose "
+            "one of: " + ", ".join(
+                alt.get("profile", "?")
+                for alt in (selection.get("alternatives") or [])[:4]
+            ) + ", then analyze again with that profile."
+        )
+        return result
+
+    counters = result.get("counters") or {}
+    result["chat_summary"] = (
+        "Workbook analyzed and staged for review — canonical company data "
+        "is NOT changed until a human approves and commits the import. "
+        f"Batch {result.get('import_batch_id')}: {counters.get('rows_received', 0)} rows "
+        f"({counters.get('new_organizations_proposed', 0)} new organizations, "
+        f"{counters.get('exact_matches', 0)} existing matches, "
+        f"{counters.get('probable_or_ambiguous', 0)} needing review, "
+        f"{counters.get('conflicts', 0)} conflicts). "
+        f"Review URL: {result.get('review_url')}"
+    )
+    return result
+
+
+async def _tool_commit_company_import(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """commit_company_import: commit an APPROVED import batch."""
+    batch_id = (args.get("import_batch_id") or "").strip()
+    if not batch_id:
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "import_batch_id is required.",
+        )
+    payload: Dict[str, Any] = {
+        "actor_id": f"chat:{ctx.session_id}",
+    }
+    if args.get("idempotency_key"):
+        payload["idempotency_key"] = args["idempotency_key"]
+    result = await _crm_request(
+        "POST", f"/api/v2/crm/imports/batches/{batch_id}/commit",
+        json=payload)
+    applied = result.get("applied") or {}
+    recon = result.get("reconciliation_summary") or {}
+    counters = recon.get("counters") or {}
+    result["chat_summary"] = (
+        f"Import batch {batch_id} committed"
+        + (" (idempotent replay)" if result.get("idempotent_replay")
+           else "")
+        + f": {counters.get('created_organizations', 0)} organizations "
+        "created, "
+        + f"{counters.get('updated_organizations', 0)} updated, "
+        + f"{counters.get('roles_added', 0)} roles, "
+        + f"{counters.get('identifiers_added', 0)} identifiers. "
+        f"Reconciliation: {result.get('reconciliation_url')}"
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------
