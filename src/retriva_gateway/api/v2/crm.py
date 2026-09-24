@@ -559,3 +559,39 @@ async def crm_imports_passthrough(path: str, request: Request):
         raise HTTPException(
             status_code=e.response.status_code,
             detail=e.response.text)
+
+
+# ---------------------------------------------------------------------------
+# Company-level campaign tracking + audience planning: thin passthrough
+# subtree.  The CRM extension enforces all semantics (tenant scoping,
+# permissions, addressed invariant, selection lifecycle).
+# ---------------------------------------------------------------------------
+
+@router.api_route("/campaigns/{path:path}", methods=["GET", "POST",
+                                                    "PATCH"])
+async def crm_campaigns_passthrough(path: str, request: Request):
+    """Forward /api/v2/crm/campaigns/* to Core (body passthrough)."""
+    try:
+        kwargs: dict = {}
+        body = await request.body()
+        if body:
+            kwargs["content"] = body
+            content_type = request.headers.get("content-type")
+            if content_type:
+                kwargs["headers"] = {"Content-Type": content_type}
+        query = request.url.query
+        resp = await core_client._request(
+            request.method, core_client.ingestion_base_url,
+            f"/api/v2/crm/campaigns/{path}",
+            params=dict(kv.split("=", 1) for kv in query.split("&")
+                        if kv) or None,
+            **kwargs)
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type"),
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=e.response.text)

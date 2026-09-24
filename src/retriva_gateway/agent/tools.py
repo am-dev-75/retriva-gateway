@@ -549,6 +549,312 @@ def build_crm_tools() -> List[ToolDefinition]:
             execute=_tool_commit_company_import,
             destructive=True,
         ),
+        ToolDefinition(
+            name="create_campaign",
+            description=(
+                "Create a DRAFT outbound campaign (company-level "
+                "campaign tracking). Validates campaign-code uniqueness "
+                "within the tenant; the campaign is NOT activated — "
+                "status stays DRAFT until a human promotes it. The "
+                "human-facing identifier is the campaign_code (e.g. "
+                "2026-CRA-It-SPS); campaign family, country, language "
+                "and segment must be provided as explicit fields, never "
+                "parsed out of the code."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "campaign_code": {
+                        "type": "string",
+                        "description": "Business campaign identifier "
+                                       "(e.g. 2026-CRA-It-SPS).",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Human-readable campaign name.",
+                    },
+                    "campaign_family": {
+                        "type": "string",
+                        "description": "Campaign family (e.g. CRA).",
+                    },
+                    "country_code": {
+                        "type": "string",
+                        "description": "Country (ISO code, e.g. IT).",
+                    },
+                    "language_code": {
+                        "type": "string",
+                        "description": "Language (e.g. it).",
+                    },
+                    "segment_code": {
+                        "type": "string",
+                        "description": "Segment (e.g. SPS).",
+                    },
+                    "parent_campaign_id": {
+                        "type": "string",
+                        "description": "Optional parent campaign "
+                                       "(code or ID).",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional description.",
+                    },
+                },
+                "required": ["campaign_code", "name"],
+                "additionalProperties": False,
+            },
+            execute=_tool_create_campaign,
+        ),
+        ToolDefinition(
+            name="analyze_campaign_audience",
+            description=(
+                "Plan a campaign audience: evaluate every organization "
+                "of the tenant against an approved selection policy and "
+                "record one EXPLAINABLE decision per company "
+                "(SELECT/EXCLUDE/SUPPRESS/REVIEW/DEFER). NEVER changes "
+                "campaign membership; produces a selection run with a "
+                "review URL. Requires an approved policy ID/name or an "
+                "inline policy payload."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "campaign": {
+                        "type": "string",
+                        "description": "Campaign code or ID (e.g. "
+                                       "2026-CRA-It-SPS).",
+                    },
+                    "policy_selector": {
+                        "type": "string",
+                        "description": "Approved selection policy (ID "
+                                       "or name).",
+                    },
+                    "policy_payload": {
+                        "type": "object",
+                        "description": "Inline policy (creates a new "
+                                       "DRAFT version); use only when "
+                                       "the user supplied explicit "
+                                       "policy values.",
+                    },
+                    "parameters": {
+                        "type": "object",
+                        "description": "Optional planning parameters.",
+                    },
+                },
+                "required": ["campaign"],
+                "additionalProperties": False,
+            },
+            execute=_tool_analyze_campaign_audience,
+        ),
+        ToolDefinition(
+            name="approve_campaign_audience",
+            description=(
+                "Approve a REVIEWED selection run (NEEDS_REVIEW -> "
+                "APPROVED). Approval is refused by the server while "
+                "blocking REVIEW decisions remain unresolved. This does "
+                "NOT commit anything yet."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "selection_run_id": {
+                        "type": "string",
+                        "description": "Selection run ID returned by "
+                                       "analyze_campaign_audience.",
+                    },
+                },
+                "required": ["selection_run_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_approve_campaign_audience,
+        ),
+        ToolDefinition(
+            name="commit_campaign_audience",
+            description=(
+                "Commit an APPROVED selection run (transactional, "
+                "idempotent). Creates or updates campaign-company "
+                "associations; does NOT mark any company as addressed. "
+                "ONLY call after the user EXPLICITLY asks to commit the "
+                "approved audience."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "selection_run_id": {
+                        "type": "string",
+                        "description": "APPROVED selection run ID.",
+                    },
+                    "idempotency_key": {
+                        "type": "string",
+                        "description": "Optional idempotency key.",
+                    },
+                },
+                "required": ["selection_run_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_commit_campaign_audience,
+            destructive=True,
+        ),
+        ToolDefinition(
+            name="import_campaign_company_history",
+            description=(
+                "Analyze an attached campaign-history workbook (XLSX, "
+                "profile CAMPAIGN_COMPANY_HISTORY_V1) and stage it for "
+                "review: campaigns, company participation, explicit "
+                "addressed confirmations and company-level outcomes. "
+                "Presence in a campaign list NEVER implies the company "
+                "was addressed. Requires review and approval before "
+                "commit."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "attachment_id": {
+                        "type": "string",
+                        "description": "Attachment ID of the "
+                                       "campaign-history workbook in "
+                                       "the current session.",
+                    },
+                    "source_system": {
+                        "type": "string",
+                        "description": "Source system label (e.g. "
+                                       "outreach tool name).",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Optional import notes.",
+                    },
+                },
+                "required": ["attachment_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_import_campaign_company_history,
+        ),
+        ToolDefinition(
+            name="get_company_campaign_history",
+            description=(
+                "Return the company-level campaign history of one "
+                "canonical organization: campaigns considered, "
+                "selected, approved, exported and ADDRESSED, "
+                "company-level responses/outcomes and next-eligibility "
+                "projections. Never invents responses."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "organization_id": {
+                        "type": "string",
+                        "description": "Canonical organization ID.",
+                    },
+                },
+                "required": ["organization_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_get_company_campaign_history,
+        ),
+        ToolDefinition(
+            name="mark_company_addressed",
+            description=(
+                "Record an explicit company-level ADDRESS_CONFIRMED "
+                "event for one campaign. Requires campaign, canonical "
+                "organization, addressed timestamp, source system, "
+                "source record and a confirmation basis (external "
+                "record, approved import or explicit human decision). "
+                "Idempotent. Never use for mere selection or export "
+                "status."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "campaign": {
+                        "type": "string",
+                        "description": "Campaign code or ID.",
+                    },
+                    "organization_id": {
+                        "type": "string",
+                        "description": "Canonical organization ID.",
+                    },
+                    "addressed_at": {
+                        "type": "string",
+                        "description": "Confirmed outreach timestamp "
+                                       "(ISO-8601).",
+                    },
+                    "source_system": {
+                        "type": "string",
+                        "description": "Confirming source system.",
+                    },
+                    "source_record_id": {
+                        "type": "string",
+                        "description": "Confirming source reference.",
+                    },
+                    "confirmation_basis": {
+                        "type": "string",
+                        "description": "Why this counts as addressed "
+                                       "(external record / approved "
+                                       "import / human decision).",
+                    },
+                    "reason_text": {
+                        "type": "string",
+                        "description": "Optional free-text reason.",
+                    },
+                },
+                "required": ["campaign", "organization_id",
+                             "addressed_at", "source_system",
+                             "source_record_id", "confirmation_basis"],
+                "additionalProperties": False,
+            },
+            execute=_tool_mark_company_addressed,
+        ),
+        ToolDefinition(
+            name="update_company_campaign_outcome",
+            description=(
+                "Record a company-level response or campaign outcome "
+                "for one organization as a NEW append-only event and "
+                "update the current projection. Values come from the "
+                "response vocabulary (e.g. POSITIVE_RESPONSE, "
+                "NO_RESPONSE, DO_NOT_CONTACT_REQUESTED) or the outcome "
+                "vocabulary (e.g. CONVERTED, COMPLETED_POSITIVE)."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "campaign": {
+                        "type": "string",
+                        "description": "Campaign code or ID.",
+                    },
+                    "organization_id": {
+                        "type": "string",
+                        "description": "Canonical organization ID.",
+                    },
+                    "response_status": {
+                        "type": "string",
+                        "description": "One of: UNKNOWN, NO_RESPONSE, "
+                                       "RESPONDED, POSITIVE_RESPONSE, "
+                                       "NEGATIVE_RESPONSE, "
+                                       "NOT_INTERESTED, "
+                                       "FOLLOW_UP_REQUESTED, "
+                                       "MEETING_REQUESTED, "
+                                       "OPPORTUNITY_CREATED, "
+                                       "BOUNCED_OR_UNREACHABLE, "
+                                       "DO_NOT_CONTACT_REQUESTED.",
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "description": "One of: OPEN, "
+                                       "COMPLETED_NO_RESPONSE, "
+                                       "COMPLETED_NEGATIVE, "
+                                       "COMPLETED_POSITIVE, CONVERTED, "
+                                       "DISQUALIFIED, CANCELLED.",
+                    },
+                    "reason_text": {
+                        "type": "string",
+                        "description": "Optional free-text reason.",
+                    },
+                },
+                "required": ["campaign", "organization_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_update_company_campaign_outcome,
+        ),
     ]
 
 
@@ -639,6 +945,270 @@ async def _tool_commit_company_import(
         + f"{counters.get('roles_added', 0)} roles, "
         + f"{counters.get('identifiers_added', 0)} identifiers. "
         f"Reconciliation: {result.get('reconciliation_url')}"
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Campaign tools (company-level campaign tracking milestone).  All
+# campaign semantics are enforced server-side by the CRM extension;
+# these handlers are thin, typed proxies.  The chat agent NEVER
+# generates SQL.
+# ---------------------------------------------------------------------------
+
+async def _tool_create_campaign(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """create_campaign: create a DRAFT campaign."""
+    code = (args.get("campaign_code") or "").strip()
+    name = (args.get("name") or "").strip()
+    if not code or not name:
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "campaign_code and name are required.")
+    payload: Dict[str, Any] = {
+        "campaign_code": code, "name": name,
+        "actor_id": f"chat:{ctx.session_id}",
+    }
+    for key in ("description", "campaign_family", "parent_campaign_id",
+                "country_code", "language_code", "offering_family_id",
+                "segment_code", "planned_start_date",
+                "planned_end_date", "source_system",
+                "source_record_id"):
+        if args.get(key):
+            payload[key] = args[key]
+    result = await _crm_request(
+        "POST", "/api/v2/crm/campaigns", json=payload)
+    result["chat_summary"] = (
+        f"Campaign {result.get('campaign_code')} created with status "
+        f"{result.get('status')}. It is NOT active yet; promote the "
+        "status explicitly when planning starts."
+    )
+    return result
+
+
+async def _tool_analyze_campaign_audience(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """analyze_campaign_audience: plan a campaign audience."""
+    campaign = (args.get("campaign") or "").strip()
+    if not campaign:
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "campaign (code or ID) is required.",
+        )
+    payload: Dict[str, Any] = {
+        "actor_id": f"chat:{ctx.session_id}",
+    }
+    if args.get("policy_selector"):
+        payload["policy_selector"] = args["policy_selector"]
+    if args.get("policy_payload"):
+        payload["policy_payload"] = args["policy_payload"]
+    if args.get("parameters"):
+        payload["parameters"] = args["parameters"]
+    if args.get("row_limit"):
+        payload["row_limit"] = args["row_limit"]
+    result = await _crm_request(
+        "POST", f"/api/v2/crm/campaigns/{campaign}/selection-runs",
+        json=payload)
+    result["chat_summary"] = (
+        f"Selection run {result.get('selection_run_id')} created for "
+        f"{result.get('campaign_code')}: considered "
+        f"{result.get('considered')}, selected "
+        f"{result.get('selected')}, excluded {result.get('excluded')}, "
+        f"suppressed {result.get('suppressed')}, review "
+        f"{result.get('review')}. Review URL: "
+        f"{result.get('review_url')}"
+    )
+    return result
+
+
+async def _tool_approve_campaign_audience(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """approve_campaign_audience: approve a reviewed selection run."""
+    run_id = (args.get("selection_run_id") or "").strip()
+    if not run_id:
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "selection_run_id is required.",
+        )
+    payload: Dict[str, Any] = {
+        "actor_id": f"chat:{ctx.session_id}",
+        "approved_by": f"chat:{ctx.session_id}",
+    }
+    result = await _crm_request(
+        "POST", f"/api/v2/crm/campaigns/selection-runs/{run_id}/approve",
+        json=payload)
+    result["chat_summary"] = (
+        f"Selection run {run_id} approved. It is NOT committed yet; "
+        "ask the user before committing the audience."
+    )
+    return result
+
+
+async def _tool_commit_campaign_audience(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """commit_campaign_audience: commit an APPROVED run."""
+    run_id = (args.get("selection_run_id") or "").strip()
+    if not run_id:
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "selection_run_id is required.",
+        )
+    payload: Dict[str, Any] = {
+        "actor_id": f"chat:{ctx.session_id}",
+    }
+    if args.get("idempotency_key"):
+        payload["idempotency_key"] = args["idempotency_key"]
+    result = await _crm_request(
+        "POST", f"/api/v2/crm/campaigns/selection-runs/{run_id}/commit",
+        json=payload)
+    result["chat_summary"] = (
+        f"Selection run {run_id} committed: "
+        f"{result.get('memberships_created', 0)} memberships created, "
+        f"{result.get('memberships_updated', 0)} updated, "
+        f"{result.get('events_appended', 0)} events appended. "
+        "Nobody was marked addressed by the commit."
+    )
+    return result
+
+
+async def _tool_import_campaign_company_history(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """import_campaign_company_history: stage a history workbook."""
+    attachment_id = args.get("attachment_id", "")
+    if not attachment_id or not ctx.allowed_attachment_ids:
+        raise ToolExecutionError(
+            "missing_attachment",
+            "Attach the campaign-history workbook (XLSX) to the "
+            "current chat session first.",
+        )
+    if attachment_id not in ctx.allowed_attachment_ids:
+        raise ToolExecutionError(
+            "identifier_not_allowed",
+            "attachment_id is not an attachment of the current chat "
+            "session.",
+            http_status=403,
+        )
+    payload: Dict[str, Any] = {
+        "session_id": ctx.session_id,
+        "attachment_id": attachment_id,
+        "source_system": (args.get("source_system")
+                          or "campaign_history"),
+        "actor_id": f"chat:{ctx.session_id}",
+    }
+    if args.get("notes"):
+        payload["notes"] = args["notes"]
+    if args.get("row_limit"):
+        payload["row_limit"] = args["row_limit"]
+    result = await _crm_request(
+        "POST", "/api/v2/crm/campaigns/import-history-attachment",
+        json=payload)
+    result["chat_summary"] = (
+        f"Campaign-history workbook staged (batch "
+        f"{result.get('import_batch_id')}): "
+        f"{(result.get('counters') or {}).get('rows_received', 0)} rows. "
+        "Presence in a campaign list NEVER means a company was "
+        "addressed — only an explicit confirmation does. Review URL: "
+        f"{result.get('review_url')}"
+    )
+    return result
+
+
+async def _tool_get_company_campaign_history(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """get_company_campaign_history: participation + outcomes."""
+    organization_id = (args.get("organization_id") or "").strip()
+    if not organization_id:
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "organization_id (canonical) is required.",
+        )
+    result = await _crm_request(
+        "GET",
+        f"/api/v2/crm/campaigns/organizations/{organization_id}/history")
+    campaigns_rows = result.get("campaigns") or []
+    addressed_count = sum(
+        1 for c in campaigns_rows
+        if any(e.get("event_type") == "ADDRESS_CONFIRMED"
+               for e in (c.get("events") or [])))
+    result["chat_summary"] = (
+        f"{len(campaigns_rows)} campaign(s) on record for this company; "
+        f"explicitly addressed in {addressed_count}. Selected/approved "
+        "status alone never means addressed."
+    )
+    return result
+
+
+async def _tool_mark_company_addressed(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """mark_company_addressed: explicit ADDRESS_CONFIRMED event."""
+    campaign = (args.get("campaign") or "").strip()
+    organization_id = (args.get("organization_id") or "").strip()
+    addressed_at = (args.get("addressed_at") or "").strip()
+    source_system = (args.get("source_system") or "").strip()
+    source_record_id = (args.get("source_record_id") or "").strip()
+    basis = (args.get("confirmation_basis") or "").strip()
+    required = (
+        ("campaign", campaign), ("organization_id", organization_id),
+        ("addressed_at", addressed_at),
+        ("source_system", source_system),
+        ("source_record_id", source_record_id),
+        ("confirmation_basis", basis))
+    missing = [name for name, value in required if not value]
+    if missing:
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "campaign, organization_id, addressed_at, source_system, "
+            "source_record_id and confirmation_basis are all required.",
+        )
+    payload: Dict[str, Any] = {
+        "actor_id": f"chat:{ctx.session_id}",
+        "addressed_at": addressed_at,
+        "source_system": source_system,
+        "source_record_id": source_record_id,
+        "confirmation_basis": basis,
+    }
+    if args.get("reason_text"):
+        payload["reason_text"] = args["reason_text"]
+    result = await _crm_request(
+        "POST", f"/api/v2/crm/campaigns/{campaign}/companies/"
+                f"{organization_id}/addressed",
+        json=payload)
+    result["chat_summary"] = (
+        "ADDRESS_CONFIRMED event recorded; the company is now marked "
+        "addressed for this campaign."
+    )
+    return result
+
+
+async def _tool_update_company_campaign_outcome(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """update_company_campaign_outcome: append outcome event."""
+    campaign = (args.get("campaign") or "").strip()
+    organization_id = (args.get("organization_id") or "").strip()
+    if not campaign or not organization_id:
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "campaign and organization_id are required.",
+        )
+    if not args.get("response_status") and not args.get("outcome"):
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "response_status or outcome is required.",
+        )
+    payload: Dict[str, Any] = {
+        "actor_id": f"chat:{ctx.session_id}",
+    }
+    for key in ("response_status", "outcome", "reason_text",
+                "source_system", "source_record_id", "correlation_id"):
+        if args.get(key):
+            payload[key] = args[key]
+    result = await _crm_request(
+        "POST", f"/api/v2/crm/campaigns/{campaign}/companies/"
+                f"{organization_id}/outcome",
+        json=payload)
+    result["chat_summary"] = (
+        "Company-level outcome recorded as a new append-only event "
+        "and the current projection was updated."
     )
     return result
 
