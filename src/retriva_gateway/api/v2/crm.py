@@ -595,3 +595,39 @@ async def crm_campaigns_passthrough(path: str, request: Request):
         raise HTTPException(
             status_code=e.response.status_code,
             detail=e.response.text)
+
+
+# ---------------------------------------------------------------------------
+# ERP customer identity: thin passthrough subtree (source-system
+# registry, ERP customer-code lookup, merge-safe resolution,
+# hierarchical TXT export staging).  The CRM extension enforces all
+# tenant scoping, permissions and privacy semantics.
+# ---------------------------------------------------------------------------
+
+@router.api_route("/erp/{path:path}", methods=["GET", "POST"])
+async def crm_erp_passthrough(path: str, request: Request):
+    """Forward /api/v2/crm/erp/* to Core (body passthrough)."""
+    try:
+        kwargs: dict = {}
+        body = await request.body()
+        if body:
+            kwargs["content"] = body
+            content_type = request.headers.get("content-type")
+            if content_type:
+                kwargs["headers"] = {"Content-Type": content_type}
+        query = request.url.query
+        resp = await core_client._request(
+            request.method, core_client.ingestion_base_url,
+            f"/api/v2/crm/erp/{path}",
+            params=dict(kv.split("=", 1) for kv in query.split("&")
+                        if kv) or None,
+            **kwargs)
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type"),
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=e.response.text)
