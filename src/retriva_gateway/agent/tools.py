@@ -38,8 +38,32 @@ from typing import Any, Callable, Awaitable, Dict, List, Optional
 
 from loguru import logger
 
+from retriva_gateway.config import settings
 from retriva_gateway.core.client import core_client
 from retriva_gateway.core.context import get_correlation_id
+
+
+def _public_url(path: str) -> str:
+    """Absolute, browser-reachable URL for a gateway-served path.
+
+    The import review/reconciliation pages are proxied by the gateway
+    (``/api/v2/crm/imports/*`` passthrough), so prefixing the public
+    gateway origin yields a URL a human can simply click.
+    """
+    base = (getattr(settings, "GATEWAY_PUBLIC_URL", "") or "").rstrip("/")
+    return f"{base}{path}"
+
+
+def _public_review_url(review_url: Optional[str]) -> str:
+    """Absolute review URL for chat presentation.
+
+    The server returns a root-relative path; if a future server already
+    returns an absolute URL it is passed through unchanged.
+    """
+    url = review_url or ""
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    return _public_url(url)
 
 
 # ---------------------------------------------------------------------------
@@ -910,7 +934,8 @@ async def _tool_analyze_company_import(
         f"{counters.get('exact_matches', 0)} existing matches, "
         f"{counters.get('probable_or_ambiguous', 0)} needing review, "
         f"{counters.get('conflicts', 0)} conflicts). "
-        f"Review URL: {result.get('review_url')}"
+        f"Open the review page (new tab): "
+        f"{_public_review_url(result.get('review_url'))}"
     )
     return result
 
@@ -944,7 +969,8 @@ async def _tool_commit_company_import(
         + f"{counters.get('updated_organizations', 0)} updated, "
         + f"{counters.get('roles_added', 0)} roles, "
         + f"{counters.get('identifiers_added', 0)} identifiers. "
-        f"Reconciliation: {result.get('reconciliation_url')}"
+        f"Reconciliation report (new tab): "
+        f"{_public_review_url(result.get('reconciliation_url'))}"
     )
     return result
 

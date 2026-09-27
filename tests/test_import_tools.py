@@ -123,6 +123,87 @@ def test_analyze_proxies_to_crm_and_builds_chat_summary():
     assert "2 new organizations" in result["chat_summary"]
 
 
+def test_analyze_emits_absolute_clickable_review_url():
+    """The chat summary must contain a full, browser-reachable URL built
+    from GATEWAY_PUBLIC_URL (the user can simply click it)."""
+    captured = {}
+
+    async def transport(method, base_url, path, **kwargs):
+        captured["path"] = path
+        return _response(path, ANALYSIS)
+
+    async def run():
+        with patch("retriva_gateway.agent.tools.core_client._request",
+                   AsyncMock(side_effect=transport)):
+            with patch("retriva_gateway.agent.tools.settings") as mock_settings:
+                mock_settings.GATEWAY_PUBLIC_URL = "http://crm.example:8202"
+                return await _tool_analyze_company_import(
+                    {"attachment_id": "att_wb"}, _ctx())
+
+    result = asyncio.run(run())
+    assert ("http://crm.example:8202"
+            "/api/v2/crm/imports/batches/ibth_test_1/review") \
+        in result["chat_summary"]
+    assert "new tab" in result["chat_summary"].lower()
+
+
+def test_analyze_passes_through_absolute_review_url():
+    """If the server already returns an absolute URL, keep it as-is."""
+    absolute = dict(ANALYSIS)
+    absolute["review_url"] = \
+        "http://elsewhere:9/api/v2/crm/imports/batches/x/review"
+    captured = {}
+
+    async def transport(method, base_url, path, **kwargs):
+        captured["path"] = path
+        return _response(path, absolute)
+
+    async def run():
+        with patch("retriva_gateway.agent.tools.core_client._request",
+                   AsyncMock(side_effect=transport)):
+            return await _tool_analyze_company_import(
+                {"attachment_id": "att_wb"}, _ctx())
+
+    result = asyncio.run(run())
+    assert "http://elsewhere:9/api/v2/crm/imports/batches/x/review" \
+        in result["chat_summary"]
+
+
+def test_commit_emits_absolute_reconciliation_url():
+    captured = {}
+
+    async def transport(method, base_url, path, **kwargs):
+        captured["method"] = method
+        captured["path"] = path
+        captured["json"] = kwargs.get("json")
+        return _response(path, {
+            "status": "COMMITTED",
+            "import_batch_id": "ibth_test_1",
+            "applied": {"organizations_created": 2},
+            "reconciliation_summary": {"counters": {
+                "created_organizations": 2,
+                "updated_organizations": 1,
+                "roles_added": 2,
+                "identifiers_added": 3,
+            }},
+            "reconciliation_url":
+                "/api/v2/crm/imports/batches/ibth_test_1/reconciliation",
+        })
+
+    async def run():
+        with patch("retriva_gateway.agent.tools.core_client._request",
+                   AsyncMock(side_effect=transport)):
+            with patch("retriva_gateway.agent.tools.settings") as mock_settings:
+                mock_settings.GATEWAY_PUBLIC_URL = "http://crm.example:8202"
+                return await _tool_commit_company_import(
+                    {"import_batch_id": "ibth_test_1"}, _ctx())
+
+    result = asyncio.run(run())
+    assert ("http://crm.example:8202"
+            "/api/v2/crm/imports/batches/ibth_test_1/reconciliation") \
+        in result["chat_summary"]
+
+
 def test_analyze_surfaces_ambiguous_profile_selection():
     ambiguous = {
         "status": "PROFILE_SELECTION_REQUIRED",

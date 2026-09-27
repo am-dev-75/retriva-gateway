@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     # We allow separate URLs for ingestion and chat to match docker-compose setup
     RETRIVA_CORE_INGESTION_URL: str = "http://localhost:8000"
     RETRIVA_CORE_CHAT_URL: str = "http://localhost:8001"
+
+    # Browser-reachable base URL of this gateway (used to build absolute,
+    # clickable links the chat presents to human reviewers).  Defaults to
+    # the locally published port; deployments behind a reverse proxy or a
+    # non-localhost host should override it.
+    GATEWAY_PUBLIC_URL: str = "http://localhost:8002"
     
     # --- Authentication ---
     # Which auth provider to use. "none" = no authentication (default).
