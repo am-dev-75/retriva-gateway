@@ -8,7 +8,7 @@ info:
     It exposes:
     * `/gateway/*`: Backend-for-Frontend (BFF) routes specifically designed for the WebUI.
     * `/api/v2/*`: Public-facing modern API routes.
-  version: 1.0.0
+  version: 0.1.0
   contact:
     name: Andrea Marson
     email: am.dev.75@gmail.com
@@ -42,6 +42,12 @@ tags:
   - name: Health
     description: System health and status
 
+  - name: crm-assistant
+  - name: documents
+  - name: ingestion
+  - name: sessions
+  - name: stt
+  - name: system
 paths:
   # --- Gateway BFF API ---
   /gateway/health:
@@ -1654,6 +1660,2166 @@ paths:
           description: Forbidden
         "404":
           description: Source or checkpoint not found
+  /api/v2/crm/acp/{kb_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm Get Icp
+      operationId: crm_get_icp_api_v2_crm_acp__kb_id__get
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/acp/{kb_id}/text:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm Get Icp Text
+      operationId: crm_get_icp_text_api_v2_crm_acp__kb_id__text_get
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - crm-assistant
+      summary: Crm Save Icp Text
+      operationId: crm_save_icp_text_api_v2_crm_acp__kb_id__text_put
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/acp/{kb_id}/update:
+    post:
+      tags:
+      - crm-assistant
+      summary: Crm Update Icp
+      operationId: crm_update_icp_api_v2_crm_acp__kb_id__update_post
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/artifacts/{artifact_id}/content:
+    get:
+      tags:
+      - crm-assistant
+      summary: Archive Read Artifact
+      operationId: archive_read_artifact_api_v2_crm_archive_artifacts__artifact_id__content_get
+      parameters:
+      - name: artifact_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Artifact Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/drafts:
+    get:
+      tags:
+      - crm-assistant
+      summary: Archive List All Drafts
+      operationId: archive_list_all_drafts_api_v2_crm_archive_drafts_get
+      parameters:
+      - name: review_status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Review Status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 100
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/drafts/{draft_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Archive Get Draft
+      operationId: archive_get_draft_api_v2_crm_archive_drafts__draft_id__get
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Draft Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/drafts/{draft_id}/approve:
+    post:
+      tags:
+      - crm-assistant
+      summary: Archive Approve Draft
+      operationId: archive_approve_draft_api_v2_crm_archive_drafts__draft_id__approve_post
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Draft Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/drafts/{draft_id}/reject:
+    post:
+      tags:
+      - crm-assistant
+      summary: Archive Reject Draft
+      operationId: archive_reject_draft_api_v2_crm_archive_drafts__draft_id__reject_post
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Draft Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/drafts/{draft_id}/request-research:
+    post:
+      tags:
+      - crm-assistant
+      summary: Archive Request Research
+      operationId: archive_request_research_api_v2_crm_archive_drafts__draft_id__request_research_post
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Draft Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs:
+    get:
+      tags:
+      - crm-assistant
+      summary: Archive List Jobs
+      operationId: archive_list_jobs_api_v2_crm_archive_jobs_get
+      parameters:
+      - name: session_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+      - name: state
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: State
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      - name: order
+        in: query
+        required: false
+        schema:
+          type: string
+          default: desc
+          title: Order
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Archive Get Job
+      operationId: archive_get_job_api_v2_crm_archive_jobs__job_id__get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}/artifacts:
+    get:
+      tags:
+      - crm-assistant
+      summary: Archive List Artifacts
+      operationId: archive_list_artifacts_api_v2_crm_archive_jobs__job_id__artifacts_get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}/candidates/{candidate_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Archive Get Candidate
+      operationId: archive_get_candidate_api_v2_crm_archive_jobs__job_id__candidates__candidate_id__get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      - name: candidate_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Candidate Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}/drafts:
+    get:
+      tags:
+      - crm-assistant
+      summary: Archive List Drafts
+      operationId: archive_list_drafts_api_v2_crm_archive_jobs__job_id__drafts_get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      - name: review_status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Review Status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 100
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}/lineage:
+    get:
+      tags:
+      - crm-assistant
+      summary: Archive Get Lineage
+      operationId: archive_get_lineage_api_v2_crm_archive_jobs__job_id__lineage_get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}/results:
+    get:
+      tags:
+      - crm-assistant
+      summary: Archive Get Results
+      operationId: archive_get_results_api_v2_crm_archive_jobs__job_id__results_get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/jobs/{job_id}/retry:
+    post:
+      tags:
+      - crm-assistant
+      summary: Archive Retry Job
+      operationId: archive_retry_job_api_v2_crm_archive_jobs__job_id__retry_post
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/research-requests:
+    get:
+      tags:
+      - crm-assistant
+      summary: Archive List Research Requests
+      operationId: archive_list_research_requests_api_v2_crm_archive_research_requests_get
+      parameters:
+      - name: status_filter
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status Filter
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/archive/schema:
+    get:
+      tags:
+      - crm-assistant
+      summary: Archive Schema
+      operationId: archive_schema_api_v2_crm_archive_schema_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/campaigns/{path}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm Campaigns Passthrough
+      description: Forward /api/v2/crm/campaigns/* to Core (body passthrough).
+      operationId: crm_campaigns_passthrough_api_v2_crm_campaigns__path__get
+      parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Path
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - crm-assistant
+      summary: Crm Campaigns Passthrough
+      description: Forward /api/v2/crm/campaigns/* to Core (body passthrough).
+      operationId: crm_campaigns_passthrough_api_v2_crm_campaigns__path__get
+      parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Path
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - crm-assistant
+      summary: Crm Campaigns Passthrough
+      description: Forward /api/v2/crm/campaigns/* to Core (body passthrough).
+      operationId: crm_campaigns_passthrough_api_v2_crm_campaigns__path__get
+      parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Path
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/cco/{kb_id}/text:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm Get Cco Text
+      operationId: crm_get_cco_text_api_v2_crm_cco__kb_id__text_get
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - crm-assistant
+      summary: Crm Save Cco Text
+      operationId: crm_save_cco_text_api_v2_crm_cco__kb_id__text_put
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/cco/{kb_id}/update:
+    post:
+      tags:
+      - crm-assistant
+      summary: Crm Update Cco
+      operationId: crm_update_cco_api_v2_crm_cco__kb_id__update_post
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/erp/{path}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm Erp Passthrough
+      description: Forward /api/v2/crm/erp/* to Core (body passthrough).
+      operationId: crm_erp_passthrough_api_v2_crm_erp__path__get
+      parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Path
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - crm-assistant
+      summary: Crm Erp Passthrough
+      description: Forward /api/v2/crm/erp/* to Core (body passthrough).
+      operationId: crm_erp_passthrough_api_v2_crm_erp__path__get
+      parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Path
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/health:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm Health
+      operationId: crm_health_api_v2_crm_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/icp/{kb_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm Get Icp
+      operationId: crm_get_icp_api_v2_crm_icp__kb_id__get
+      deprecated: true
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/icp/{kb_id}/text:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm Get Icp Text
+      operationId: crm_get_icp_text_api_v2_crm_icp__kb_id__text_get
+      deprecated: true
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - crm-assistant
+      summary: Crm Save Icp Text
+      operationId: crm_save_icp_text_api_v2_crm_icp__kb_id__text_put
+      deprecated: true
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/icp/{kb_id}/update:
+    post:
+      tags:
+      - crm-assistant
+      summary: Crm Update Icp
+      operationId: crm_update_icp_api_v2_crm_icp__kb_id__update_post
+      deprecated: true
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/imports/{path}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm Imports Passthrough
+      description: Forward /api/v2/crm/imports/* to Core (body passthrough).
+      operationId: crm_imports_passthrough_api_v2_crm_imports__path__get
+      parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Path
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - crm-assistant
+      summary: Crm Imports Passthrough
+      description: Forward /api/v2/crm/imports/* to Core (body passthrough).
+      operationId: crm_imports_passthrough_api_v2_crm_imports__path__get
+      parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Path
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/apollo/readiness:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intel Apollo Readiness
+      description: Zero-credit Apollo auth readiness (proxied from Core).
+      operationId: intel_apollo_readiness_api_v2_crm_intelligence_apollo_readiness_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/intelligence/assessments:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intel List Assessments
+      operationId: intel_list_assessments_api_v2_crm_intelligence_assessments_get
+      parameters:
+      - name: status_filter
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status Filter
+      - name: awaiting_review
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Awaiting Review
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - crm-assistant
+      summary: Intel Create Assessment
+      operationId: intel_create_assessment_api_v2_crm_intelligence_assessments_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/assessments/{a_id}/compare/{b_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intel Compare
+      operationId: intel_compare_api_v2_crm_intelligence_assessments__a_id__compare__b_id__get
+      parameters:
+      - name: a_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: A Id
+      - name: b_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: B Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/assessments/{assessment_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intel Get Assessment
+      operationId: intel_get_assessment_api_v2_crm_intelligence_assessments__assessment_id__get
+      parameters:
+      - name: assessment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Assessment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/assessments/{assessment_id}/approve:
+    post:
+      tags:
+      - crm-assistant
+      summary: Intel Approve
+      operationId: intel_approve_api_v2_crm_intelligence_assessments__assessment_id__approve_post
+      parameters:
+      - name: assessment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Assessment Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/assessments/{assessment_id}/report:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intel Assessment Report
+      operationId: intel_assessment_report_api_v2_crm_intelligence_assessments__assessment_id__report_get
+      parameters:
+      - name: assessment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Assessment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/assessments/{assessment_id}/submit-review:
+    post:
+      tags:
+      - crm-assistant
+      summary: Intel Submit Review
+      operationId: intel_submit_review_api_v2_crm_intelligence_assessments__assessment_id__submit_review_post
+      parameters:
+      - name: assessment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Assessment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/companies/{identity_id}/history:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intel Company History
+      operationId: intel_company_history_api_v2_crm_intelligence_companies__identity_id__history_get
+      parameters:
+      - name: identity_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Identity Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/companies/{identity_id}/latest-approved:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intel Latest Approved
+      operationId: intel_latest_approved_api_v2_crm_intelligence_companies__identity_id__latest_approved_get
+      parameters:
+      - name: identity_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Identity Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/metrics:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intel Metrics
+      operationId: intel_metrics_api_v2_crm_intelligence_metrics_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/intelligence/request-research:
+    post:
+      tags:
+      - crm-assistant
+      summary: Intel Request Research
+      operationId: intel_request_research_api_v2_crm_intelligence_request_research_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: true
+              type: object
+              title: Body
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/research-requests/{request_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intel Research Request Status
+      operationId: intel_research_request_status_api_v2_crm_intelligence_research_requests__request_id__get
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/research-requests/{request_id}/execute:
+    post:
+      tags:
+      - crm-assistant
+      summary: Intel Research Request Execute
+      operationId: intel_research_request_execute_api_v2_crm_intelligence_research_requests__request_id__execute_post
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/intelligence/review:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intel Review Page
+      operationId: intel_review_page_api_v2_crm_intelligence_review_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/intelligence/schema:
+    get:
+      tags:
+      - crm-assistant
+      summary: Intel Schema
+      operationId: intel_schema_api_v2_crm_intelligence_schema_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/jobs/{job_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm Get Job
+      operationId: crm_get_job_api_v2_crm_jobs__job_id__get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/jobs/{job_id}/cancel:
+    post:
+      tags:
+      - crm-assistant
+      summary: Crm Cancel Job
+      operationId: crm_cancel_job_api_v2_crm_jobs__job_id__cancel_post
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/jobs/{job_id}/results:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm Get Job Results
+      description: 'Proxy the structured per-candidate results of a completed job.
+
+
+        Pure transport: mirrors the CRM extension''s /jobs/{job_id}/results
+
+        (409 until COMPLETED*, 410 after eviction). The E2E harness uses this
+
+        for acceptance checks and ACP/CCO binding verification.'
+      operationId: crm_get_job_results_api_v2_crm_jobs__job_id__results_get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/portfolio/{kb_id}:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm Get Portfolio
+      operationId: crm_get_portfolio_api_v2_crm_portfolio__kb_id__get
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/portfolio/{kb_id}/rebuild:
+    post:
+      tags:
+      - crm-assistant
+      summary: Crm Rebuild Portfolio
+      operationId: crm_rebuild_portfolio_api_v2_crm_portfolio__kb_id__rebuild_post
+      parameters:
+      - name: kb_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kb Id
+      - name: collection_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/qualify:
+    post:
+      tags:
+      - crm-assistant
+      summary: Crm Qualify
+      description: Start a CRM qualification job.
+      operationId: crm_qualify_api_v2_crm_qualify_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QualifyRequest'
+        required: true
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/crm/readiness:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm Readiness
+      description: 'Structured qualification preflight/readiness (proxied from Core).
+
+
+        Reports web-research provider readiness (mock-only detection), ACP/CCO
+
+        readiness semantics, and whether qualification can proceed.  Consumed by
+
+        the chat agent preflight tool.'
+      operationId: crm_readiness_api_v2_crm_readiness_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /api/v2/crm/sessions/{session_id}/jobs:
+    get:
+      tags:
+      - crm-assistant
+      summary: Crm List Session Jobs
+      description: 'Proxy the session-scoped job listing.
+
+
+        Enables clients (E2E harness, cross-turn chat resumption) to discover
+
+        the jobs of THEIR OWN session without relying on LLM-remembered job IDs.'
+      operationId: crm_list_session_jobs_api_v2_crm_sessions__session_id__jobs_get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/ingestion/fetch-url:
+    post:
+      tags:
+      - ingestion
+      summary: Fetch Url
+      description: 'Fetch a single web resource (page or file) and return its content.
+
+
+        This is a non-recursive fetch: only the requested URL is downloaded.
+
+        The returned content can then be submitted through the standard batch
+
+        upload flow (``/ingestion/batches/{id}/files``) for ingestion.
+
+
+        Text-based content (HTML, plain text, XML, JSON) is returned as a
+
+        decoded string in ``content``.  Binary content (PDF, images, Office
+
+        documents) is returned as a base64-encoded string in ``content`` with
+
+        ``is_binary=True``; the client must decode it before constructing a
+
+        ``File`` object.'
+      operationId: fetch_url_api_v2_ingestion_fetch_url_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FetchUrlRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FetchUrlResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/artifacts:
+    get:
+      tags:
+      - sessions
+      summary: List All Artifacts
+      description: 'Artifact index across ALL sessions (most recent first).
+
+
+        Powers the frontend artifact page: users should not need to know
+
+        session IDs to find their generated reports.'
+      operationId: list_all_artifacts_api_v2_sessions_artifacts_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 200
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/{session_id}/artifacts:
+    get:
+      tags:
+      - sessions
+      summary: List Artifacts
+      operationId: list_artifacts_api_v2_sessions__session_id__artifacts_get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/{session_id}/artifacts/{artifact_id}:
+    get:
+      tags:
+      - sessions
+      summary: Get Artifact
+      operationId: get_artifact_api_v2_sessions__session_id__artifacts__artifact_id__get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: artifact_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Artifact Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - sessions
+      summary: Delete Artifact
+      operationId: delete_artifact_api_v2_sessions__session_id__artifacts__artifact_id__delete
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: artifact_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Artifact Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/{session_id}/artifacts/{artifact_id}/content:
+    get:
+      tags:
+      - sessions
+      summary: Download Artifact
+      description: Download artifact content, streaming from Core.
+      operationId: download_artifact_api_v2_sessions__session_id__artifacts__artifact_id__content_get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: artifact_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Artifact Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/{session_id}/attachments:
+    post:
+      tags:
+      - sessions
+      summary: Upload Attachment
+      description: Upload a session-scoped attachment to Core.
+      operationId: upload_attachment_api_v2_sessions__session_id__attachments_post
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_attachment_api_v2_sessions__session_id__attachments_post'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - sessions
+      summary: List Attachments
+      operationId: list_attachments_api_v2_sessions__session_id__attachments_get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/{session_id}/attachments/{attachment_id}:
+    get:
+      tags:
+      - sessions
+      summary: Get Attachment
+      operationId: get_attachment_api_v2_sessions__session_id__attachments__attachment_id__get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Attachment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - sessions
+      summary: Delete Attachment
+      operationId: delete_attachment_api_v2_sessions__session_id__attachments__attachment_id__delete
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Attachment Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v2/sessions/{session_id}/attachments/{attachment_id}/parse:
+    post:
+      tags:
+      - sessions
+      summary: Parse Attachment
+      operationId: parse_attachment_api_v2_sessions__session_id__attachments__attachment_id__parse_post
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Attachment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /gateway/documents/count:
+    get:
+      tags:
+      - documents
+      summary: Count Documents
+      description: Proxy Core document counting with metadata normalization.
+      operationId: count_documents_gateway_documents_count_get
+      parameters:
+      - name: metadata_filter_mode
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/MetadataFilterMode'
+          default: hard
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /gateway/ingestion/fetch-url:
+    post:
+      tags:
+      - ingestion
+      summary: Fetch Url
+      description: 'Fetch a single web resource (page or file) and return its content.
+
+
+        This is a non-recursive fetch: only the requested URL is downloaded.
+
+        The returned content can then be submitted through the standard batch
+
+        upload flow (``/ingestion/batches/{id}/files``) for ingestion.
+
+
+        Text-based content (HTML, plain text, XML, JSON) is returned as a
+
+        decoded string in ``content``.  Binary content (PDF, images, Office
+
+        documents) is returned as a base64-encoded string in ``content`` with
+
+        ``is_binary=True``; the client must decode it before constructing a
+
+        ``File`` object.'
+      operationId: fetch_url_gateway_ingestion_fetch_url_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FetchUrlRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FetchUrlResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /gateway/system/auth:
+    get:
+      tags:
+      - system
+      summary: Get Auth Info
+      description: Get the current principal's collections and auth state.
+      operationId: get_auth_info_gateway_system_auth_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /stt/health:
+    get:
+      tags:
+      - stt
+      summary: Stt Health
+      description: Report STT feature status without actively probing whisper-server.
+      operationId: stt_health_stt_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+
+  /stt/transcribe:
+    post:
+      tags:
+      - stt
+      summary: Transcribe
+      description: 'Proxy endpoint for speech-to-text via whisper.cpp.
+
+
+        Accepts a browser-recorded audio file (typically audio/webm or audio/wav),
+
+        forwards it to the configured whisper-server, and returns the normalized
+
+        transcript.'
+      operationId: transcribe_stt_transcribe_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_transcribe_stt_transcribe_post'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscribeResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 
 components:
   schemas:
@@ -2064,6 +4230,183 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         error: { type: string }
+    # --- Schemas merged from the live OpenAPI spec (auto-sync) ---
+    AuthResponse:
+      properties:
+        principal_id:
+          type: string
+          title: Principal Id
+        name:
+          type: string
+          title: Name
+        allowed_collections:
+          items:
+            type: string
+          type: array
+          title: Allowed Collections
+        default_collection:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Default Collection
+        fallback_collection:
+          type: string
+          title: Fallback Collection
+        is_anonymous:
+          type: boolean
+          title: Is Anonymous
+      type: object
+      required:
+      - principal_id
+      - name
+      - fallback_collection
+      - is_anonymous
+      title: AuthResponse
+      description: Current authenticated principal information and collections.
+
+    Body_transcribe_stt_transcribe_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        language:
+          type: string
+          title: Language
+          default: auto
+        prompt:
+          type: string
+          title: Prompt
+          default: ''
+      type: object
+      required:
+      - file
+      title: Body_transcribe_stt_transcribe_post
+
+    Body_upload_attachment_api_v2_sessions__session_id__attachments_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        owner:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Owner
+      type: object
+      required:
+      - file
+      title: Body_upload_attachment_api_v2_sessions__session_id__attachments_post
+
+    FetchUrlRequest:
+      properties:
+        url:
+          type: string
+          title: Url
+      type: object
+      required:
+      - url
+      title: FetchUrlRequest
+
+    FetchUrlResponse:
+      properties:
+        url:
+          type: string
+          title: Url
+        final_url:
+          type: string
+          title: Final Url
+        content:
+          type: string
+          title: Content
+        content_type:
+          type: string
+          title: Content Type
+        title:
+          type: string
+          title: Title
+          default: ''
+        is_binary:
+          type: boolean
+          title: Is Binary
+          default: false
+        filename:
+          type: string
+          title: Filename
+          default: ''
+      type: object
+      required:
+      - url
+      - final_url
+      - content
+      - content_type
+      title: FetchUrlResponse
+
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+
+    QualifyRequest:
+      properties:
+        session_id:
+          type: string
+          title: Session Id
+        attachment_id:
+          type: string
+          title: Attachment Id
+        kb_id:
+          type: string
+          title: Kb Id
+          default: default
+        collection_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collection Name
+        reuse_policy:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reuse Policy
+      type: object
+      required:
+      - session_id
+      - attachment_id
+      title: QualifyRequest
+
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
 
   parameters:
     SourceId:
