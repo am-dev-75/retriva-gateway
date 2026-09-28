@@ -165,6 +165,29 @@ async def crm_rebuild_portfolio(kb_id: str, collection_name: Optional[str] = Non
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
 
+# ---------------------------------------------------------------------------
+# ACP reference cohorts (Spec 019 Phase 2): explicit single-segment
+# proxy BEFORE the legacy /acp/{kb_id} route so the workflow list path
+# (/acp/cohorts) is never shadowed by the legacy KB route.
+# Multi-segment workflow paths (versions, decisions, approve, console)
+# are covered by the catch-all at the end of this module.  The CRM
+# extension enforces all tenant scoping, permissions and snapshot
+# immutability.
+# ---------------------------------------------------------------------------
+
+@router.get("/acp/cohorts")
+async def crm_list_acp_cohorts(status: Optional[str] = None):
+    params = {"status": status} if status else None
+    try:
+        resp = await core_client._request(
+            "GET", core_client.ingestion_base_url, "/api/v2/crm/acp/cohorts",
+            params=params,
+        )
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
 @router.get("/acp/{kb_id}")
 @router.get("/icp/{kb_id}", deprecated=True)  # deprecated alias of /acp/
 async def crm_get_icp(kb_id: str, collection_name: Optional[str] = None):
@@ -619,6 +642,44 @@ async def crm_erp_passthrough(path: str, request: Request):
         resp = await core_client._request(
             request.method, core_client.ingestion_base_url,
             f"/api/v2/crm/erp/{path}",
+            params=dict(kv.split("=", 1) for kv in query.split("&")
+                        if kv) or None,
+            **kwargs)
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type"),
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=e.response.text)
+
+
+# ---------------------------------------------------------------------------
+# ACP reference cohorts: thin passthrough subtree (Spec 019 cohort
+# lifecycle — proposal, review, approval, immutable snapshots).  The
+# CRM extension enforces all tenant scoping, permissions, snapshot
+# immutability and audit semantics.
+# ---------------------------------------------------------------------------
+
+@router.api_route("/acp/{path:path}", methods=["GET", "POST"])
+async def crm_acp_passthrough(path: str, request: Request):
+    """Forward /api/v2/crm/acp/* workflow paths to Core (body
+    passthrough).  Legacy single- and two-segment /acp/{kb_id}[/text|
+    /update] routes above keep precedence for their exact paths."""
+    try:
+        kwargs: dict = {}
+        body = await request.body()
+        if body:
+            kwargs["content"] = body
+            content_type = request.headers.get("content-type")
+            if content_type:
+                kwargs["headers"] = {"Content-Type": content_type}
+        query = request.url.query
+        resp = await core_client._request(
+            request.method, core_client.ingestion_base_url,
+            f"/api/v2/crm/acp/{path}",
             params=dict(kv.split("=", 1) for kv in query.split("&")
                         if kv) or None,
             **kwargs)

@@ -15,7 +15,11 @@
 import httpx
 from typing import AsyncGenerator, Dict, Any, Optional, List
 from retriva_gateway.config import settings
-from retriva_gateway.core.context import get_correlation_id, get_active_collection
+from retriva_gateway.core.context import (
+    get_correlation_id,
+    get_active_collection,
+    get_principal,
+)
 from loguru import logger
 import json
 
@@ -33,6 +37,11 @@ class CoreClient:
         active_collection = get_active_collection()
         if active_collection:
             headers["X-Retriva-Collection"] = active_collection
+        # Trusted-principal propagation (Spec 019 Phase 3 gate): the
+        # authenticated principal id travels to Core as a gateway-set
+        # header; client-supplied values of this header are never
+        # forwarded because these headers are built from scratch.
+        headers["X-Retriva-User"] = get_principal().id
         return headers
 
     async def _request(
