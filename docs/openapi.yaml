@@ -1664,7 +1664,14 @@ paths:
     get:
       tags:
       - crm-assistant
-      summary: Crm Get Icp
+      summary: >-
+        Crm Get Icp (Spec 019: kb accepted and ignored; serves the
+        tenant's ACTIVE ACP from PostgreSQL)
+      description: |
+        Spec 019 Phase 5: kb_id is accepted and ignored.  The ACTIVE ACP
+        is resolved from the PostgreSQL store of record per tenant.  A
+        tenant without a migrated ACTIVE ACP fails closed (422
+        ACP_NO_ACTIVE); there is no legacy fallback.
       operationId: crm_get_icp_api_v2_crm_acp__kb_id__get
       parameters:
       - name: kb_id
@@ -1698,7 +1705,8 @@ paths:
     get:
       tags:
       - crm-assistant
-      summary: Crm Get Icp Text
+      summary: Crm Get Icp Text (deprecated user-authored ACP text var)
+      deprecated: true
       operationId: crm_get_icp_text_api_v2_crm_acp__kb_id__text_get
       parameters:
       - name: kb_id
@@ -1722,7 +1730,8 @@ paths:
     put:
       tags:
       - crm-assistant
-      summary: Crm Save Icp Text
+      summary: Crm Save Icp Text (deprecated user-authored ACP text var)
+      deprecated: true
       operationId: crm_save_icp_text_api_v2_crm_acp__kb_id__text_put
       parameters:
       - name: kb_id
@@ -1756,7 +1765,14 @@ paths:
     post:
       tags:
       - crm-assistant
-      summary: Crm Update Icp
+      summary: 'Deprecated (Spec 019 Phase 5): tag-driven ACP rebuild
+        retired; returns 410'
+      description: |
+        Retired in Spec 019 Phase 5.  ACP versions are generated from
+        approved PostgreSQL cohort snapshots (POST
+        /api/v2/crm/acp/generation-runs) and activated through the
+        activation workflow.  This endpoint always responds 410 GONE.
+      deprecated: true
       operationId: crm_update_icp_api_v2_crm_acp__kb_id__update_post
       parameters:
       - name: kb_id

@@ -175,6 +175,36 @@ async def crm_rebuild_portfolio(kb_id: str, collection_name: Optional[str] = Non
 # immutability.
 # ---------------------------------------------------------------------------
 
+@router.get("/acp/generation-runs")
+async def crm_list_generation_runs_placeholder():
+    """Legacy-route guard: GET /acp/generation-runs is a Phase 3
+    workflow path; the list lives on the POST handler's sibling catch-
+    all.  This explicit route prevents the legacy /acp/{kb_id} from
+    capturing the path (it forwards to the cohort API 404 body)."""
+    try:
+        resp = await core_client._request(
+            "GET", core_client.ingestion_base_url,
+            "/api/v2/crm/acp/generation-runs",
+        )
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
+@router.get("/acp/active")
+async def crm_get_active_acp():
+    """Resolve the ACTIVE ACP for the request tenant (Spec 019
+    resolution surface; the CRM enforces tenancy)."""
+    try:
+        resp = await core_client._request(
+            "GET", core_client.ingestion_base_url,
+            "/api/v2/crm/acp/active",
+        )
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
 @router.get("/acp/cohorts")
 async def crm_list_acp_cohorts(status: Optional[str] = None):
     params = {"status": status} if status else None
