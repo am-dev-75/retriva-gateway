@@ -31,18 +31,32 @@ router = APIRouter(tags=["chat"])
 def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse]:
     """Decide whether this request should run the tool-calling agent loop.
 
-    Agent mode requires: tools enabled in config, a session_id, explicit
-    tools_enabled opt-in, and non-streaming.  Returns None for plain chat.
+    Agent mode runs when: tools are enabled in config, the request is
+    non-streaming, and EITHER the client explicitly opted in
+    (``tools_enabled`` + ``session_id`` — the qualification/import
+    surfaces) OR the message matches a deterministic CRM-workflow
+    intent (company-intelligence workflows cannot be answered by the
+    knowledge-base pipeline; routing them to plain RAG produces the
+    generic grounding refusal).  Routing is intent detection only —
+    never authorization; the tools and the trusted principal decide
+    what may run.
     """
     if not settings.AGENT_TOOLS_ENABLED:
         return None
-    if not request.tools_enabled or not request.session_id:
-        return None
-    if request.stream:
-        # Agent mode is non-streaming in v1; fall back to plain chat.
-        logger.warning(f"[{corr_id}] agent mode requested with stream=True; using plain chat")
-        return None
-    return _AGENT_SENTINEL
+    if request.tools_enabled and request.session_id:
+        if request.stream:
+            # Agent mode is non-streaming in v1; fall back to plain chat.
+            logger.warning(f"[{corr_id}] agent mode requested with stream=True; using plain chat")
+            return None
+        return _AGENT_SENTINEL
+    if not request.stream:
+        from retriva_gateway.core.intent import IntentDetector
+        if IntentDetector.is_crm_workflow(request.message or ""):
+            logger.info(
+                f"[{corr_id}] Chat routing: CRM workflow intent → "
+                f"agent loop")
+            return _AGENT_SENTINEL
+    return None
 
 
 # Sentinel returned by _run_agent_mode when the agent path should run.
@@ -61,7 +75,10 @@ async def _agent_chat(request: ChatRequest, corr_id: str) -> JSONResponse:
         allow_list=settings.AGENT_TOOL_ALLOWLIST or None
     )
     ctx = ToolContext(
-        session_id=request.session_id or "",
+        # Workflow-intent routing may enter agent mode without a
+        # client session; attribute the turn to a synthesized
+        # session derived from the correlation id.
+        session_id=request.session_id or f"sess_{corr_id}",
         kb_id=request.kb_ids[0] if request.kb_ids else "default",
         allowed_attachment_ids=list(request.attachment_ids or []),
         correlation_id=corr_id,

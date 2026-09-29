@@ -84,7 +84,7 @@ VERSION = {
 
 
 def run_chat(responses, paths, *, message, attachments=None, kb_ids=None,
-             allowlist=None):
+             allowlist=None, session_id="sess_acp"):
     replies = iter(responses)
     model_snapshots = []
 
@@ -93,8 +93,8 @@ def run_chat(responses, paths, *, message, attachments=None, kb_ids=None,
         return next(replies)
 
     transport, calls = acp_transport(paths)
-    req = ChatRequest(message=message, session_id="sess_acp",
-                      tools_enabled=True,
+    req = ChatRequest(message=message, session_id=session_id,
+                      tools_enabled=True if session_id else False,
                       attachment_ids=list(attachments or []),
                       kb_ids=list(kb_ids or ["default"]),
                       stream=False)
@@ -278,3 +278,48 @@ def test_prompt_policy_block_present():
     lowered = " ".join(AGENT_SYSTEM_PROMPT.lower().split())
     for fragment in required:
         assert fragment.lower() in lowered, fragment
+
+
+def test_workflow_intent_routes_to_agent_loop_without_optin():
+    """A CRM-workflow message reaches the agent loop even when the
+    client did not opt in (no session_id, no tools_enabled); ordinary
+    knowledge questions keep the plain RAG path."""
+    from retriva_gateway.api.v2.chat import _run_agent_mode
+    workflow = ChatRequest(message="Propose a new ACP reference cohort "
+                                   "from the active customers",
+                           session_id=None, tools_enabled=False,
+                           kb_ids=["default"], stream=False)
+    knowledge = ChatRequest(message="What is the return policy in the "
+                                    "documentation?",
+                            session_id=None, tools_enabled=False,
+                            kb_ids=["default"], stream=False)
+    assert _run_agent_mode(workflow, "corr-route") is not None
+    assert _run_agent_mode(knowledge, "corr-route") is None
+    # Explicit opt-in keeps working.
+    opted_in = ChatRequest(message="hello", session_id="s1",
+                           tools_enabled=True, kb_ids=["default"],
+                           stream=False)
+    assert _run_agent_mode(opted_in, "corr-route") is not None
+    # Streaming never enters agent mode.
+    streaming = ChatRequest(message="Propose a new ACP reference cohort",
+                            session_id=None, tools_enabled=False,
+                            kb_ids=["default"], stream=True)
+    assert _run_agent_mode(streaming, "corr-route") is None
+
+
+def test_workflow_chat_synthesizes_session_attribution():
+    """Without a client session, the loop attributes the turn to a
+    session derived from the correlation id (never an empty actor)."""
+    reply, calls, snapshots = run_chat(
+        PROPOSAL_REPLIES, PROPOSAL_PATHS,
+        message="Propose a new ACP reference cohort from the active "
+                "customers.",
+        session_id=None)
+    tool_results = [json.loads(m["content"])
+                    for m in snapshots[1]["messages"]
+                    if m["role"] == "tool"]
+    assert tool_results[0]["cohort_id"] == "acpc_chat"
+    posts = [(kw.get("json") or {})
+             for method, _, kw in calls if method == "POST"]
+    assert posts and posts[0].get("actor_id") == \
+        "chat:sess_test-correlation-acp"
