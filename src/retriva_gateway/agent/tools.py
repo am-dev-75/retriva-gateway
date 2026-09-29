@@ -934,8 +934,8 @@ async def _tool_analyze_company_import(
         f"{counters.get('exact_matches', 0)} existing matches, "
         f"{counters.get('probable_or_ambiguous', 0)} needing review, "
         f"{counters.get('conflicts', 0)} conflicts). "
-        f"Open the review page (new tab): "
-        f"{_public_review_url(result.get('review_url'))}"
+        f"[Open the review page in a new tab]"
+        f"({_public_review_url(result.get('review_url'))})"
     )
     return result
 
@@ -969,8 +969,8 @@ async def _tool_commit_company_import(
         + f"{counters.get('updated_organizations', 0)} updated, "
         + f"{counters.get('roles_added', 0)} roles, "
         + f"{counters.get('identifiers_added', 0)} identifiers. "
-        f"Reconciliation report (new tab): "
-        f"{_public_review_url(result.get('reconciliation_url'))}"
+        f"[Open the reconciliation report in a new tab]"
+        f"({_public_review_url(result.get('reconciliation_url'))})"
     )
     return result
 
@@ -1041,8 +1041,9 @@ async def _tool_analyze_campaign_audience(
         f"{result.get('considered')}, selected "
         f"{result.get('selected')}, excluded {result.get('excluded')}, "
         f"suppressed {result.get('suppressed')}, review "
-        f"{result.get('review')}. Review URL: "
-        f"{result.get('review_url')}"
+        f"{result.get('review')}. "
+        f"[Open the audience review page in a new tab]"
+        f"({result.get('review_url')})"
     )
     return result
 
@@ -1133,8 +1134,9 @@ async def _tool_import_campaign_company_history(
         f"{result.get('import_batch_id')}): "
         f"{(result.get('counters') or {}).get('rows_received', 0)} rows. "
         "Presence in a campaign list NEVER means a company was "
-        "addressed — only an explicit confirmation does. Review URL: "
-        f"{result.get('review_url')}"
+        "addressed — only an explicit confirmation does. "
+        f"[Open the history review page in a new tab]"
+        f"({result.get('review_url')})"
     )
     return result
 
