@@ -879,6 +879,432 @@ def build_crm_tools() -> List[ToolDefinition]:
             },
             execute=_tool_update_company_campaign_outcome,
         ),
+        # -----------------------------------------------------------------
+        # ACP workflow tools (Spec 020 / ADR-023).  PostgreSQL business
+        # workflow over the accepted /api/v2/crm/acp/ API — never RAG,
+        # never the KB/Qdrant/tag/SQLite, never model-generated SQL.
+        # -----------------------------------------------------------------
+        ToolDefinition(
+            name="propose_acp_cohort",
+            description=(
+                "Start the PostgreSQL ACP workflow: propose a reference "
+                "cohort of customer companies from the PostgreSQL "
+                "Company Intelligence Database (DRAFT only). Call on "
+                "requests to extrapolate, create, derive or rebuild the "
+                "Average Customer Profile when no reviewed cohort "
+                "version was specified. The initial request authorizes "
+                "PROPOSAL ONLY: never approves, never generates, never "
+                "activates. Returns counts, warnings, blocking issues "
+                "and the review URL. NOT a knowledge-base question — "
+                "do not fall back to RAG answers."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Short cohort name, e.g. "
+                                       "'Active customers'.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional human description.",
+                    },
+                },
+                "required": ["name"],
+                "additionalProperties": False,
+            },
+            execute=_tool_propose_acp_cohort,
+        ),
+        ToolDefinition(
+            name="get_acp_cohort",
+            description=(
+                "Read one ACP reference cohort (status, current "
+                "version, counts, snapshot hash when approved). "
+                "Read-only."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "cohort_id": {
+                        "type": "string",
+                        "description": "Cohort ID (acpc_...).",
+                    },
+                },
+                "required": ["cohort_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_get_acp_cohort,
+        ),
+        ToolDefinition(
+            name="list_acp_cohort_members",
+            description=(
+                "List the members of an ACP cohort version with their "
+                "decision states (include/exclude/pending/outlier/"
+                "insufficient-data), minimum review-level fields only. "
+                "Read-only."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "cohort_id": {
+                        "type": "string",
+                        "description": "Cohort ID (acpc_...).",
+                    },
+                    "version_number": {
+                        "type": "integer",
+                        "description": "Optional version number; the "
+                                       "current version when omitted.",
+                    },
+                },
+                "required": ["cohort_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_list_acp_cohort_members,
+        ),
+        ToolDefinition(
+            name="update_acp_cohort_member",
+            description=(
+                "Record ONE reviewed cohort membership decision "
+                "(include, exclude, weight, outlier, insufficient-data, "
+                "or manual removal). Use ONLY on explicit user review "
+                "decisions; decision history and audit are preserved; "
+                "this never approves the cohort."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "cohort_id": {
+                        "type": "string",
+                        "description": "Cohort ID (acpc_...).",
+                    },
+                    "organization_id": {
+                        "type": "string",
+                        "description": "Canonical organization ID of "
+                                       "the member.",
+                    },
+                    "decision": {
+                        "type": "string",
+                        "enum": ["INCLUDED", "EXCLUDED",
+                                 "PENDING_REVIEW", "OUTLIER",
+                                 "INSUFFICIENT_DATA"],
+                        "description": "The reviewed decision.",
+                    },
+                    "weight": {
+                        "type": "number",
+                        "description": "Weight (only meaningful for "
+                                       "INCLUDED).",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Short decision reason (for "
+                                       "exclusion/outlier/insufficient).",
+                    },
+                    "reviewer_comment": {
+                        "type": "string",
+                        "description": "Optional reviewer comment.",
+                    },
+                    "remove": {
+                        "type": "boolean",
+                        "description": "true = manual removal "
+                                       "(MANUAL_REMOVAL provenance).",
+                    },
+                },
+                "required": ["cohort_id", "organization_id", "decision"],
+                "additionalProperties": False,
+            },
+            execute=_tool_update_acp_cohort_member,
+        ),
+        ToolDefinition(
+            name="submit_acp_cohort_for_review",
+            description=(
+                "Report the cohort review lifecycle state. In the "
+                "accepted workflow the version is submitted implicitly "
+                "when approved; this tool returns the lifecycle "
+                "guidance and the review URL. Does not approve."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "cohort_id": {
+                        "type": "string",
+                        "description": "Cohort ID (acpc_...).",
+                    },
+                    "version_number": {
+                        "type": "integer",
+                        "description": "Optional version number.",
+                    },
+                },
+                "required": ["cohort_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_submit_acp_cohort_for_review,
+        ),
+        ToolDefinition(
+            name="approve_acp_cohort",
+            description=(
+                "Approve and freeze the reviewed cohort version into an "
+                "immutable snapshot (hash verified upstream). Call ONLY "
+                "when the user EXPLICITLY requests cohort approval. "
+                "Refuses while membership decisions are unresolved. "
+                "Never generates an ACP and never activates anything."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "cohort_id": {
+                        "type": "string",
+                        "description": "Cohort ID (acpc_...).",
+                    },
+                    "version_number": {
+                        "type": "integer",
+                        "description": "Optional version number; the "
+                                       "open version otherwise.",
+                    },
+                    "comment": {
+                        "type": "string",
+                        "description": "Optional approval comment.",
+                    },
+                },
+                "required": ["cohort_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_approve_acp_cohort,
+            destructive=True,
+        ),
+        ToolDefinition(
+            name="generate_acp",
+            description=(
+                "Generate a review-ready ACP draft from an APPROVED "
+                "cohort version (deterministic induction over frozen, "
+                "snapshot-hash-verified inputs). Call ONLY on an "
+                "explicit generation request. Never approves and never "
+                "activates; the active ACP stays unchanged."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "acp_cohort_version_id": {
+                        "type": "string",
+                        "description": "APPROVED cohort version ID "
+                                       "(acpcv_...).",
+                    },
+                    "idempotency_key": {
+                        "type": "string",
+                        "description": "Optional idempotency key: "
+                                       "re-running with the same key "
+                                       "returns the recorded run.",
+                    },
+                },
+                "required": ["acp_cohort_version_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_generate_acp,
+        ),
+        ToolDefinition(
+            name="get_acp_generation_run",
+            description=(
+                "Read one ACP generation run (status, snapshot hash, "
+                "result ACP version, contribution counters). "
+                "Read-only."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "generation_run_id": {
+                        "type": "string",
+                        "description": "Generation run ID (acpr_...).",
+                    },
+                },
+                "required": ["generation_run_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_get_acp_generation_run,
+        ),
+        ToolDefinition(
+            name="get_acp_version",
+            description=(
+                "Read one ACP version (status, validation, review "
+                "readiness, payload and snapshot hashes). Read-only."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "acp_id": {
+                        "type": "string",
+                        "description": "Logical ACP ID (icp_.../acp_...).",
+                    },
+                    "version_number": {
+                        "type": "integer",
+                        "description": "Version number.",
+                    },
+                },
+                "required": ["acp_id", "version_number"],
+                "additionalProperties": False,
+            },
+            execute=_tool_get_acp_version,
+        ),
+        ToolDefinition(
+            name="submit_acp_for_review",
+            description=(
+                "Submit a generated ACP draft for review (DRAFT -> "
+                "REVIEW_READY; the payload stays byte-identical). "
+                "Never generates, never scores, never activates."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "acp_id": {
+                        "type": "string",
+                        "description": "Logical ACP ID.",
+                    },
+                    "version_number": {
+                        "type": "integer",
+                        "description": "Version number.",
+                    },
+                },
+                "required": ["acp_id", "version_number"],
+                "additionalProperties": False,
+            },
+            execute=_tool_submit_acp_for_review,
+        ),
+        ToolDefinition(
+            name="approve_acp",
+            description=(
+                "Approve the complete ACP version (immutable approval "
+                "record). Call ONLY when the user EXPLICITLY requests "
+                "ACP approval. Never activates; the currently active "
+                "ACP stays unchanged."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "acp_id": {
+                        "type": "string",
+                        "description": "Logical ACP ID.",
+                    },
+                    "version_number": {
+                        "type": "integer",
+                        "description": "Version number.",
+                    },
+                    "comments": {
+                        "type": "string",
+                        "description": "Optional review comments.",
+                    },
+                },
+                "required": ["acp_id", "version_number"],
+                "additionalProperties": False,
+            },
+            execute=_tool_approve_acp,
+            destructive=True,
+        ),
+        ToolDefinition(
+            name="activate_acp",
+            description=(
+                "ACTIVATE an approved ACP version (transactional, "
+                "exactly one active ACP per tenant, ledger + audit). "
+                "Call ONLY on an explicit activation request — never "
+                "infer activation from create/generate/extrapolate/"
+                "review/approve wording. Fails closed if another ACP "
+                "is already active."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "acp_id": {
+                        "type": "string",
+                        "description": "Logical ACP ID.",
+                    },
+                    "version_number": {
+                        "type": "integer",
+                        "description": "Version number.",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional activation reason.",
+                    },
+                },
+                "required": ["acp_id", "version_number"],
+                "additionalProperties": False,
+            },
+            execute=_tool_activate_acp,
+            destructive=True,
+        ),
+        ToolDefinition(
+            name="rollback_acp_activation",
+            description=(
+                "Roll back an ACP activation through the activation "
+                "ledger (restores the previously active version; a new "
+                "ledger operation; history is never rewritten). Call "
+                "ONLY on an explicit rollback request."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "acp_id": {
+                        "type": "string",
+                        "description": "Logical ACP ID to restore.",
+                    },
+                    "version_number": {
+                        "type": "integer",
+                        "description": "Version number to restore.",
+                    },
+                    "rollback_of_activation_id": {
+                        "type": "string",
+                        "description": "Activation ID being rolled "
+                                       "back (from activate output).",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional rollback reason.",
+                    },
+                },
+                "required": ["acp_id", "version_number"],
+                "additionalProperties": False,
+            },
+            execute=_tool_rollback_acp_activation,
+            destructive=True,
+        ),
+        ToolDefinition(
+            name="get_active_acp",
+            description=(
+                "Resolve the tenant's currently ACTIVE ACP (identity, "
+                "status, hashes; no payload content). Read-only. "
+                "The active ACP is comparison data only — never source "
+                "evidence for a new cohort."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+            execute=_tool_get_active_acp,
+        ),
+        ToolDefinition(
+            name="get_acp_lineage",
+            description=(
+                "Read the lineage of one ACP version (cohort, snapshot "
+                "hash, generation run, approvals, activation ledger) — "
+                "opaque IDs and hashes only. Read-only."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "acp_id": {
+                        "type": "string",
+                        "description": "Logical ACP ID.",
+                    },
+                    "version_number": {
+                        "type": "integer",
+                        "description": "Version number.",
+                    },
+                },
+                "required": ["acp_id", "version_number"],
+                "additionalProperties": False,
+            },
+            execute=_tool_get_acp_lineage,
+        ),
     ]
 
 
@@ -1242,8 +1668,739 @@ async def _tool_update_company_campaign_outcome(
 
 
 # ---------------------------------------------------------------------------
-# Registry
+# ACP workflow tools (Spec 020 / ADR-023): narrow, typed, authorized
+# proxies over the accepted PostgreSQL ACP API (/api/v2/crm/acp/...).
+# The Gateway holds NO eligibility, identity-resolution, hashing,
+# induction, approval, activation, permission, or audit logic.  The body
+# actor_id is audit attribution only; tenant context is resolved
+# server-side and is never a tool argument; the model never generates
+# SQL or arbitrary internal HTTP requests.
 # ---------------------------------------------------------------------------
+
+_ACP_BASE = "/api/v2/crm/acp"
+ACP_COHORT_CONSOLE_PATH = f"{_ACP_BASE}/cohorts/console"
+ACP_CONSOLE_PATH = f"{_ACP_BASE}/acps/console"
+
+#: Upstream accepted typed codes -> governing tool error taxonomy
+#: (Spec 020 "Error handling").  `upstream_code` is preserved for audit.
+_ACP_ERROR_CODE_MAP = {
+    "ACP_PERMISSION_DENIED": "permission_denied",
+    "ACP_TENANT_CONTEXT_MISSING": "tenant_context_missing",
+    "ACP_NO_ACTIVE": "no_active_acp",
+    "ACP_MULTIPLE_ACTIVE": "invalid_state",
+    "ACP_INVALID_POLICY": "invalid_policy",
+    "ACP_NO_APPROVED_COHORT": "approval_missing",
+    "ACP_SNAPSHOT_INVALID": "invalid_snapshot_hash",
+    "ACP_GENERATION_PREREQUISITES_INCOMPLETE": "incomplete_evidence",
+    "ACP_COHORT_EMPTY": "incomplete_evidence",
+    "ACP_ACTIVE_CONFLICT": "activation_conflict",
+    "IDEMPOTENCY_CONFLICT": "activation_conflict",
+    "INVALID_TRANSITION": "review_not_ready",
+    "NOT_FOUND": "not_found",
+    "NOOP": "invalid_state",
+    "ACP_INVALID": "invalid_state",
+    "ACP_INVALID_STATE": "invalid_state",
+}
+
+
+def _acp_error_body(status_code: int,
+                    body: Dict[str, Any]) -> Dict[str, Any]:
+    """Typed, safe tool-error projection of an upstream ACP error."""
+    upstream = str(body.get("reason_code") or body.get("code") or "")
+    code = _ACP_ERROR_CODE_MAP.get(upstream, "invalid_state")
+    if status_code == 503:
+        code = "postgres_unavailable"
+    return {
+        "code": code,
+        "message": str(body.get("detail")
+                       or f"ACP API returned {status_code}")[:500],
+        "upstream_code": upstream,
+    }
+
+
+async def _acp_call(method: str, path: str,
+                    json_payload: Optional[Dict[str, Any]] = None,
+                    ) -> Dict[str, Any]:
+    """Call the accepted CRM ACP API.  Typed domain errors become typed
+    tool failures; the tool layer never recovers by falling back."""
+    import httpx
+    try:
+        resp = await core_client._request(
+            method, core_client.ingestion_base_url, path,
+            json=json_payload)
+    except httpx.HTTPStatusError as exc:
+        try:
+            body = exc.response.json()
+        except Exception:  # noqa: BLE001 - non-JSON upstream error body
+            body = {}
+        if not isinstance(body, dict):
+            body = {"detail": str(body)[:300]}
+        return {"error": _acp_error_body(exc.response.status_code, body)}
+    except httpx.RequestError:
+        return {"error": {
+            "code": "postgres_unavailable",
+            "message": "the ACP API is unreachable (transport error)",
+            "upstream_code": "TRANSPORT",
+        }}
+    return resp.json()
+
+
+def _acp_actor(ctx: ToolContext) -> str:
+    """Attribution-only body actor (audit lineage; never a permission
+    authority — authorization rides the gateway-injected trusted
+    principal header)."""
+    return f"chat:{ctx.session_id}"
+
+
+def _acp_arg_str(args: Dict[str, Any], key: str, label: str) -> str:
+    value = str(args.get(key) or "").strip()
+    if not value:
+        raise ToolExecutionError("invalid_arguments",
+                                 f"{label} is required.")
+    return value
+
+
+def _acp_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
+    error = {"code": code, "message": message}
+    error.update(extra)
+    return {"error": error}
+
+
+def _member_min_view(member: Dict[str, Any]) -> Dict[str, Any]:
+    """Minimum review-level member projection (no evidence bodies)."""
+    return {
+        "organization_id": member.get("organization_id"),
+        "canonical_legal_name": member.get("canonical_legal_name"),
+        "country_code": member.get("country_code"),
+        "decision": member.get("decision"),
+        "weight": member.get("weight"),
+        "reason_code": (member.get("exclusion_reason_code")
+                        or member.get("reason_code")),
+        "identity_resolution_status":
+            member.get("identity_resolution_status"),
+        "evidence_status": member.get("evidence_status"),
+        "freshness_status": member.get("freshness_status"),
+        "provenance": member.get("provenance"),
+    }
+
+
+async def _acp_cohort_version_detail(cohort_id: str,
+                                     version_number: Optional[int],
+                                     ) -> Dict[str, Any]:
+    """GET the cohort version (current when no version number given);
+    returns the raw API projection or an error dict."""
+    if version_number is None:
+        cohort = await _acp_call("GET", f"{_ACP_BASE}/cohorts/{cohort_id}")
+        if "error" in cohort:
+            return cohort
+        version_number = cohort.get("current_version")
+        if version_number is None:
+            return _acp_error(
+                "review_not_ready",
+                "the cohort has no versions yet; propose one first")
+    return await _acp_call(
+        "GET", f"{_ACP_BASE}/cohorts/{cohort_id}/versions/{version_number}")
+
+
+async def _tool_propose_acp_cohort(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """propose_acp_cohort: PROPOSE_ACP_COHORT — create a DRAFT
+    reference-cohort proposal from PostgreSQL Company Intelligence
+    (never approve, never generate)."""
+    name = _acp_arg_str(args, "name", "cohort name")
+    payload: Dict[str, Any] = {
+        "name": name, "actor_id": _acp_actor(ctx)}
+    if args.get("description"):
+        payload["description"] = str(args["description"])[:500]
+    result = await _acp_call("POST", f"{_ACP_BASE}/cohorts", payload)
+    if "error" in result:
+        return result
+    cohort_id = result.get("acp_cohort_id")
+    version_number = result.get("current_version")
+    counts = result.get("counts") or {}
+    proposal_counts = result.get("proposal_counts") or {}
+    considered = int(proposal_counts.get("considered") or 0)
+    detail = None
+    if cohort_id and version_number:
+        detail = await _acp_cohort_version_detail(cohort_id, version_number)
+        if "error" in detail:
+            detail = None
+    members = ((detail or {}).get("members") or [])
+    identity_review = [
+        m for m in members
+        if str(m.get("identity_resolution_status") or "RESOLVED")
+        != "RESOLVED"]
+    pending = int(counts.get("pending_review") or 0)
+    cap_skipped = int(proposal_counts.get("cap_skipped") or 0)
+    stale = len([
+        m for m in members
+        if str(m.get("freshness_status") or "").upper() == "STALE"])
+    warnings: List[Dict[str, Any]] = []
+    if cap_skipped:
+        warnings.append({
+            "code": "CAP_SKIPPED", "count": cap_skipped,
+            "message": "organizations omitted by the deterministic "
+                       "policy cap; omission is not a business "
+                       "exclusion"})
+    insufficient = int(counts.get("insufficient_data") or 0)
+    if insufficient:
+        warnings.append({
+            "code": "INSUFFICIENT_DATA", "count": insufficient,
+            "message": "members lack the minimum accepted evidence; an "
+                       "evidence refresh is a separate explicit "
+                       "workflow (never automatic)"})
+    if stale:
+        warnings.append({
+            "code": "STALE_EVIDENCE", "count": stale,
+            "message": "accepted observations are older than the "
+                       "policy freshness window"})
+    blocking_issues: List[Dict[str, Any]] = []
+    if identity_review:
+        blocking_issues.append({
+            "code": "IDENTITY_REVIEW_REQUIRED",
+            "count": len(identity_review),
+            "organization_ids": [
+                m.get("organization_id") for m in identity_review][:20]})
+    if pending:
+        blocking_issues.append({
+            "code": "PENDING_REVIEW", "count": pending,
+            "message": "membership decisions require human review "
+                       "before approval"})
+    if considered == 0 and not members:
+        return _acp_error(
+            "no_eligible_customers",
+            "no canonical organizations satisfied the accepted "
+            "eligibility policy; nothing was proposed",
+            cohort_id=cohort_id,
+            cohort_version_id=(detail or {}).get("acp_cohort_version_id"))
+    out = {
+        "cohort_id": cohort_id,
+        "cohort_version_id": (detail or {}).get("acp_cohort_version_id"),
+        "status": result.get("status"),
+        "policy_id": result.get("policy_version"),
+        "policy_version": result.get("policy_version"),
+        "considered_count": considered,
+        "pending_review_count": pending,
+        "excluded_count": int(counts.get("excluded") or 0),
+        "insufficient_data_count": insufficient,
+        "outlier_candidate_count": int(counts.get("outlier") or 0),
+        "identity_review_count": len(identity_review),
+        "included_count": int(counts.get("included") or 0),
+        "warnings": warnings,
+        "blocking_issues": blocking_issues,
+        "review_url": _public_review_url(ACP_COHORT_CONSOLE_PATH),
+    }
+    out["chat_summary"] = (
+        f"Draft reference-cohort proposal created: cohort "
+        f"{cohort_id} version {version_number} "
+        f"({out['pending_review_count']} pending review, "
+        f"{out['excluded_count']} excluded by policy, "
+        f"{out['insufficient_data_count']} insufficient data). "
+        f"Review it at {out['review_url']} — nothing has been "
+        f"approved, generated, or activated.")
+    return out
+
+
+async def _tool_get_acp_cohort(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """get_acp_cohort: read one cohort (bounded view)."""
+    cohort_id = _acp_arg_str(args, "cohort_id", "cohort_id")
+    result = await _acp_call("GET", f"{_ACP_BASE}/cohorts/{cohort_id}")
+    if "error" in result:
+        return result
+    result["review_url"] = _public_review_url(ACP_COHORT_CONSOLE_PATH)
+    result["chat_summary"] = (
+        f"Cohort {cohort_id}: status {result.get('status')}, "
+        f"version {result.get('current_version')} "
+        f"({result.get('version_status')}).")
+    return result
+
+
+async def _tool_list_acp_cohort_members(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """list_acp_cohort_members: members + decision states (minimum
+    review-level fields only)."""
+    cohort_id = _acp_arg_str(args, "cohort_id", "cohort_id")
+    version_number = args.get("version_number")
+    detail = await _acp_cohort_version_detail(cohort_id, version_number)
+    if "error" in detail:
+        return detail
+    members = [_member_min_view(m)
+               for m in (detail.get("members") or [])]
+    return {
+        "cohort_id": cohort_id,
+        "acp_cohort_version_id": detail.get("acp_cohort_version_id"),
+        "version": detail.get("version"),
+        "status": detail.get("status"),
+        "member_count_included": detail.get("member_count_included"),
+        "member_count_excluded": detail.get("member_count_excluded"),
+        "member_count_pending_review":
+            detail.get("member_count_pending_review"),
+        "member_count_outlier": detail.get("member_count_outlier"),
+        "member_count_insufficient":
+            detail.get("member_count_insufficient"),
+        "snapshot_hash": detail.get("snapshot_hash"),
+        "members": members,
+        "review_url": _public_review_url(ACP_COHORT_CONSOLE_PATH),
+        "chat_summary": (
+            f"Cohort version {detail.get('version')} "
+            f"({detail.get('status')}): {len(members)} members "
+            f"listed with their decision states."),
+    }
+
+
+async def _tool_update_acp_cohort_member(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """update_acp_cohort_member: REVIEW_ACP_COHORT — record one
+    reviewed membership decision (history and audit preserved
+    upstream; never approves)."""
+    cohort_id = _acp_arg_str(args, "cohort_id", "cohort_id")
+    organization_id = _acp_arg_str(args, "organization_id",
+                                   "organization_id")
+    decision = _acp_arg_str(args, "decision", "decision")
+    allowed = {"INCLUDED", "EXCLUDED", "PENDING_REVIEW", "OUTLIER",
+               "INSUFFICIENT_DATA"}
+    if decision not in allowed:
+        raise ToolExecutionError(
+            "invalid_arguments",
+            f"decision must be one of {', '.join(sorted(allowed))}")
+    payload: Dict[str, Any] = {
+        "decision": decision, "actor_id": _acp_actor(ctx)}
+    if decision == "INCLUDED" and args.get("weight") is not None:
+        payload["weight"] = args["weight"]
+    if args.get("reason"):
+        payload["reason"] = str(args["reason"])[:500]
+    if args.get("reviewer_comment"):
+        payload["reviewer_comment"] = str(args["reviewer_comment"])[:500]
+    if args.get("remove"):
+        payload["remove"] = True
+    result = await _acp_call(
+        "POST", f"{_ACP_BASE}/cohorts/{cohort_id}/members/"
+                f"{organization_id}/decision", payload)
+    if "error" in result:
+        return result
+    result["chat_summary"] = (
+        f"Decision {decision} recorded for organization "
+        f"{organization_id} (decision history and audit preserved). "
+        f"The cohort version is NOT approved by this action.")
+    return result
+
+
+async def _tool_submit_acp_cohort_for_review(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """submit_acp_cohort_for_review: lifecycle guidance per the
+    accepted workflow (the version is submitted implicitly upon
+    approval; ADR-023 decision 6b/OQ2)."""
+    cohort_id = _acp_arg_str(args, "cohort_id", "cohort_id")
+    version_number = args.get("version_number")
+    detail = await _acp_cohort_version_detail(cohort_id, version_number)
+    if "error" in detail:
+        return detail
+    return {
+        "info_code": "ACP_LIFECYCLE_INFO",
+        "cohort_id": cohort_id,
+        "acp_cohort_version_id": detail.get("acp_cohort_version_id"),
+        "version_status": detail.get("status"),
+        "message": "In the accepted ACP workflow a cohort version is "
+                   "submitted for review implicitly when it is "
+                   "approved. Apply review decisions first "
+                   "(update_acp_cohort_member), then explicitly ask to "
+                   "approve the cohort.",
+        "review_url": _public_review_url(ACP_COHORT_CONSOLE_PATH),
+        "chat_summary": (
+            "Cohort submission happens implicitly at approval in the "
+            "accepted workflow; review decisions come first."),
+    }
+
+
+async def _tool_approve_acp_cohort(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """approve_acp_cohort: APPROVE_ACP_COHORT — pre-check unresolved
+    decisions, then approve the open version (immutable snapshot +
+    verified hash upstream).  Never generates."""
+    cohort_id = _acp_arg_str(args, "cohort_id", "cohort_id")
+    detail = await _acp_cohort_version_detail(
+        cohort_id, args.get("version_number"))
+    if "error" in detail:
+        return detail
+    members = detail.get("members") or []
+    pending = [m for m in members
+               if m.get("decision") == "PENDING_REVIEW"]
+    identity = [m for m in members
+                if str(m.get("identity_resolution_status") or "RESOLVED")
+                != "RESOLVED"]
+    if pending or identity:
+        return _acp_error(
+            "unresolved_decisions",
+            "the cohort version still has unresolved membership "
+            "decisions; resolve them through review before approval",
+            pending_review_count=len(pending),
+            identity_review_count=len(identity),
+            review_url=_public_review_url(ACP_COHORT_CONSOLE_PATH))
+    payload: Dict[str, Any] = {"actor_id": _acp_actor(ctx)}
+    if args.get("comment"):
+        payload["comment"] = str(args["comment"])[:500]
+    result = await _acp_call(
+        "POST", f"{_ACP_BASE}/cohorts/{cohort_id}/approve", payload)
+    if "error" in result:
+        return result
+    result["review_url"] = _public_review_url(ACP_COHORT_CONSOLE_PATH)
+    result["next"] = ("cohort approved and frozen; ACP generation is a "
+                      "separate explicit request")
+    result["chat_summary"] = (
+        f"Cohort version approved and frozen (immutable snapshot, "
+        f"hash {result.get('snapshot_hash')}). No ACP was generated "
+        f"and nothing was activated.")
+    return result
+
+
+async def _tool_generate_acp(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """generate_acp: GENERATE_ACP — run the deterministic induction
+    against an APPROVED cohort version (frozen, snapshot-hash verified
+    upstream); produces a review-ready draft; never activates."""
+    cohort_version_id = _acp_arg_str(args, "acp_cohort_version_id",
+                                     "acp_cohort_version_id")
+    payload: Dict[str, Any] = {
+        "acp_cohort_version_id": cohort_version_id,
+        "actor_id": _acp_actor(ctx)}
+    if args.get("idempotency_key"):
+        payload["idempotency_key"] = str(args["idempotency_key"])[:128]
+    result = await _acp_call("POST", f"{_ACP_BASE}/generation-runs",
+                             payload)
+    if "error" in result:
+        return result
+    if str(result.get("status") or "").upper() == "FAILED":
+        return _acp_error(
+            "generation_failure",
+            f"the generation run failed "
+            f"({result.get('failure_code') or 'unknown reason'}); no "
+            f"ACP version was produced",
+            generation_run_id=result.get("acp_generation_run_id"))
+    summary = result.get("payload_summary") or {}
+    out = {
+        "generation_run_id": result.get("acp_generation_run_id"),
+        "acp_version_id": result.get("acp_version_id"),
+        "acp_id": result.get("acp_id"),
+        "acp_version_number": result.get("acp_version_number"),
+        "cohort_version_id": result.get("acp_cohort_version_id"),
+        "status": result.get("status"),
+        "snapshot_hash": result.get("snapshot_hash"),
+        "payload_hash": result.get("payload_sha256"),
+        "contributing_count": result.get("contributing_count"),
+        "skipped_count": result.get("skipped_count"),
+        "semantic_validation_status":
+            result.get("semantic_validation_status"),
+        "review_readiness": result.get("review_readiness"),
+        "confidence_and_coverage": {
+            "confidence": summary.get("confidence"),
+            "dimension_count": summary.get("dimension_count"),
+            "typed_dimension_count": summary.get("typed_dimension_count"),
+        },
+        "warnings": summary.get("warnings") or [],
+        "idempotent_replay": bool(result.get("idempotent_replay")),
+        "review_url": _public_review_url(ACP_CONSOLE_PATH),
+    }
+    out["next"] = ("the ACP draft is review-ready; review and "
+                   "approval are separate explicit steps and the "
+                   "active ACP is unchanged")
+    if out["idempotent_replay"]:
+        out["chat_summary"] = (
+            "Idempotent replay: this cohort version already produced "
+            "the recorded run; nothing was re-induced.")
+    else:
+        out["chat_summary"] = (
+            f"ACP draft generated from the frozen snapshot "
+            f"({out['contributing_count']} contributing, "
+            f"{out['skipped_count']} skipped). Review it at "
+            f"{out['review_url']} — the active ACP is unchanged.")
+    return out
+
+
+async def _tool_get_acp_generation_run(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """get_acp_generation_run: read one generation run."""
+    run_id = _acp_arg_str(args, "generation_run_id", "generation_run_id")
+    result = await _acp_call(
+        "GET", f"{_ACP_BASE}/generation-runs/{run_id}")
+    if "error" in result:
+        return result
+    summary = result.get("payload_summary") or {}
+    out = {
+        "generation_run_id": result.get("acp_generation_run_id"),
+        "cohort_version_id": result.get("acp_cohort_version_id"),
+        "status": result.get("status"),
+        "snapshot_hash": result.get("snapshot_hash"),
+        "acp_version_id": result.get("acp_version_id"),
+        "payload_hash": result.get("payload_sha256"),
+        "contributing_count": result.get("contributing_count"),
+        "skipped_count": result.get("skipped_count"),
+        "failure_code": result.get("failure_code"),
+        "confidence_and_coverage": {
+            "confidence": summary.get("confidence"),
+            "dimension_count": summary.get("dimension_count"),
+            "typed_dimension_count": summary.get("typed_dimension_count"),
+        },
+        "warnings": summary.get("warnings") or [],
+        "review_url": _public_review_url(ACP_CONSOLE_PATH),
+    }
+    out["chat_summary"] = (
+        f"Generation run {run_id}: status {out['status']}, snapshot "
+        f"{out['snapshot_hash']}.")
+    return out
+
+
+async def _tool_get_acp_version(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """get_acp_version: read one ACP version (typed projection)."""
+    acp_id = _acp_arg_str(args, "acp_id", "acp_id")
+    version_number = int(args.get("version_number") or 0)
+    if version_number <= 0:
+        raise ToolExecutionError("invalid_arguments",
+                                 "version_number is required.")
+    result = await _acp_call(
+        "GET", f"{_ACP_BASE}/versions/{acp_id}/{version_number}")
+    if "error" in result:
+        return result
+    result["review_url"] = _public_review_url(ACP_CONSOLE_PATH)
+    result["chat_summary"] = (
+        f"ACP {acp_id} v{version_number}: {result.get('status')} "
+        f"(validation {result.get('semantic_validation_status')}, "
+        f"readiness {result.get('review_readiness')}).")
+    return result
+
+
+async def _tool_submit_acp_for_review(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """submit_acp_for_review: REVIEW_ACP — DRAFT -> REVIEW_READY
+    (payload byte-identical upstream; no generation, no scoring)."""
+    acp_id = _acp_arg_str(args, "acp_id", "acp_id")
+    version_number = int(args.get("version_number") or 0)
+    if version_number <= 0:
+        raise ToolExecutionError("invalid_arguments",
+                                 "version_number is required.")
+    result = await _acp_call(
+        "POST",
+        f"{_ACP_BASE}/versions/{acp_id}/{version_number}/submit-review",
+        {"actor_id": _acp_actor(ctx)})
+    if "error" in result:
+        return result
+    result["review_url"] = _public_review_url(ACP_CONSOLE_PATH)
+    result["chat_summary"] = (
+        "ACP draft submitted for review; the payload is "
+        "byte-identical and unchanged.")
+    return result
+
+
+async def _tool_approve_acp(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """approve_acp: APPROVE_ACP — append the immutable approval record;
+    never activates (the active ACP stays unchanged).  A REVIEW_READY
+    version is moved to UNDER_REVIEW first (accepted API transition;
+    the approval intent itself remains the explicit user request)."""
+    acp_id = _acp_arg_str(args, "acp_id", "acp_id")
+    version_number = int(args.get("version_number") or 0)
+    if version_number <= 0:
+        raise ToolExecutionError("invalid_arguments",
+                                 "version_number is required.")
+    current = await _acp_call(
+        "GET", f"{_ACP_BASE}/versions/{acp_id}/{version_number}")
+    if "error" in current:
+        return current
+    if current.get("status") == "REVIEW_READY":
+        started = await _acp_call(
+            "POST",
+            f"{_ACP_BASE}/versions/{acp_id}/{version_number}/"
+            f"start-review", {"actor_id": _acp_actor(ctx)})
+        if "error" in started:
+            return started
+    payload: Dict[str, Any] = {
+        "decision": "APPROVED", "actor_id": _acp_actor(ctx)}
+    if args.get("comments"):
+        payload["comments"] = str(args["comments"])[:500]
+    result = await _acp_call(
+        "POST",
+        f"{_ACP_BASE}/versions/{acp_id}/{version_number}/approve",
+        payload)
+    if "error" in result:
+        return result
+    result["activation_ready"] = True
+    result["active_acp_unchanged"] = True
+    result["chat_summary"] = (
+        f"ACP {acp_id} v{version_number} approved (immutable approval "
+        f"record). Activation is a separate explicit step; the "
+        f"currently active ACP is unchanged.")
+    return result
+
+
+async def _tool_activate_acp(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """activate_acp: ACTIVATE_ACP — transactionally activate an
+    APPROVED ACP version (exactly one active per tenant; ledger + audit
+    upstream; rollback preserved)."""
+    acp_id = _acp_arg_str(args, "acp_id", "acp_id")
+    version_number = int(args.get("version_number") or 0)
+    if version_number <= 0:
+        raise ToolExecutionError("invalid_arguments",
+                                 "version_number is required.")
+    payload: Dict[str, Any] = {"actor_id": _acp_actor(ctx)}
+    if args.get("reason"):
+        payload["reason"] = str(args["reason"])[:500]
+    result = await _acp_call(
+        "POST",
+        f"{_ACP_BASE}/versions/{acp_id}/{version_number}/activate",
+        payload)
+    if "error" in result:
+        if result["error"].get("code") == "activation_conflict":
+            result["error"]["message"] = (
+                "another ACP version is already ACTIVE for this "
+                "tenant; the accepted activation operation fails "
+                "closed instead of superseding — request an explicit "
+                "rollback of the active ACP or perform the supersession "
+                "through the operator workflow")
+        return result
+    # Single-active verification + ledger reference from the accepted
+    # read surfaces (no local activation logic).
+    active = await _acp_call("GET", f"{_ACP_BASE}/active")
+    lineage = await _acp_call(
+        "GET",
+        f"{_ACP_BASE}/versions/{acp_id}/{version_number}/lineage")
+    activations = (lineage.get("activations") or []) \
+        if "error" not in lineage else []
+    newest = activations[-1] if activations else {}
+    single_active = (
+        "error" not in active
+        and active.get("acp_id") == acp_id
+        and active.get("version") == version_number)
+    out = {
+        "activation_id": newest.get("activation_id"),
+        "active_acp_id": active.get("acp_id")
+        if "error" not in active else acp_id,
+        "active_acp_version": active.get("version")
+        if "error" not in active else version_number,
+        "status": result.get("status"),
+        "superseded_acp_id": None,
+        "superseded_acp_version": None,
+        "activated_at": newest.get("activated_at"),
+        "rollback_reference": newest.get("activation_id"),
+        "single_active": single_active,
+        "previous_active_acp_unchanged": False,
+        "review_url": _public_review_url(ACP_CONSOLE_PATH),
+    }
+    out["chat_summary"] = (
+        f"ACP {acp_id} v{version_number} is now ACTIVE "
+        f"(activation {out['activation_id']}; single-active verified: "
+        f"{single_active}). Rollback remains available as an explicit "
+        f"operation.")
+    return out
+
+
+async def _tool_rollback_acp_activation(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """rollback_acp_activation: ACTIVATE_ACP — restore a previously
+    active ACP version through the activation ledger (a new ledger
+    operation; history is never rewritten)."""
+    acp_id = _acp_arg_str(args, "acp_id", "acp_id")
+    version_number = int(args.get("version_number") or 0)
+    if version_number <= 0:
+        raise ToolExecutionError("invalid_arguments",
+                                 "version_number is required.")
+    payload: Dict[str, Any] = {"actor_id": _acp_actor(ctx)}
+    if args.get("rollback_of_activation_id"):
+        payload["rollback_of_activation_id"] = \
+            str(args["rollback_of_activation_id"])[:64]
+    if args.get("reason"):
+        payload["reason"] = str(args["reason"])[:500]
+    result = await _acp_call(
+        "POST",
+        f"{_ACP_BASE}/versions/{acp_id}/{version_number}/rollback",
+        payload)
+    if "error" in result:
+        return result
+    lineage = await _acp_call(
+        "GET",
+        f"{_ACP_BASE}/versions/{acp_id}/{version_number}/lineage")
+    activations = (lineage.get("activations") or []) \
+        if "error" not in lineage else []
+    newest = activations[-1] if activations else {}
+    active = await _acp_call("GET", f"{_ACP_BASE}/active")
+    single_active = (
+        "error" not in active
+        and active.get("acp_id") == acp_id
+        and active.get("version") == version_number)
+    out = {
+        "restored_acp_id": result.get("acp_id"),
+        "restored_acp_version": result.get("version"),
+        "status": result.get("status"),
+        "activation_id": newest.get("activation_id"),
+        "rollback_of_activation_id":
+            newest.get("rollback_of_activation_id"),
+        "rolled_back_at": newest.get("activated_at"),
+        "single_active": single_active,
+        "history_preserved": True,
+        "review_url": _public_review_url(ACP_CONSOLE_PATH),
+    }
+    out["chat_summary"] = (
+        f"Rollback recorded as a new ledger operation: ACP {acp_id} "
+        f"v{version_number} is ACTIVE again "
+        f"(activation {out['activation_id']}); prior history is "
+        f"preserved.")
+    return out
+
+
+async def _tool_get_active_acp(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """get_active_acp: resolve the tenant's ACTIVE ACP (bounded
+    projection; no profile payload content)."""
+    result = await _acp_call("GET", f"{_ACP_BASE}/active")
+    if "error" in result:
+        return result
+    profile = result.get("profile") or {}
+    out = {
+        "acp_id": result.get("acp_id"),
+        "icp_id": result.get("icp_id"),
+        "version": result.get("version"),
+        "icp_version": result.get("icp_version"),
+        "status": result.get("status"),
+        "origin": result.get("origin"),
+        "cohort_version_id": result.get("cohort_version_id"),
+        "payload_sha256": result.get("payload_sha256"),
+        "approved_at": result.get("approved_at"),
+        "label": profile.get("label"),
+    }
+    out["review_url"] = _public_review_url(ACP_CONSOLE_PATH)
+    out["chat_summary"] = (
+        f"Active ACP: {result.get('acp_id')} "
+        f"v{result.get('version')} ({result.get('origin')}).")
+    return out
+
+
+async def _tool_get_acp_lineage(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """get_acp_lineage: VIEW_ACP_AUDIT — cohort, snapshot hash,
+    generation run, approvals, activations (opaque ids and hashes
+    only)."""
+    acp_id = _acp_arg_str(args, "acp_id", "acp_id")
+    version_number = int(args.get("version_number") or 0)
+    if version_number <= 0:
+        raise ToolExecutionError("invalid_arguments",
+                                 "version_number is required.")
+    result = await _acp_call(
+        "GET",
+        f"{_ACP_BASE}/versions/{acp_id}/{version_number}/lineage")
+    if "error" in result:
+        return result
+    result["chat_summary"] = (
+        f"Lineage for ACP {acp_id} v{version_number}: cohort "
+        f"{result.get('cohort_id')}, snapshot "
+        f"{result.get('cohort_version_snapshot_hash')}, run "
+        f"{result.get('generation_run_id')}, "
+        f"{len(result.get('approvals') or [])} approvals, "
+        f"{len(result.get('activations') or [])} activation records.")
+    return result
+
+
+
 
 class ToolRegistry:
     """Registry of typed chat tools contributed by extensions."""

@@ -36,6 +36,18 @@ OpenAPI documentation is available at `http://localhost:8080/docs`.
 PYTHONPATH=src pytest
 ```
 
+## Chat tools
+
+The gateway executes the CRM Assistant chat tools in a bounded
+agent loop (enabled per request via `tools_enabled` + `session_id`;
+`AGENT_TOOLS_ENABLED` gates the layer, `AGENT_TOOL_ALLOWLIST` bounds
+it). Registered workflows: qualification, ERP import review/commit,
+campaign tracking, and the PostgreSQL ACP workflow (15 tools — see
+`retriva-crm-assistant/docs/acp-chat-tools.md` and ADR-023). Tool
+handlers proxy the CRM API with the authenticated principal
+(`X-Retriva-User`, built gateway-side); the model never generates SQL
+and tools stop at every human-review boundary.
+
 ## Licensing
 
 This project, including all source code, agentic specifications, and documentation, is licensed under the Apache License 2.0. See the LICENSE file for details.
