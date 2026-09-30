@@ -80,6 +80,8 @@ _CRM_WORKFLOW = re.compile(
     r"version)\b"
     r"|\b(qualify|qualification)\b[^\n]{0,80}\b"
     r"(candidates?|workbook|job)\b"
+    r"|\b(enrich\w*)\b[^\n]{0,80}\b"
+    r"(customers?|companies?|cohorts?|evidence|members?)\b"
     r"|\b(analyz\w+|commit|reject)\b[^\n]{0,80}\b"
     r"(import|batch|workbook)\b"
     r"|\b(campaign)\b[^\n]{0,80}\b(audience|create|approve|commit|"

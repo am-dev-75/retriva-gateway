@@ -280,6 +280,26 @@ def test_prompt_policy_block_present():
         assert fragment.lower() in lowered, fragment
 
 
+def test_evidence_enrichment_policy_rules_present():
+    """Spec 021 (ADR-024): the enrichment conversation gates are encoded
+    in the prompt — report + stop, separate acceptance approval, and the
+    post-acceptance version lifecycle."""
+    required = [
+        "get_acp_generation_prerequisites",
+        "enrich_acp_cohort_evidence",
+        "get_acp_evidence_enrichment_job",
+        "accept_acp_enrichment_evidence",
+        "never fabricate, estimate or paraphrase evidence values",
+        "separate explicit approval to accept the recorded evidence",
+        "never chain them",
+        "requires a NEW cohort version",
+        "never re-generate from a stale frozen manifest",
+    ]
+    lowered = " ".join(AGENT_SYSTEM_PROMPT.lower().split())
+    for fragment in required:
+        assert fragment.lower() in lowered, fragment
+
+
 def test_workflow_intent_routes_to_agent_loop_without_optin():
     """A CRM-workflow message reaches the agent loop even when the
     client did not opt in (no session_id, no tools_enabled); ordinary

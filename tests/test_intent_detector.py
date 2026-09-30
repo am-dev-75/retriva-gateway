@@ -64,3 +64,24 @@ async def test_metadata_filtered_rag_dynamic_schema(mock_schema):
     intent, meta = await IntentDetector.analyze("status for department:r&d")
     assert intent == Intent.METADATA_FILTERED_RAG
     assert meta == {"department": "r&d"}
+
+@pytest.mark.asyncio
+async def test_enrichment_workflow_routes_to_agent_loop():
+    """Spec 021: enrichment phrasing about cohort companies/evidence
+    routes to the CRM workflow loop (no opt-in needed)."""
+    for message in (
+        "Yes, enrich the three companies",
+        "please enrich the cohort members with the missing evidence",
+        "can you enrich our customers in the company database?",
+    ):
+        intent, meta = await IntentDetector.analyze(message)
+        assert intent == Intent.CRM_WORKFLOW, message
+        assert meta == {}
+
+@pytest.mark.asyncio
+async def test_generic_enrich_mention_stays_rag():
+    """The enrichment trigger stays narrow: generic uses of the word
+    without a company/cohort/evidence noun do not enter the loop."""
+    intent, meta = await IntentDetector.analyze(
+        "how can I enrich my soil for better tomatoes?")
+    assert intent == Intent.PURE_RAG

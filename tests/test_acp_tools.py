@@ -18,11 +18,15 @@ import pytest
 from retriva_gateway.agent import tools as acp_tools
 from retriva_gateway.agent.tools import (
     ToolContext,
+    _tool_accept_acp_enrichment_evidence,
     _tool_activate_acp,
     _tool_approve_acp,
     _tool_approve_acp_cohort,
+    _tool_enrich_acp_cohort_evidence,
     _tool_generate_acp,
     _tool_get_acp_cohort,
+    _tool_get_acp_evidence_enrichment_job,
+    _tool_get_acp_generation_prerequisites,
     _tool_get_acp_generation_run,
     _tool_get_acp_lineage,
     _tool_get_acp_version,
@@ -52,6 +56,11 @@ ACP_TOOL_NAMES = [
     "rollback_acp_activation",
     "get_active_acp",
     "get_acp_lineage",
+    # Spec 021 / ADR-024 (evidence enrichment):
+    "get_acp_generation_prerequisites",
+    "enrich_acp_cohort_evidence",
+    "get_acp_evidence_enrichment_job",
+    "accept_acp_enrichment_evidence",
 ]
 
 
@@ -77,12 +86,16 @@ def test_registry_registers_all_acp_tools_additively():
     for name in ("qualify_candidates", "analyze_company_import",
                  "commit_company_import", "create_campaign"):
         assert name in names
-    # Destructive flags: approval/activation/rollback only.
+    # Destructive flags: approval/activation/rollback plus the Spec 021
+    # enrichment mutations (research cost + DB writes; audited
+    # acceptance).
     destructive = {t.name for t in
                    [registry.get(n) for n in ACP_TOOL_NAMES]
                    if t.destructive}
     assert destructive == {"approve_acp_cohort", "approve_acp",
-                           "activate_acp", "rollback_acp_activation"}
+                           "activate_acp", "rollback_acp_activation",
+                           "enrich_acp_cohort_evidence",
+                           "accept_acp_enrichment_evidence"}
 
 
 def test_acp_tool_schemas_reject_unknown_arguments():
@@ -552,3 +565,220 @@ def test_tool_results_never_carry_evidence_bodies():
     assert "accepted_observation_snapshot" not in view
     assert "source_observation_ids" not in view
     assert "secret" not in str(view)
+
+
+# ---------------------------------------------------------------------------
+# Spec 021 / ADR-024 — evidence enrichment surface
+# ---------------------------------------------------------------------------
+
+def test_generate_acp_merges_prerequisites_on_incomplete_evidence():
+    """The deterministic merge: on ACP_GENERATION_PREREQUISITES_INCOMPLETE
+    the tool fetches the live prerequisites detail and attaches WHICH
+    companies are un-enriched and WHAT is missing (bounded projection),
+    directing the model to stop for the user's enrichment approval."""
+    captured = []
+
+    async def fake_request(method, base_url, path, **kwargs):
+        captured.append({"method": method, "path": path})
+        if method == "POST":
+            return _response(method, path, {
+                "code": "ACP_INVALID_STATE",
+                "reason_code": "ACP_GENERATION_PREREQUISITES_INCOMPLETE",
+                "detail": "cohort members lack accepted evidence",
+            }, status_code=400)
+        assert path == ("/api/v2/crm/acp/cohort-versions/cohver_1/"
+                        "generation-prerequisites")
+        return _response(method, path, {
+            "cohort_version_id": "cohver_1",
+            "version_status": "APPROVED",
+            "ready": False,
+            "frozen_evidence_insufficient": True,
+            "policy": {"min_accepted_evidence_fields": [
+                "country", "employee_count_or_revenue", "industry"]},
+            "members": [
+                {"organization_id": "org_1",
+                 "canonical_legal_name": "CAE SpA",
+                 "decision": "INCLUDED",
+                 "evidence_status_frozen": "INSUFFICIENT",
+                 "evidence_status_live": "INSUFFICIENT",
+                 "missing_fields": ["employee_count_or_revenue"],
+                 "stale_fields": []},
+                {"organization_id": "org_2",
+                 "canonical_legal_name": "OK Srl",
+                 "decision": "INCLUDED",
+                 "evidence_status_frozen": "SUFFICIENT",
+                 "evidence_status_live": "SUFFICIENT",
+                 "missing_fields": [], "stale_fields": []},
+            ],
+        })
+
+    with patch.object(acp_tools.core_client, "_request",
+                      side_effect=fake_request):
+        result = asyncio.run(_tool_generate_acp(
+            {"acp_cohort_version_id": "cohver_1"}, _ctx()))
+    assert result["error"]["code"] == "incomplete_evidence"
+    error = result["error"]
+    assert error["unenriched_members"] == [
+        {"organization_id": "org_1",
+         "canonical_legal_name": "CAE SpA",
+         "evidence_status": "INSUFFICIENT",
+         "missing_fields": ["employee_count_or_revenue"]}]
+    assert error["policy_fields"] == ["country",
+                                      "employee_count_or_revenue",
+                                      "industry"]
+    assert error["frozen_evidence_insufficient"] is True
+    assert "enrich_acp_cohort_evidence" in error["next"]
+    assert "STOP" in error["next"]
+
+
+def test_get_acp_generation_prerequisites_projects_members():
+    async def fake_request(method, base_url, path, **kwargs):
+        assert path == ("/api/v2/crm/acp/cohort-versions/cohver_2/"
+                        "generation-prerequisites")
+        return _response(method, path, {
+            "cohort_version_id": "cohver_2",
+            "version_status": "DRAFT",
+            "ready": False,
+            "frozen_evidence_insufficient": False,
+            "policy": {"min_accepted_evidence_fields": ["industry"]},
+            "members": [
+                {"organization_id": "org_1",
+                 "canonical_legal_name": "Alpha",
+                 "decision": "PENDING_REVIEW",
+                 "evidence_status_frozen": "UNKNOWN",
+                 "evidence_status_live": "INSUFFICIENT",
+                 "missing_fields": ["industry"],
+                 "stale_fields": []},
+            ],
+        })
+
+    with patch.object(acp_tools.core_client, "_request",
+                      side_effect=fake_request):
+        result = asyncio.run(_tool_get_acp_generation_prerequisites(
+            {"acp_cohort_version_id": "cohver_2"}, _ctx()))
+    assert result["ready"] is False
+    assert result["policy_fields"] == ["industry"]
+    member = result["members"][0]
+    assert member["evidence_status"] == "INSUFFICIENT"
+    assert member["missing_fields"] == ["industry"]
+    assert "never fabricate" in result["next"]
+    assert "not ready" in result["chat_summary"]
+
+
+def test_enrich_tool_posts_job_with_attribution_actor():
+    captured = []
+
+    async def fake_request(method, base_url, path, **kwargs):
+        captured.append({"method": method, "path": path,
+                         "json": kwargs.get("json")})
+        return _response(method, path, {
+            "job_id": "ench_1", "state": "CREATED",
+            "cohort_version_id": "cohver_1",
+            "organization_ids": ["org_1"],
+            "field_targets": ["country", "employee_count", "revenue",
+                              "industry"]})
+
+    with patch.object(acp_tools.core_client, "_request",
+                      side_effect=fake_request):
+        result = asyncio.run(_tool_enrich_acp_cohort_evidence(
+            {"acp_cohort_version_id": "cohver_1"}, _ctx()))
+    assert captured[0]["method"] == "POST"
+    assert captured[0]["path"] == \
+        "/api/v2/crm/acp/evidence-enrichment-jobs"
+    assert captured[0]["json"]["actor_id"] == "chat:sess_acp"
+    assert "tenant_id" not in captured[0]["json"]
+    assert result["job_id"] == "ench_1"
+    assert result["state"] == "CREATED"
+    assert "get_acp_evidence_enrichment_job" in result["next"]
+    assert "Nothing is accepted yet" in result["chat_summary"]
+
+
+def test_research_not_ready_maps_to_typed_code():
+    async def fake_request(method, base_url, path, **kwargs):
+        return _response(method, path, {
+            "code": "ACP_INVALID_STATE",
+            "reason_code": "WEB_RESEARCH_NOT_READY",
+            "detail": "web research is not ready",
+        }, status_code=400)
+
+    with patch.object(acp_tools.core_client, "_request",
+                      side_effect=fake_request):
+        result = asyncio.run(_tool_enrich_acp_cohort_evidence(
+            {"acp_cohort_version_id": "cohver_1"}, _ctx()))
+    assert result["error"]["code"] == "research_not_ready"
+
+
+def test_get_enrichment_job_projects_bounded_company_results():
+    async def fake_request(method, base_url, path, **kwargs):
+        assert path == "/api/v2/crm/acp/evidence-enrichment-jobs/ench_2"
+        return _response(method, path, {
+            "job_id": "ench_2", "state": "COMPLETED",
+            "field_targets": ["industry", "country"],
+            "warnings": [],
+            "error": None,
+            "observation_ids": ["obs_1", "obs_2"],
+            "results": {
+                "org_1": {
+                    "resolved": {
+                        "industry": {
+                            "value": "Software & IT services",
+                            "source_system": "WEB_RESEARCH",
+                            "source_url": "https://example.com",
+                            "confidence": 0.9,
+                            "observation_id": "obs_1"}},
+                    "unresolved_fields": ["employee_count"],
+                    "skipped_fields": []},
+            },
+        })
+
+    with patch.object(acp_tools.core_client, "_request",
+                      side_effect=fake_request):
+        result = asyncio.run(_tool_get_acp_evidence_enrichment_job(
+            {"job_id": "ench_2"}, _ctx()))
+    company = result["companies"][0]
+    assert company["organization_id"] == "org_1"
+    assert company["resolved"]["industry"]["value"] == \
+        "Software & IT services"
+    assert company["resolved"]["industry"]["source_url"] == \
+        "https://example.com"
+    assert company["unresolved_fields"] == ["employee_count"]
+    assert result["observation_ids"] == ["obs_1", "obs_2"]
+    assert "SEPARATE explicit approval" in result["next"]
+
+
+def test_accept_tool_posts_and_projects_audited_acceptance():
+    captured = []
+
+    async def fake_request(method, base_url, path, **kwargs):
+        captured.append({"method": method, "path": path,
+                         "json": kwargs.get("json")})
+        assert path == \
+            "/api/v2/crm/acp/evidence-enrichment-jobs/ench_2/accept"
+        return _response(method, path, {
+            "job_id": "ench_2",
+            "accepted": [{"observation_id": "obs_1",
+                          "field_key": "industry"}],
+            "accepted_count": 1})
+
+    with patch.object(acp_tools.core_client, "_request",
+                      side_effect=fake_request):
+        result = asyncio.run(_tool_accept_acp_enrichment_evidence(
+            {"job_id": "ench_2"}, _ctx()))
+    assert captured[0]["json"]["actor_id"] == "chat:sess_acp"
+    assert result["accepted_count"] == 1
+    assert result["accepted"][0]["field_key"] == "industry"
+    assert "NEW cohort version" in result["next"]
+
+
+def test_get_enrichment_job_running_state_directs_single_poll():
+    async def fake_request(method, base_url, path, **kwargs):
+        return _response(method, path, {
+            "job_id": "ench_3", "state": "RUNNING",
+            "field_targets": ["industry"], "warnings": [],
+            "results": {}})
+
+    with patch.object(acp_tools.core_client, "_request",
+                      side_effect=fake_request):
+        result = asyncio.run(_tool_get_acp_evidence_enrichment_job(
+            {"job_id": "ench_3"}, _ctx()))
+    assert "once per turn" in result["next"]

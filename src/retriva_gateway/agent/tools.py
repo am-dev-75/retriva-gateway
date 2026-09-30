@@ -1305,6 +1305,120 @@ def build_crm_tools() -> List[ToolDefinition]:
             },
             execute=_tool_get_acp_lineage,
         ),
+        # -------------------------------------------------------------
+        # Evidence enrichment (Spec 021 / ADR-024): generation
+        # prerequisites visibility + permission-gated enrichment via the
+        # qualification research machinery. UNVERIFIED observations;
+        # acceptance is a separate explicit step. ACP generation stays
+        # deterministic and provider-free.
+        # -------------------------------------------------------------
+        ToolDefinition(
+            name="get_acp_generation_prerequisites",
+            description=(
+                "Read the live generation prerequisites of one cohort "
+                "version: per-member evidence status (frozen vs live), "
+                "missing policy fields and stale fields — i.e. which "
+                "customer companies are NOT yet enriched. Use when "
+                "generation reported incomplete evidence, or when the "
+                "user asks whether the cohort companies are enriched. "
+                "Read-only."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "acp_cohort_version_id": {
+                        "type": "string",
+                        "description": "Cohort version ID (cohver_...).",
+                    },
+                },
+                "required": ["acp_cohort_version_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_get_acp_generation_prerequisites,
+        ),
+        ToolDefinition(
+            name="enrich_acp_cohort_evidence",
+            description=(
+                "Start the evidence-enrichment job for one cohort "
+                "version's members (default: every non-excluded "
+                "member; optional explicit subset). Uses the same "
+                "web-research machinery as new-lead qualification to "
+                "fill the missing policy fields; researched values land "
+                "as UNVERIFIED observations. Call ONLY on the user's "
+                "explicit approval to enrich; never fabricates evidence "
+                "and NEVER accepts the results (acceptance is a "
+                "separate explicit step)."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "acp_cohort_version_id": {
+                        "type": "string",
+                        "description": "Cohort version ID (cohver_...).",
+                    },
+                    "organization_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional subset of member "
+                                       "organization IDs to enrich.",
+                    },
+                },
+                "required": ["acp_cohort_version_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_enrich_acp_cohort_evidence,
+            destructive=True,
+        ),
+        ToolDefinition(
+            name="get_acp_evidence_enrichment_job",
+            description=(
+                "Read one evidence-enrichment job: state, per-company "
+                "resolved fields (values, source domain, confidence, "
+                "observation IDs) and unresolved fields. Read-only."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "Enrichment job ID (ench_...).",
+                    },
+                },
+                "required": ["job_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_get_acp_evidence_enrichment_job,
+        ),
+        ToolDefinition(
+            name="accept_acp_enrichment_evidence",
+            description=(
+                "Accept the evidence observations recorded by one "
+                "completed enrichment job (audited; supersedes the "
+                "previous accepted value per field). Call ONLY on the "
+                "user's SEPARATE explicit approval AFTER presenting the "
+                "per-company field summary. Never fabricates and never "
+                "generates."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "Enrichment job ID (ench_...).",
+                    },
+                    "observation_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional subset of the job's "
+                                       "observation IDs to accept.",
+                    },
+                },
+                "required": ["job_id"],
+                "additionalProperties": False,
+            },
+            execute=_tool_accept_acp_enrichment_evidence,
+            destructive=True,
+        ),
     ]
 
 
@@ -1693,6 +1807,8 @@ _ACP_ERROR_CODE_MAP = {
     "ACP_SNAPSHOT_INVALID": "invalid_snapshot_hash",
     "ACP_GENERATION_PREREQUISITES_INCOMPLETE": "incomplete_evidence",
     "ACP_COHORT_EMPTY": "incomplete_evidence",
+    "WEB_RESEARCH_NOT_READY": "research_not_ready",
+    "ACP_ENRICHMENT_TARGETS_INVALID": "invalid_state",
     "ACP_ACTIVE_CONFLICT": "activation_conflict",
     "IDEMPOTENCY_CONFLICT": "activation_conflict",
     "INVALID_TRANSITION": "review_not_ready",
@@ -2069,6 +2185,37 @@ async def _tool_generate_acp(
     result = await _acp_call("POST", f"{_ACP_BASE}/generation-runs",
                              payload)
     if "error" in result:
+        error = result["error"]
+        if error.get("upstream_code") == \
+                "ACP_GENERATION_PREREQUISITES_INCOMPLETE":
+            # Spec 021 / ADR-024: deterministic merge of the live
+            # prerequisites detail so the model can report WHICH
+            # companies are un-enriched and WHAT is missing — then stop
+            # for the user's approval.  Bounded projection; no evidence
+            # bodies, no tenant identifiers.
+            detail = await _acp_call(
+                "GET",
+                f"{_ACP_BASE}/cohort-versions/{cohort_version_id}/"
+                f"generation-prerequisites")
+            if "error" not in detail:
+                error["unenriched_members"] = [
+                    {"organization_id": m.get("organization_id"),
+                     "canonical_legal_name": m.get("canonical_legal_name"),
+                     "evidence_status": m.get("evidence_status_live"),
+                     "missing_fields": m.get("missing_fields")}
+                    for m in detail.get("members") or []
+                    if m.get("decision") == "INCLUDED"
+                    and m.get("evidence_status_live") == "INSUFFICIENT"]
+                error["policy_fields"] = (detail.get("policy") or {}).get(
+                    "min_accepted_evidence_fields")
+                error["frozen_evidence_insufficient"] = bool(
+                    detail.get("frozen_evidence_insufficient"))
+                error["next"] = (
+                    "report the un-enriched companies and their missing "
+                    "fields, then STOP and ask the user to approve "
+                    "enrichment (enrich_acp_cohort_evidence); never "
+                    "fabricate evidence and never proceed without "
+                    "approval")
         return result
     if str(result.get("status") or "").upper() == "FAILED":
         return _acp_error(
@@ -2114,6 +2261,178 @@ async def _tool_generate_acp(
             f"({out['contributing_count']} contributing, "
             f"{out['skipped_count']} skipped). Review it at "
             f"{out['review_url']} — the active ACP is unchanged.")
+    return out
+
+
+async def _tool_get_acp_generation_prerequisites(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """get_acp_generation_prerequisites: read the live evidence
+    prerequisites of one cohort version (which members are un-enriched
+    and which policy fields are missing). Read-only."""
+    cohort_version_id = _acp_arg_str(args, "acp_cohort_version_id",
+                                     "acp_cohort_version_id")
+    result = await _acp_call(
+        "GET",
+        f"{_ACP_BASE}/cohort-versions/{cohort_version_id}/"
+        f"generation-prerequisites")
+    if "error" in result:
+        return result
+    out = {
+        "cohort_version_id": result.get("cohort_version_id"),
+        "version_status": result.get("version_status"),
+        "ready": result.get("ready"),
+        "frozen_evidence_insufficient":
+            result.get("frozen_evidence_insufficient"),
+        "policy_fields": (result.get("policy") or {}).get(
+            "min_accepted_evidence_fields"),
+        "members": [
+            {"organization_id": m.get("organization_id"),
+             "canonical_legal_name": m.get("canonical_legal_name"),
+             "decision": m.get("decision"),
+             "evidence_status": m.get("evidence_status_live"),
+             "evidence_status_frozen": m.get("evidence_status_frozen"),
+             "missing_fields": m.get("missing_fields"),
+             "stale_fields": m.get("stale_fields")}
+            for m in result.get("members") or []],
+        "review_url": _public_review_url(ACP_COHORT_CONSOLE_PATH),
+    }
+    out["next"] = (
+        "if not ready: report the un-enriched companies and their "
+        "missing fields, then STOP and ask the user to approve "
+        "enrichment (enrich_acp_cohort_evidence); never fabricate "
+        "evidence")
+    state = "ready" if out["ready"] else "not ready"
+    insufficient = sum(1 for m in out["members"]
+                       if m["evidence_status"] == "INSUFFICIENT")
+    out["chat_summary"] = (
+        f"Evidence prerequisites: {state}; {insufficient} member(s) "
+        f"lack required evidence.")
+    return out
+
+
+async def _tool_enrich_acp_cohort_evidence(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """enrich_acp_cohort_evidence: run the permission-gated evidence
+    enrichment job over a cohort version's members, reusing the
+    qualification research machinery. Researched values land as
+    UNVERIFIED observations — acceptance is a separate explicit step;
+    this never accepts and never generates."""
+    cohort_version_id = _acp_arg_str(args, "acp_cohort_version_id",
+                                     "acp_cohort_version_id")
+    payload: Dict[str, Any] = {
+        "actor_id": _acp_actor(ctx),
+        "cohort_version_id": cohort_version_id}
+    if args.get("organization_ids"):
+        payload["organization_ids"] = [
+            str(o) for o in args["organization_ids"]][:100]
+    result = await _acp_call(
+        "POST", f"{_ACP_BASE}/evidence-enrichment-jobs", payload)
+    if "error" in result:
+        return result
+    out = {
+        "job_id": result.get("job_id"),
+        "state": result.get("state"),
+        "cohort_version_id": result.get("cohort_version_id"),
+        "organization_ids": result.get("organization_ids"),
+        "field_targets": result.get("field_targets"),
+    }
+    out["next"] = ("poll get_acp_evidence_enrichment_job (once per "
+                   "turn); when COMPLETED, present the per-company "
+                   "field summary (values, source domains, unresolved "
+                   "fields) and ask for SEPARATE explicit approval to "
+                   "accept the recorded evidence")
+    out["chat_summary"] = (
+        f"Evidence enrichment job {out['job_id']} started for "
+        f"{len(out['organization_ids'] or [])} company(ies); targets: "
+        f"{', '.join(out['field_targets'] or [])}. Nothing is accepted "
+        f"yet.")
+    return out
+
+
+async def _tool_get_acp_evidence_enrichment_job(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """get_acp_evidence_enrichment_job: read one enrichment job
+    (status + bounded per-company results). Read-only."""
+    job_id = _acp_arg_str(args, "job_id", "job_id")
+    result = await _acp_call(
+        "GET", f"{_ACP_BASE}/evidence-enrichment-jobs/{job_id}")
+    # The job view carries an explicit null error field when healthy —
+    # check the value, not the key.
+    if result.get("error"):
+        return result
+    out = {
+        "job_id": result.get("job_id"),
+        "state": result.get("state"),
+        "field_targets": result.get("field_targets"),
+        "warnings": result.get("warnings") or [],
+        "error": result.get("error"),
+        "companies": [],
+        "observation_ids": result.get("observation_ids") or [],
+    }
+    for organization_id, company_result in (
+            result.get("results") or {}).items():
+        out["companies"].append({
+            "organization_id": organization_id,
+            "resolved": {
+                field: {"value": detail.get("value"),
+                        "source_system": detail.get("source_system"),
+                        "source_url": detail.get("source_url"),
+                        "confidence": detail.get("confidence"),
+                        "observation_id": detail.get("observation_id")}
+                for field, detail in (
+                    company_result.get("resolved") or {}).items()},
+            "unresolved_fields": company_result.get("unresolved_fields"),
+            "skipped_fields": company_result.get("skipped_fields"),
+        })
+    if out["state"] == "COMPLETED":
+        out["next"] = ("present the per-company summary and ask for "
+                       "SEPARATE explicit approval to accept the "
+                       "recorded evidence "
+                       "(accept_acp_enrichment_evidence)")
+    elif out["state"] == "FAILED":
+        out["next"] = "report the failure; do not retry without the user"
+    else:
+        out["next"] = ("the job is still running; poll again on the "
+                       "user's next message (once per turn)")
+    out["chat_summary"] = (
+        f"Enrichment job {job_id}: {out['state']}; "
+        f"{len(out['companies'])} company(ies).")
+    return out
+
+
+async def _tool_accept_acp_enrichment_evidence(
+        args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    """accept_acp_enrichment_evidence: audited acceptance of the
+    enrichment job's recorded UNVERIFIED observations (separate
+    explicit user approval; supersedes the previous accepted row per
+    field). Never generates."""
+    job_id = _acp_arg_str(args, "job_id", "job_id")
+    payload: Dict[str, Any] = {"actor_id": _acp_actor(ctx)}
+    if args.get("observation_ids"):
+        payload["observation_ids"] = [
+            str(o) for o in args["observation_ids"]][:500]
+    result = await _acp_call(
+        "POST", f"{_ACP_BASE}/evidence-enrichment-jobs/{job_id}/accept",
+        payload)
+    if "error" in result:
+        return result
+    out = {
+        "job_id": result.get("job_id"),
+        "accepted_count": result.get("accepted_count"),
+        "accepted": [
+            {"observation_id": a.get("observation_id"),
+             "field_key": a.get("field_key")}
+            for a in result.get("accepted") or []],
+    }
+    out["next"] = ("evidence accepted; continue the staged workflow — "
+                   "a DRAFT cohort version can proceed to member "
+                   "decisions and approval (which re-freezes evidence), "
+                   "while an APPROVED version with frozen insufficient "
+                   "evidence requires a NEW cohort version "
+                   "(re-proposal) before generation")
+    out["chat_summary"] = (
+        f"Accepted {out['accepted_count']} evidence observation(s) "
+        f"from job {job_id} (audited; supersession per field).")
     return out
 
 

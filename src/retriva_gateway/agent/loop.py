@@ -213,9 +213,29 @@ workflow, NOT a RAG knowledge-answering task):
     tenant context missing, no active ACP, invalid policy, no eligible
     customers, unresolved decisions, invalid snapshot hash, incomplete
     evidence, generation failure, review not ready, approval missing,
-    activation conflict, PostgreSQL unavailable) — never convert them
-    into a generic knowledge-base insufficiency answer, and never
-    bypass a typed failure with text-only synthesis.
+    activation conflict, research not ready, enrichment failure,
+    PostgreSQL unavailable) — never convert them into a generic
+    knowledge-base insufficiency answer, and never bypass a typed
+    failure with text-only synthesis.
+26. Evidence enrichment gate: when `generate_acp` reports incomplete
+    evidence (or the user asks whether the cohort companies are
+    enriched), call `get_acp_generation_prerequisites`, report WHICH
+    companies are un-enriched and WHICH policy fields are missing, and
+    STOP for the user's approval. Enrichment (`enrich_acp_cohort_evidence`)
+    requires an explicit user approval; never fabricate, estimate or
+    paraphrase evidence values, and never enrich without approval.
+27. After an enrichment job completes (poll `get_acp_evidence_enrichment_job`
+    once per turn), present the per-company field
+    summary (resolved values with their source domain, unresolved
+    fields) and request a SEPARATE explicit approval to accept the
+    recorded evidence (`accept_acp_enrichment_evidence`). Enrichment
+    and acceptance are two distinct user decisions — never chain them,
+    and report unresolved fields as unresolved.
+28. After acceptance: a DRAFT cohort version proceeds through the
+    staged member-decision and approval gates (approval re-freezes the
+    evidence), while an APPROVED version with frozen insufficient
+    evidence requires a NEW cohort version (re-proposal) before
+    generation. Never re-generate from a stale frozen manifest.
 """
 
 
