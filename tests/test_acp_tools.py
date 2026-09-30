@@ -618,17 +618,20 @@ def test_generate_acp_merges_prerequisites_on_incomplete_evidence():
             {"acp_cohort_version_id": "cohver_1"}, _ctx()))
     assert result["error"]["code"] == "incomplete_evidence"
     error = result["error"]
+    # The frozen predicate blocks: the merge projects the FROZEN
+    # blockers (regardless of live status) and directs to a NEW cohort
+    # version — enrichment cannot unblock an immutable manifest.
     assert error["unenriched_members"] == [
         {"organization_id": "org_1",
          "canonical_legal_name": "CAE SpA",
          "evidence_status": "INSUFFICIENT",
+         "evidence_status_live": "INSUFFICIENT",
          "missing_fields": ["employee_count_or_revenue"]}]
     assert error["policy_fields"] == ["country",
                                       "employee_count_or_revenue",
                                       "industry"]
     assert error["frozen_evidence_insufficient"] is True
-    assert "enrich_acp_cohort_evidence" in error["next"]
-    assert "STOP" in error["next"]
+    assert "NEW cohort version" in error["next"]
 
 
 def test_get_acp_generation_prerequisites_projects_members():
@@ -659,7 +662,8 @@ def test_get_acp_generation_prerequisites_projects_members():
     assert result["ready"] is False
     assert result["policy_fields"] == ["industry"]
     member = result["members"][0]
-    assert member["evidence_status"] == "INSUFFICIENT"
+    assert member["evidence_status_live"] == "INSUFFICIENT"
+    assert member["evidence_status_frozen"] == "UNKNOWN"
     assert member["missing_fields"] == ["industry"]
     assert "never fabricate" in result["next"]
     assert "not ready" in result["chat_summary"]

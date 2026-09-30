@@ -33,6 +33,7 @@ Design rules (see docs/adr/0001-extension-tools-for-chat-agent-loop.md):
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Awaitable, Dict, List, Optional
 
@@ -1876,6 +1877,24 @@ def _acp_arg_str(args: Dict[str, Any], key: str, label: str) -> str:
     return value
 
 
+# Opaque upstream identifiers follow "<prefix>_<url-safe-suffix>" (the
+# accepted `job_` discipline).  Model-supplied ids are interpolated into
+# proxied paths, so anything else (path separators, crafted routes) is
+# rejected before it can rewrite the upstream route (review fix 16:
+# containment parity with the qualification tools).
+_ACP_ID_RE = re.compile(r"^[A-Za-z0-9]{2,20}_[A-Za-z0-9\-]{1,64}$")
+
+
+def _acp_arg_id(args: Dict[str, Any], key: str, label: str) -> str:
+    value = _acp_arg_str(args, key, label)
+    if not _ACP_ID_RE.match(value):
+        raise ToolExecutionError(
+            "invalid_arguments",
+            f"{label} must be an opaque identifier (prefix_suffix); "
+            f"got {value[:40]!r}.")
+    return value
+
+
 def _acp_error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
     error = {"code": code, "message": message}
     error.update(extra)
@@ -2020,7 +2039,7 @@ async def _tool_propose_acp_cohort(
 async def _tool_get_acp_cohort(
         args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
     """get_acp_cohort: read one cohort (bounded view)."""
-    cohort_id = _acp_arg_str(args, "cohort_id", "cohort_id")
+    cohort_id = _acp_arg_id(args, "cohort_id", "cohort_id")
     result = await _acp_call("GET", f"{_ACP_BASE}/cohorts/{cohort_id}")
     if "error" in result:
         return result
@@ -2036,7 +2055,7 @@ async def _tool_list_acp_cohort_members(
         args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
     """list_acp_cohort_members: members + decision states (minimum
     review-level fields only)."""
-    cohort_id = _acp_arg_str(args, "cohort_id", "cohort_id")
+    cohort_id = _acp_arg_id(args, "cohort_id", "cohort_id")
     version_number = args.get("version_number")
     detail = await _acp_cohort_version_detail(cohort_id, version_number)
     if "error" in detail:
@@ -2070,8 +2089,8 @@ async def _tool_update_acp_cohort_member(
     """update_acp_cohort_member: REVIEW_ACP_COHORT — record one
     reviewed membership decision (history and audit preserved
     upstream; never approves)."""
-    cohort_id = _acp_arg_str(args, "cohort_id", "cohort_id")
-    organization_id = _acp_arg_str(args, "organization_id",
+    cohort_id = _acp_arg_id(args, "cohort_id", "cohort_id")
+    organization_id = _acp_arg_id(args, "organization_id",
                                    "organization_id")
     decision = _acp_arg_str(args, "decision", "decision")
     allowed = {"INCLUDED", "EXCLUDED", "PENDING_REVIEW", "OUTLIER",
@@ -2107,7 +2126,7 @@ async def _tool_submit_acp_cohort_for_review(
     """submit_acp_cohort_for_review: lifecycle guidance per the
     accepted workflow (the version is submitted implicitly upon
     approval; ADR-023 decision 6b/OQ2)."""
-    cohort_id = _acp_arg_str(args, "cohort_id", "cohort_id")
+    cohort_id = _acp_arg_id(args, "cohort_id", "cohort_id")
     version_number = args.get("version_number")
     detail = await _acp_cohort_version_detail(cohort_id, version_number)
     if "error" in detail:
@@ -2134,7 +2153,7 @@ async def _tool_approve_acp_cohort(
     """approve_acp_cohort: APPROVE_ACP_COHORT — pre-check unresolved
     decisions, then approve the open version (immutable snapshot +
     verified hash upstream).  Never generates."""
-    cohort_id = _acp_arg_str(args, "cohort_id", "cohort_id")
+    cohort_id = _acp_arg_id(args, "cohort_id", "cohort_id")
     detail = await _acp_cohort_version_detail(
         cohort_id, args.get("version_number"))
     if "error" in detail:
@@ -2175,7 +2194,7 @@ async def _tool_generate_acp(
     """generate_acp: GENERATE_ACP — run the deterministic induction
     against an APPROVED cohort version (frozen, snapshot-hash verified
     upstream); produces a review-ready draft; never activates."""
-    cohort_version_id = _acp_arg_str(args, "acp_cohort_version_id",
+    cohort_version_id = _acp_arg_id(args, "acp_cohort_version_id",
                                      "acp_cohort_version_id")
     payload: Dict[str, Any] = {
         "acp_cohort_version_id": cohort_version_id,
@@ -2192,30 +2211,47 @@ async def _tool_generate_acp(
             # prerequisites detail so the model can report WHICH
             # companies are un-enriched and WHAT is missing — then stop
             # for the user's approval.  Bounded projection; no evidence
-            # bodies, no tenant identifiers.
+            # bodies, no tenant identifiers.  Review fix 14: the gate
+            # blocks on FROZEN statuses of any member, so the projection
+            # reports the frozen blockers and the `next` guidance
+            # respects the version lifecycle (enrichment unblocks a
+            # DRAFT version; an APPROVED version's manifest is
+            # immutable and needs a NEW cohort version).
             detail = await _acp_call(
                 "GET",
                 f"{_ACP_BASE}/cohort-versions/{cohort_version_id}/"
                 f"generation-prerequisites")
             if "error" not in detail:
+                blocked = [
+                    m for m in detail.get("members") or []
+                    if m.get("decision") == "INSUFFICIENT_DATA"
+                    or m.get("evidence_status_frozen") == "INSUFFICIENT"]
                 error["unenriched_members"] = [
                     {"organization_id": m.get("organization_id"),
                      "canonical_legal_name": m.get("canonical_legal_name"),
-                     "evidence_status": m.get("evidence_status_live"),
+                     "evidence_status": m.get("evidence_status_frozen"),
+                     "evidence_status_live": m.get("evidence_status_live"),
                      "missing_fields": m.get("missing_fields")}
-                    for m in detail.get("members") or []
-                    if m.get("decision") == "INCLUDED"
-                    and m.get("evidence_status_live") == "INSUFFICIENT"]
+                    for m in blocked]
                 error["policy_fields"] = (detail.get("policy") or {}).get(
                     "min_accepted_evidence_fields")
                 error["frozen_evidence_insufficient"] = bool(
                     detail.get("frozen_evidence_insufficient"))
-                error["next"] = (
-                    "report the un-enriched companies and their missing "
-                    "fields, then STOP and ask the user to approve "
-                    "enrichment (enrich_acp_cohort_evidence); never "
-                    "fabricate evidence and never proceed without "
-                    "approval")
+                if detail.get("frozen_evidence_insufficient"):
+                    error["next"] = (
+                        "the APPROVED version froze insufficient "
+                        "evidence in its immutable manifest: report the "
+                        "blocked companies, then tell the user that "
+                        "enriching now requires a NEW cohort version "
+                        "(re-propose after evidence is accepted); never "
+                        "re-generate from the stale frozen manifest")
+                else:
+                    error["next"] = (
+                        "report the un-enriched companies and their "
+                        "missing fields, then STOP and ask the user to "
+                        "approve enrichment (enrich_acp_cohort_evidence)"
+                        "; never fabricate evidence and never proceed "
+                        "without approval")
         return result
     if str(result.get("status") or "").upper() == "FAILED":
         return _acp_error(
@@ -2269,7 +2305,7 @@ async def _tool_get_acp_generation_prerequisites(
     """get_acp_generation_prerequisites: read the live evidence
     prerequisites of one cohort version (which members are un-enriched
     and which policy fields are missing). Read-only."""
-    cohort_version_id = _acp_arg_str(args, "acp_cohort_version_id",
+    cohort_version_id = _acp_arg_id(args, "acp_cohort_version_id",
                                      "acp_cohort_version_id")
     result = await _acp_call(
         "GET",
@@ -2289,7 +2325,10 @@ async def _tool_get_acp_generation_prerequisites(
             {"organization_id": m.get("organization_id"),
              "canonical_legal_name": m.get("canonical_legal_name"),
              "decision": m.get("decision"),
-             "evidence_status": m.get("evidence_status_live"),
+             # Live vs frozen are named explicitly (review fix 19): the
+             # same key as _member_min_view would carry OPPOSITE
+             # freshness semantics there (frozen).
+             "evidence_status_live": m.get("evidence_status_live"),
              "evidence_status_frozen": m.get("evidence_status_frozen"),
              "missing_fields": m.get("missing_fields"),
              "stale_fields": m.get("stale_fields")}
@@ -2303,7 +2342,7 @@ async def _tool_get_acp_generation_prerequisites(
         "evidence")
     state = "ready" if out["ready"] else "not ready"
     insufficient = sum(1 for m in out["members"]
-                       if m["evidence_status"] == "INSUFFICIENT")
+                       if m["evidence_status_live"] == "INSUFFICIENT")
     out["chat_summary"] = (
         f"Evidence prerequisites: {state}; {insufficient} member(s) "
         f"lack required evidence.")
@@ -2317,7 +2356,7 @@ async def _tool_enrich_acp_cohort_evidence(
     qualification research machinery. Researched values land as
     UNVERIFIED observations — acceptance is a separate explicit step;
     this never accepts and never generates."""
-    cohort_version_id = _acp_arg_str(args, "acp_cohort_version_id",
+    cohort_version_id = _acp_arg_id(args, "acp_cohort_version_id",
                                      "acp_cohort_version_id")
     payload: Dict[str, Any] = {
         "actor_id": _acp_actor(ctx),
@@ -2353,12 +2392,14 @@ async def _tool_get_acp_evidence_enrichment_job(
         args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
     """get_acp_evidence_enrichment_job: read one enrichment job
     (status + bounded per-company results). Read-only."""
-    job_id = _acp_arg_str(args, "job_id", "job_id")
+    job_id = _acp_arg_id(args, "job_id", "job_id")
     result = await _acp_call(
         "GET", f"{_ACP_BASE}/evidence-enrichment-jobs/{job_id}")
-    # The job view carries an explicit null error field when healthy —
-    # check the value, not the key.
-    if result.get("error"):
+    # A dict-valued "error" is the tool-failure envelope; a job view
+    # with a STRING error is a healthy response about a possibly FAILED
+    # job — it must flow through the bounded projection so the FAILED
+    # guidance below executes (review fix 15).
+    if isinstance(result.get("error"), dict):
         return result
     out = {
         "job_id": result.get("job_id"),
@@ -2373,6 +2414,7 @@ async def _tool_get_acp_evidence_enrichment_job(
             result.get("results") or {}).items():
         out["companies"].append({
             "organization_id": organization_id,
+            "error": company_result.get("error"),
             "resolved": {
                 field: {"value": detail.get("value"),
                         "source_system": detail.get("source_system"),
@@ -2406,7 +2448,7 @@ async def _tool_accept_acp_enrichment_evidence(
     enrichment job's recorded UNVERIFIED observations (separate
     explicit user approval; supersedes the previous accepted row per
     field). Never generates."""
-    job_id = _acp_arg_str(args, "job_id", "job_id")
+    job_id = _acp_arg_id(args, "job_id", "job_id")
     payload: Dict[str, Any] = {"actor_id": _acp_actor(ctx)}
     if args.get("observation_ids"):
         payload["observation_ids"] = [
@@ -2439,7 +2481,7 @@ async def _tool_accept_acp_enrichment_evidence(
 async def _tool_get_acp_generation_run(
         args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
     """get_acp_generation_run: read one generation run."""
-    run_id = _acp_arg_str(args, "generation_run_id", "generation_run_id")
+    run_id = _acp_arg_id(args, "generation_run_id", "generation_run_id")
     result = await _acp_call(
         "GET", f"{_ACP_BASE}/generation-runs/{run_id}")
     if "error" in result:
@@ -2472,7 +2514,7 @@ async def _tool_get_acp_generation_run(
 async def _tool_get_acp_version(
         args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
     """get_acp_version: read one ACP version (typed projection)."""
-    acp_id = _acp_arg_str(args, "acp_id", "acp_id")
+    acp_id = _acp_arg_id(args, "acp_id", "acp_id")
     version_number = int(args.get("version_number") or 0)
     if version_number <= 0:
         raise ToolExecutionError("invalid_arguments",
@@ -2493,7 +2535,7 @@ async def _tool_submit_acp_for_review(
         args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
     """submit_acp_for_review: REVIEW_ACP — DRAFT -> REVIEW_READY
     (payload byte-identical upstream; no generation, no scoring)."""
-    acp_id = _acp_arg_str(args, "acp_id", "acp_id")
+    acp_id = _acp_arg_id(args, "acp_id", "acp_id")
     version_number = int(args.get("version_number") or 0)
     if version_number <= 0:
         raise ToolExecutionError("invalid_arguments",
@@ -2517,7 +2559,7 @@ async def _tool_approve_acp(
     never activates (the active ACP stays unchanged).  A REVIEW_READY
     version is moved to UNDER_REVIEW first (accepted API transition;
     the approval intent itself remains the explicit user request)."""
-    acp_id = _acp_arg_str(args, "acp_id", "acp_id")
+    acp_id = _acp_arg_id(args, "acp_id", "acp_id")
     version_number = int(args.get("version_number") or 0)
     if version_number <= 0:
         raise ToolExecutionError("invalid_arguments",
@@ -2557,7 +2599,7 @@ async def _tool_activate_acp(
     """activate_acp: ACTIVATE_ACP — transactionally activate an
     APPROVED ACP version (exactly one active per tenant; ledger + audit
     upstream; rollback preserved)."""
-    acp_id = _acp_arg_str(args, "acp_id", "acp_id")
+    acp_id = _acp_arg_id(args, "acp_id", "acp_id")
     version_number = int(args.get("version_number") or 0)
     if version_number <= 0:
         raise ToolExecutionError("invalid_arguments",
@@ -2619,7 +2661,7 @@ async def _tool_rollback_acp_activation(
     """rollback_acp_activation: ACTIVATE_ACP — restore a previously
     active ACP version through the activation ledger (a new ledger
     operation; history is never rewritten)."""
-    acp_id = _acp_arg_str(args, "acp_id", "acp_id")
+    acp_id = _acp_arg_id(args, "acp_id", "acp_id")
     version_number = int(args.get("version_number") or 0)
     if version_number <= 0:
         raise ToolExecutionError("invalid_arguments",
@@ -2699,7 +2741,7 @@ async def _tool_get_acp_lineage(
     """get_acp_lineage: VIEW_ACP_AUDIT — cohort, snapshot hash,
     generation run, approvals, activations (opaque ids and hashes
     only)."""
-    acp_id = _acp_arg_str(args, "acp_id", "acp_id")
+    acp_id = _acp_arg_id(args, "acp_id", "acp_id")
     version_number = int(args.get("version_number") or 0)
     if version_number <= 0:
         raise ToolExecutionError("invalid_arguments",

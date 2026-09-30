@@ -85,3 +85,29 @@ async def test_generic_enrich_mention_stays_rag():
     intent, meta = await IntentDetector.analyze(
         "how can I enrich my soil for better tomatoes?")
     assert intent == Intent.PURE_RAG
+
+
+@pytest.mark.asyncio
+async def test_workflow_stickiness_routes_confirmation_replies():
+    """Review fix 17: the staged flow's short confirmation replies
+    stay in the agent loop for the session that is mid-workflow
+    (bounded turns; knowledge-framed questions never sticky-route)."""
+    IntentDetector._STICKY.clear()
+    key = "sess_sticky_test"
+    # A workflow turn arms the sticky window.
+    intent, _ = await IntentDetector.analyze(
+        "propose an ACP cohort from my customers", session_key=key)
+    assert intent == Intent.CRM_WORKFLOW
+    # A bare confirmation rides the workflow loop.
+    intent, _ = await IntentDetector.analyze("yes, enrich them",
+                                             session_key=key)
+    assert intent == Intent.CRM_WORKFLOW
+    # A knowledge question still wins over stickiness.
+    intent, _ = await IntentDetector.analyze(
+        "what is an average customer profile?", session_key=key)
+    assert intent == Intent.PURE_RAG
+    # A different session gets nothing from this sticky state.
+    intent, _ = await IntentDetector.analyze("go ahead",
+                                             session_key="sess_other")
+    assert intent == Intent.PURE_RAG
+    IntentDetector._STICKY.clear()

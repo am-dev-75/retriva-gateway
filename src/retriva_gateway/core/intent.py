@@ -33,8 +33,9 @@ Detection is regex-based and synchronous in cost: the only await is the
 from __future__ import annotations
 
 import re
+import threading
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from retriva_gateway.core.client import core_client
 
@@ -80,8 +81,10 @@ _CRM_WORKFLOW = re.compile(
     r"version)\b"
     r"|\b(qualify|qualification)\b[^\n]{0,80}\b"
     r"(candidates?|workbook|job)\b"
-    r"|\b(enrich\w*)\b[^\n]{0,80}\b"
-    r"(customers?|companies?|cohorts?|evidence|members?)\b"
+    r"|\b(enrich\w*|accept)\b[^\n]{0,80}\b"
+    r"(customers?|companies?|cohorts?|evidence|members?|results?|"
+    r"observations?|job)\b"
+    r"|\b(enrich\w*)\b[^\n]{0,24}\b(them|it|those|all)\b"
     r"|\b(analyz\w+|commit|reject)\b[^\n]{0,80}\b"
     r"(import|batch|workbook)\b"
     r"|\b(campaign)\b[^\n]{0,80}\b(audience|create|approve|commit|"
@@ -89,9 +92,69 @@ _CRM_WORKFLOW = re.compile(
     r"|\b(import)\b[^\n]{0,80}\b(campaign|company\s+history)\b",
     re.IGNORECASE)
 
+# Sticky-continuation guard (review fix 17): interrogative how-to /
+# what-is framings and generic knowledge phrasing are NEVER routed by
+# stickiness, even inside an active workflow — only the workflow regex
+# itself routes those.
+_KNOWLEDGE_FRAMING = re.compile(
+    r"^\s*(how\s+(do|can|to|does|did)|what\s+(is|are|does)|why\s+"
+    r"(is|do|does)|when\s+(is|do|does)|explain|tell\s+me\s+about|"
+    r"give\s+me\s+an?\s+overview|cos'?è|come\s+(si|funziona)|che\s+cos"
+    r"?'?è)\b",
+    re.IGNORECASE)
+
 
 class IntentDetector:
     """Deterministic chat-intent detection (no provider calls)."""
+
+    # Workflow stickiness (Spec 021 review fix 17): the staged
+    # ACP/evidence flow spans several turns whose confirmation replies
+    # ("yes, enrich them", "accept the results") match no workflow
+    # pattern, yet they must keep driving the agent loop — not fall
+    # back to the knowledge base.  After a workflow turn, the next
+    # message of the SAME session stays in workflow context for a
+    # bounded number of turns unless it is clearly a knowledge question
+    # (explicit filter/catalog/interrogative framing).  Keyed by
+    # session; entries are tiny and self-expiring.
+    _WORKFLOW_STICKY_TURNS = 3
+    _STICKY: Dict[str, List[int]] = {}
+    _STICKY_LOCK = threading.Lock()
+
+    @staticmethod
+    def _sticky_key(message_key: Optional[str]) -> Optional[str]:
+        return message_key or None
+
+    @staticmethod
+    def _hit_sticky(key: Optional[str]) -> bool:
+        if not key:
+            return False
+        with IntentDetector._STICKY_LOCK:
+            turns = IntentDetector._STICKY.get(key)
+            if not turns:
+                return False
+            return turns[0] > 0
+
+    @staticmethod
+    def _mark_sticky(key: Optional[str]) -> None:
+        if not key:
+            return
+        with IntentDetector._STICKY_LOCK:
+            # Bounded registry: drop exhausted entries opportunistically.
+            IntentDetector._STICKY = {
+                k: v for k, v in IntentDetector._STICKY.items() if v[0] > 0}
+            IntentDetector._STICKY[key] = [
+                IntentDetector._WORKFLOW_STICKY_TURNS]
+
+    @staticmethod
+    def _consume_sticky(key: Optional[str]) -> None:
+        if not key:
+            return
+        with IntentDetector._STICKY_LOCK:
+            turns = IntentDetector._STICKY.get(key)
+            if turns:
+                turns[0] -= 1
+                if turns[0] <= 0:
+                    IntentDetector._STICKY.pop(key, None)
 
     @staticmethod
     async def _schema_fields() -> Optional[Dict[str, Any]]:
@@ -105,12 +168,17 @@ class IntentDetector:
         return properties if isinstance(properties, dict) else None
 
     @staticmethod
-    async def analyze(message: str) -> Tuple[Intent, Dict[str, str]]:
+    async def analyze(message: str, *,
+                      session_key: Optional[str] = None) \
+            -> Tuple[Intent, Dict[str, str]]:
         """Detect the intent of one chat message.
 
         Returns ``(intent, meta)`` where ``meta`` carries extracted
         metadata filters (``{key: value}``) for
-        ``METADATA_FILTERED_RAG`` and is empty otherwise.
+        ``METADATA_FILTERED_RAG`` and is empty otherwise.  When a
+        ``session_key`` is given, a workflow turn arms stickiness so the
+        flow's short confirmation replies keep routing to the agent
+        loop (bounded turns; explicit knowledge questions still win).
         """
         text = message or ""
         filters: Dict[str, str] = {}
@@ -132,11 +200,28 @@ class IntentDetector:
                          if key in fields}
                 if known:
                     return Intent.METADATA_FILTERED_RAG, dict(known)
-        if _CRM_WORKFLOW.search(text):
+        workflow = bool(_CRM_WORKFLOW.search(text))
+        if not workflow and IntentDetector._hit_sticky(session_key) \
+                and not _KNOWLEDGE_FRAMING.search(text):
+            # Sticky continuation: a short approval/confirmation turn
+            # inside an active workflow keeps the loop.
+            IntentDetector._consume_sticky(session_key)
+            return Intent.CRM_WORKFLOW, {}
+        if workflow:
+            IntentDetector._mark_sticky(session_key)
             return Intent.CRM_WORKFLOW, {}
         return Intent.PURE_RAG, {}
 
     @staticmethod
-    def is_crm_workflow(message: str) -> bool:
+    def is_crm_workflow(message: str, *,
+                        session_key: Optional[str] = None) -> bool:
         """Synchronous CRM-workflow check for the chat router."""
-        return bool(_CRM_WORKFLOW.search(message or ""))
+        text = message or ""
+        if _CRM_WORKFLOW.search(text):
+            return True
+        # Sticky continuation mirrors analyze() without the async
+        # metadata lookup: explicit filter/catalog/dynamic-filter
+        # framings are checked by the router BEFORE this call; a
+        # knowledge-framed message is never sticky-routed.
+        return (IntentDetector._hit_sticky(session_key)
+                and not _KNOWLEDGE_FRAMING.search(text))

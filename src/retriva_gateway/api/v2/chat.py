@@ -51,7 +51,9 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
         return _AGENT_SENTINEL
     if not request.stream:
         from retriva_gateway.core.intent import IntentDetector
-        if IntentDetector.is_crm_workflow(request.message or ""):
+        if IntentDetector.is_crm_workflow(
+                request.message or "",
+                session_key=request.session_id):
             logger.info(
                 f"[{corr_id}] Chat routing: CRM workflow intent → "
                 f"agent loop")
