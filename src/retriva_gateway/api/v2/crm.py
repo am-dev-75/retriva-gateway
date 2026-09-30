@@ -218,6 +218,27 @@ async def crm_list_acp_cohorts(status: Optional[str] = None):
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
 
+@router.get("/acp/versions")
+async def crm_list_acp_versions(acp_id: Optional[str] = None,
+                                status: Optional[str] = None):
+    """Legacy-route guard (Spec 021 follow-up defect): GET /acp/versions
+    is the PostgreSQL ACP version list the ACP console consumes — a
+    single-segment path, so the legacy /acp/{kb_id} route captured it
+    and answered with the bound ACP's legacy payload (the console
+    showed only the ACTIVE legacy ACP and no generated drafts).  The
+    CRM extension enforces tenancy and permissions."""
+    params = {k: v for k, v in (("acp_id", acp_id), ("status", status))
+              if v}
+    try:
+        resp = await core_client._request(
+            "GET", core_client.ingestion_base_url, "/api/v2/crm/acp/versions",
+            params=params or None,
+        )
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
 @router.get("/acp/{kb_id}")
 @router.get("/icp/{kb_id}", deprecated=True)  # deprecated alias of /acp/
 async def crm_get_icp(kb_id: str, collection_name: Optional[str] = None):

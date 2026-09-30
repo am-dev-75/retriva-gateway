@@ -56,6 +56,25 @@ def test_cohort_list_forwards_to_cohort_api(transport_log):
     assert ("GET", "/api/v2/crm/acp/cohorts", b"") in transport_log
 
 
+def test_acp_versions_list_not_shadowed_by_legacy_kb_route(transport_log):
+    """Spec 021 follow-up defect: GET /acp/versions is a single-segment
+    path, so the legacy GET /acp/{kb_id} route captured it and answered
+    with the bound ACP's legacy payload — the ACP console showed only
+    the ACTIVE legacy ACP and none of the generated drafts.  The
+    explicit guard must forward it (with its filters) to the
+    PostgreSQL ACP version list."""
+    response = client.get("/api/v2/crm/acp/versions")
+    assert response.status_code == 200
+    assert ("GET", "/api/v2/crm/acp/versions", b"") in transport_log
+
+    response = client.get(
+        "/api/v2/crm/acp/versions",
+        params={"acp_id": "acp_x", "status": "DRAFT"})
+    assert response.status_code == 200
+    forwarded = [path for method, path, _ in transport_log]
+    assert forwarded.count("/api/v2/crm/acp/versions") == 2
+
+
 def test_cohort_catch_all_forwards_multisegment_paths(transport_log):
     response = client.post(
         "/api/v2/crm/acp/cohorts/cohort_1/members/org_1/decision",
