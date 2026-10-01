@@ -173,26 +173,46 @@ set (spec §Definitions) the guard requires ALL of:
 
 Bare affirmatives ("yes", "ok", "confermo") pass only when a typed pending
 confirmation exists and validates (spec C4: exact operation + resource +
-tenant + principal/session + version + previous state + allowed transition +
-unexpired + not-yet-used + consistent with current server state). Pending
-confirmations are created **only** deterministically — from typed
-tool-result markers if present (none in the accepted tool registry today,
-recorded as a limitation) — never from free-form history, model prose, or
-classifier output. The classifier may resolve linguistic references to
-identify which pending confirmation the user likely means; it never creates
-or changes the confirmation resource. Failure → `CLARIFICATION_REQUIRED`
-(or the workflow's own typed error once inside the loop). Cross-tenant,
-expired, mismatched, or stale confirmations fail closed.
+tenant + trusted principal AND session (both mandatory — owner decision
+U-1, 2026-10-01) + version + previous state + allowed transition +
+unexpired + not-yet-used + consistent with current server state).
+
+**Confirmation creation (Phase C0 correction, owner decisions U-1/U-2 +
+option (a), 2026-10-01).** The deterministic adapter creates ordinary
+workflow context only and can never create or arm a consumable
+PendingConfirmation — not from an explicit consequential command, an
+operation verb, an opaque resource identifier, conversation history, or
+a routing decision; those inputs establish no authoritative version,
+previous state, legal transition, existence, or permission. A
+PendingConfirmation may be created only from a trusted, closed, typed
+**ConfirmationReadyOutcome** produced at the domain-service boundary
+from authoritative post-state and trusted request identity (governing
+ADR: retriva-crm-assistant `docs/adr/adr-026-confirmation-ready-outcome-
+contract.md`; first workflow: ACP version approval → ACP activation;
+spec C4a; proof obligations TR95-TR107). The previously recorded
+limitation ("no typed tool-result
+markers in the accepted tool registry") is resolved by that Phase C0
+prerequisite, not by Gateway synthesis. Free-form history, model prose,
+and classifier output never create or change the confirmation resource;
+the classifier may resolve linguistic references to identify which
+pending confirmation the user likely means. Failure →
+`CLARIFICATION_REQUIRED` (or the workflow's own typed error once inside
+the loop). Cross-tenant, expired, mismatched, or stale confirmations
+fail closed.
 
 ### 4. Workflow-context registry (`core/routing/context.py`)
 
 In-process, thread-safe, bounded (max entries + TTL, defaults: 200
 sessions, 30 min), keyed `(tenant_id, session_id, kb_id)`. Writers:
-deterministic engine (observed command with explicit resource), and tool
-outcome observer (maps typed result classes: `review_required`,
-`created_resource`, `destructive_done` → invalidate/advance). Content per
-C4: family, resource type, opaque id, status class, last operation, allowed
-next operations, pending confirmation, timestamps. Resource IDs remain
+deterministic engine (observed command with explicit resource —
+ordinary context only, never PendingConfirmation), and tool outcome
+observer (maps typed result classes: `review_required`,
+`created_resource`, `destructive_done` → invalidate/advance ordinary
+context; the ConfirmationReadyOutcome of spec C4a / ADR-026 is the sole
+input that can produce a PendingConfirmation, in Phase C after Gate
+C0). Content per C4: family, resource type, opaque id, status class,
+last operation, allowed next operations, pending confirmation,
+timestamps. Resource IDs remain
 opaque; the agent loop re-validates every resource server-side (existing
 checks), so a stale context can only cause a clarification or a typed
 workflow error — never an unauthorized success. Single-process scope is a
@@ -200,8 +220,11 @@ documented limitation (deployment runs one Gateway container; multi-instance
 deployments must keep mode `off` or accept degraded follow-up UX).
 
 The pending-confirmation sub-record carries the full C4 binding (tenant,
-principal/session, family, operation, resource type, opaque ID, version,
-previous authoritative state, allowed next transition, created_at, expiry,
+trusted principal AND session — both mandatory (owner decision U-1,
+2026-10-01) — family, operation, resource type, opaque ID, version,
+expected authoritative state (Phase C0 semantics: the state
+established by the preparation outcome and expected to remain current
+at the later transition), allowed next transition, created_at, expiry,
 correlation ID), is single-use, is invalidated on authoritative state change
 (tool-outcome observer), and is re-validated against current server state at
 consumption.

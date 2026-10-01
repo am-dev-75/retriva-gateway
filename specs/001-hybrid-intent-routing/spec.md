@@ -516,13 +516,18 @@ follow-up ("Yes." / "Do it." / "Approve it." / "Activate that one." /
 confirmation exists that binds ALL of:
 
 - tenant;
-- trusted principal or session;
+- trusted principal AND session (both mandatory — a session identifier
+  is not an authorization identity; owner decision U-1, 2026-10-01);
 - workflow family;
 - exact operation (closed vocabulary);
 - exact resource type;
 - exact opaque resource ID;
 - exact version where applicable;
-- previous authoritative state (typed status class);
+- expected authoritative state (typed status class; Phase C0
+  semantics: the authoritative resource state established by the
+  preparation outcome and expected to remain current when the later
+  consequential transition is attempted — never the pre-preparation
+  state);
 - allowed next transition;
 - creation timestamp;
 - expiry;
@@ -535,8 +540,79 @@ Cross-tenant, expired, mismatched, or stale confirmations fail closed.
 Conversation history alone is insufficient. Classifier output alone is
 insufficient. The classifier may resolve linguistic references ("that one",
 "quello") to identify which pending confirmation the user likely means, but
-it MUST NOT create or change the pending confirmation resource; creation and
-mutation happen only in deterministic routing and typed tool-outcome paths.
+it MUST NOT create or change the pending confirmation resource.
+
+**Creation paths (Phase C0 correction, owner decisions U-1/U-2 + option
+(a), 2026-10-01).** The deterministic adapter may create ordinary
+workflow context only; it can never create or arm a consumable
+PendingConfirmation — not from an explicit consequential command, an
+operation verb, an opaque resource identifier, conversation history, or a
+routing decision. A PendingConfirmation may be created only from a
+trusted, closed, typed **ConfirmationReadyOutcome** (Section C4a)
+produced at the domain-service boundary from authoritative post-state
+and trusted request identity. The claim is atomic before consequential
+execution, single-use, and never automatically restored; a later failure
+requires a new preparation and confirmation cycle. Until the Phase C0
+contract is implemented and Gate C0 passes, bare affirmatives fail
+closed in every workflow.
+
+### C4a — ConfirmationReadyOutcome (domain-owned, Phase C0 prerequisite)
+
+The ConfirmationReadyOutcome is a **domain-owned** typed contract
+(governing ADR: retriva-crm-assistant
+`docs/adr/adr-026-confirmation-ready-outcome-contract.md`, first
+workflow: ACP version approval → ACP activation). The domain service
+owns the authoritative response schema; the Gateway owns a strict
+mirrored ingress-validation type and the future routing policy, and
+never synthesizes authoritative domain fields. The outcome is
+**preparation evidence, not authorization to mutate** — the final
+activation operation repeats tenant enforcement, principal
+authorization, resource-existence, authoritative-version, authoritative
+state, transition-legality, concurrency, and idempotency validation at
+the domain boundary.
+
+The closed field set (every enum closed; every opaque value carries a
+documented format, maximum length, and provenance — full normative
+detail in ADR-026):
+
+| Field | Closed value / type | Authoritative source |
+|---|---|---|
+| `schema_version` | `"1"` | contract constant |
+| `discriminator` | `"acp_version_approved_for_activation"` | contract constant |
+| `tenant_id` | string | CRM business-store tenant scope actually used by the producing transaction (KB/collection selection is never business tenant identity) |
+| `principal_id` | string | trusted-principal resolution (`X-Retriva-User`, non-`anonymous`) |
+| `workflow_family` | `"ACP"` | contract constant |
+| `operation` | `"ACP_ACTIVATION"` (operation awaiting confirmation) | contract constant |
+| `resource_type` | `"acp_version"` | contract constant |
+| `resource_id` | string | approved `acp_id` (post-state service object) |
+| `authoritative_version` | integer | approved `version_number` (post-state service object) |
+| `expected_authoritative_state` | `"APPROVED"` | approved `status` (post-state service object) |
+| `allowed_next_transition` | `"activate"` | contract constant |
+| `preparation_transition_token` | `acpapl_` + 16 hex | immutable `qualification.acp_approvals` record identifier |
+| `created_at` | UTC ISO-8601 | service clock |
+| `confirmation_lifetime_seconds` | int, 1..900 (default 300) | domain constant |
+| `correlation_id` | string | echo of the Gateway-set `X-Correlation-ID` |
+| `producing_service` | `"retriva-crm-assistant/acp"` | contract constant |
+| `producing_operation` | `"approve_acp_version"` | contract constant |
+
+`expected_authoritative_state` is normatively: *the authoritative
+resource state established by the preparation outcome and expected to
+remain current when the later consequential transition is attempted* —
+for ACP activation, `APPROVED`; never the pre-approval state.
+
+The block is produced only for the **authenticated human principal**
+class; it is omitted for anonymous and machine service principals. The
+Gateway transports the service-certified block without synthesizing or
+altering authoritative fields, while strictly validating schema
+version, fields, enums, bounds, correlation, tenant, and principal;
+ingress uses `extra="forbid"`, rejects unknown schema versions and
+unknown fields, rejects correlation/tenant/principal mismatches, and
+accepts the block only inside the correlated response to a
+Gateway-originated service request. Schema validity alone does not
+establish provenance. The block is optional and additive: an old
+Gateway ignores it; a new Gateway accepts its absence. Phase C0
+implements no registry, no PendingConfirmation storage, no claim
+behavior, and no bare-affirmative routing (Phase C, after Gate C0).
 
 ### C5 — Streaming typed error and streaming policy
 
@@ -1054,7 +1130,8 @@ invoked on failure.
 S6 Custom metadata never drives routing.
 S7 Conversation history alone never authorizes a consequential action; bare
 affirmatives act only against a typed, unexpired pending confirmation
-binding exactly operation, tenant, principal/session, resource, version,
+binding exactly operation, tenant, trusted principal AND session (both
+mandatory — owner decision U-1, 2026-10-01), resource, version,
 previous state, allowed transition, and expiry (C4).
 S8 The classifier prompt treats the user message as untrusted data to
 classify, never as instructions; no tool credentials or implementation

@@ -16,7 +16,9 @@ complete coverage of the review's unnumbered section requirements — §12
 multi-intent (TR61-TR66), §13 pending confirmation (TR67-TR74), §11
 classifier failure (TR75-TR80). TR81-TR87 are revision-2-repair additions
 from the owner acceptance dossier (registry eviction, mode gating).
-TR88-TR94 are Gate B correction additions (owner decisions D-1–D-3). The
+TR88-TR94 are Gate B correction additions (owner decisions D-1–D-3).
+TR95-TR107 are Phase C0 owner-approved prerequisite additions
+(ConfirmationReadyOutcome domain contract, Gate C0-A 2026-10-01). The
 original mapped cases A1-A68 remain (A67 split into A67a-A67e for objective
 testability); where a TR extends an existing A-case the mapping is noted so
 a single test can satisfy both.
@@ -258,10 +260,13 @@ anywhere in the pipeline.
 - TR67 bare affirmatives act only with a typed, unexpired pending
   confirmation ("Yes." / "Do it." / "Approve it." / "Activate that one." /
   "Sì." / "Confermalo." / "Attiva quello."; extends A35-A36).
-- TR68 the confirmation binds every required field (tenant, principal or
-  session, family, operation, resource type, opaque ID, version, previous
-  authoritative state, allowed next transition, created_at, expiry,
-  correlation ID; schema-level test).
+- TR68 the confirmation binds every required field (tenant, trusted
+  principal AND session — both mandatory — family, operation, resource
+  type, opaque ID, version, expected authoritative state — the state
+  established by the preparation outcome and expected to remain current
+  at the later transition — allowed next transition, created_at, expiry,
+  correlation ID; schema-level test. Field names refined by the Phase C0
+  correction, Gate C0-A 2026-10-01).
 - TR69 the confirmation is invalidated after use (single-use; replay fails
   closed).
 - TR70 the confirmation is invalidated after authoritative state change
@@ -361,6 +366,70 @@ proofs for owner decision D-3 (accepted ACP evidence-enrichment vocabulary).
   (no explicit resource) → guard fail → clarification; "Do not accept the
   enrichment evidence" → R-NEGATION → RAG (owner decision D-3; the
   acceptance tool is `destructive=True`, audited, supersedes per field).
+
+### Phase C0 prerequisite requirements (Gate C0-A, owner-approved)
+
+Provenance: TR95-TR107 are Phase C0 owner-approved prerequisite
+additions, appended after TR94 (owner decisions U-1/U-2 + prerequisite
+option (a), 2026-10-01); they define the ConfirmationReadyOutcome
+domain contract (governing ADR: retriva-crm-assistant
+`docs/adr/adr-026-confirmation-ready-outcome-contract.md`; first
+workflow: ACP version approval → ACP activation; spec §C4a). No TR
+below renumbers or amends TR1-TR94.
+
+- TR95 the ConfirmationReadyOutcome schema is owned and defined by the
+  domain service (CRM Pydantic model + `openapi.yaml` declaration);
+  the Gateway defines only a strict mirrored ingress-validation type.
+- TR96 every block field is produced from domain post-state or trusted
+  request identity (no request-echoed, model-authored, or
+  Gateway-derived authoritative field; asserted against post-state
+  rows).
+- TR97 the block is produced only for the authenticated human
+  principal class; it is omitted for anonymous and machine service
+  principals (omission, never an error).
+- TR98 the block `tenant_id` is the CRM business-store tenant scope
+  actually used for authorization, resource lookup, state transition,
+  and audit; KB/collection selection never silently becomes business
+  tenant identity (`X-Retriva-Collection` is not cited as sole tenant
+  provenance); the Gateway cross-check rejects mismatch.
+- TR99 the Gateway ingress validates the block strictly: closed
+  `schema_version`, closed enums, bounds enforced, `extra="forbid"`;
+  malformed values are rejected.
+- TR100 the block is accepted only inside the correlated response to a
+  Gateway-originated service request; correlation, tenant, and
+  principal mismatches are rejected (schema validity alone does not
+  establish provenance).
+- TR101 unknown schema versions and unknown fields are rejected by the
+  Gateway ingress.
+- TR102 the `preparation_transition_token` is the immutable
+  `qualification.acp_approvals` record identifier (`acpapl_` + 16 hex;
+  service-minted, PK-unique, INSERT-only, tenant-scoped, no
+  migration); exposed additively from the approve operation's returned
+  approval record.
+- TR103 the preparation transition token and the activation idempotency
+  key are distinct concepts with separate authoritative sources; the
+  domain's idempotency semantics are unchanged; the future Phase C
+  deterministic derivation rule for the activation key (if ratified)
+  does not weaken them.
+- TR104 the optional block is backward compatible: an old Gateway
+  ignores it; a new Gateway accepts its absence with unchanged
+  behavior.
+- TR105 the canonical cross-repository contract test uses the CRM-owned
+  schema as the source of truth: model↔OpenAPI consistency, a
+  canonical fixture produced from the live model and accepted by the
+  Gateway ingress, Gateway rejection fixtures (malformed,
+  unknown-version, unknown-field, mismatched correlation/tenant/
+  principal), and no new runtime dependency between repositories.
+- TR106 Phase C0 implements no Gateway authority or confirmation
+  storage: no workflow-context registry, no PendingConfirmation
+  storage, no claim behavior, no bare-affirmative routing (structural
+  proof).
+- TR107 the final activation operation repeats tenant enforcement,
+  principal authorization, resource-existence, authoritative-version,
+  authoritative-state, transition-legality, concurrency, and
+  idempotency validation at the domain boundary; the
+  ConfirmationReadyOutcome is preparation evidence only, never
+  mutation authority.
 
 ## Evaluation gates (Phase F, safety-first)
 

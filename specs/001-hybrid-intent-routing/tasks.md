@@ -70,6 +70,50 @@
       outside C1 (fail-closed); D-4 baseline-relative Gate B compatibility
       policy recorded in plan Gate B.
 
+## Phase C0 — ConfirmationReadyOutcome domain contract (prerequisite)
+
+Phase C0-A (documentation, owner-authorized 2026-10-01 — this delivery):
+
+- [x] Domain ADR `retriva-crm-assistant/docs/adr/
+      adr-026-confirmation-ready-outcome-contract.md`: contract ownership
+      (domain owns the schema; Gateway mirrors for ingress), producing
+      operation (ACP approve route only), the closed 17-field contract
+      with per-field authoritative provenance, `expected_authoritative_
+      state` semantics, tenant semantics (CRM business-store scope; KB
+      selection is never business tenant identity), permitted principal
+      classes (authenticated human only; anonymous and machine service
+      principals omit the block), transition-token proof
+      (`acp_approvals.acp_approval_id`), preparation-token vs.
+      activation-idempotency decision (distinct concepts; Phase C
+      derivation rule governed separately), Gateway ingress validation
+      behavior, canonical cross-repository fixture compatibility
+      testing, exclusions, rollback.
+- [x] Spec 001 pack amendments (this repository): spec.md (C4 note +
+      contract field list), architecture.md (§4 limitation replaced by
+      the domain-owned contract), acceptance.md (TR95-TR107),
+      plan.md (Phase C0 inserted before Phase C; Gate C0-A and Gate C0
+      defined), tasks.md (this section; U-1 dual principal+session
+      binding recorded), ADR-0002 (narrow amendment). Gate B text
+      unchanged; Phase C blocked until Gate C0.
+
+Phase C0 (implementation — NOT authorized; Gate C0-A acceptance is a
+documentation gate only):
+
+- [ ] Domain: optional `confirmation_ready` block on
+      `POST /versions/{acp_id}/{version_number}/approve` per ADR-026;
+      `openapi.yaml` additive declaration; CRM model↔OpenAPI consistency
+      test; canonical fixture generation test; principal-class and
+      tenant-provenance domain tests.
+- [ ] Gateway: mirrored ingress-validation type (strict: unknown
+      schema versions, unknown fields, closed enums, bounds, correlation/
+      tenant/principal cross-checks); approve/activate tool results carry
+      the block without synthesizing authoritative fields; canonical
+      fixture acceptance + rejection fixtures; old-Gateway and
+      absent-block compatibility tests (TR95-TR107).
+- [ ] No WorkflowContext registry, no PendingConfirmation storage, no
+      claim behavior, no bare-affirmative routing, no classifier, no
+      metrics, no deployment or provider/model changes (Phase C/D/E).
+
 ## Phase C — workflow context + guards
 
 - [ ] `core/routing/context.py`: bounded TTL registry, tenant/session/kb
@@ -79,8 +123,11 @@
       live confirmations or contexts; content-free capacity/rejection
       metrics; no spill into an unapproved persistent store);
       pending-confirmation sub-record with the full C4 binding (tenant,
-      principal/session, family, operation, resource type, opaque ID,
-      version, previous authoritative state, allowed next transition,
+      principal AND session — both mandatory, owner decision U-1;
+      family, operation, resource type, opaque ID,
+      version, expected authoritative state (Phase C0 semantics:
+      the state established by the preparation outcome and expected to
+      remain current at the later transition), allowed next transition,
       created_at, expiry, correlation ID), single-use, invalidated on
       authoritative state change, re-validated against current server
       state.

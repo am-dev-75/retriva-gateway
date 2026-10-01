@@ -48,6 +48,41 @@ evidence-enrichment vocabulary D-3). Compatibility is evaluated
 baseline-relative per owner decision D-4 (zero regressions against the
 accepted baseline d5d6312; recorded pre-existing failures are excluded).**
 
+## Phase C0 — ConfirmationReadyOutcome domain contract (prerequisite)
+
+Owner-selected prerequisite option (a), 2026-10-01: Phase C is blocked
+because no trusted typed confirmation-ready outcome exists; the
+deterministic adapter can never create PendingConfirmation (owner
+decision U-2), so a domain-owned contract must land first. Governing
+domain ADR: retriva-crm-assistant `docs/adr/adr-026-confirmation-ready-
+outcome-contract.md`.
+
+- Phase C0-A (documentation gate, authorized 2026-10-01): this pack's
+  amendments + the domain ADR. Normative documentation only; no code.
+- Phase C0 (implementation gate — NOT authorized by C0-A): the domain
+  service adds the optional `confirmation_ready` block to the ACP
+  approve response (first workflow: ACP version approval → activation);
+  the Gateway adds the strict mirrored ingress-validation type, the
+  pass-through of the block on the approve tool result, and the
+  canonical cross-repository fixture tests (TR95-TR107). No registry,
+  no PendingConfirmation storage, no claim, no bare-affirmative routing,
+  no classifier, no metrics.
+
+**Gate C0-A: owner accepts the documentation and contract-design
+baseline — internally consistent docs; exact contract fields and
+provenance accepted; the approval transition token proven to exist
+(`qualification.acp_approvals.acp_approval_id`, immutable, PK-unique,
+no migration); tenant and principal semantics unambiguous; preparation
+provenance vs. activation idempotency unambiguous (distinct concepts);
+TR traceability complete; no implementation begun.**
+
+**Gate C0 (implementation, defined separately): TR95-TR107 proven
+end-to-end service→ingress with zero authority in the Gateway; purely
+additive compatibility (old Gateways ignore the block; new Gateways
+accept its absence); the complete gateway suite stays on the
+owner-approved baseline-relative, zero-regression basis; Phase C remains
+blocked until this gate passes.**
+
 ## Phase C — workflow context + explicit-intent guards
 
 - context registry (TTL/bounded/tenant-scoped, deterministic eviction per
@@ -59,8 +94,12 @@ accepted baseline d5d6312; recorded pre-existing failures are excluded).**
   enrich them" and "approve it" only under guard; active in `shadow`/
   `active` per the activation model).
 - pending-confirmation sub-record with the full C4 binding (tenant,
-  principal/session, family, operation, resource type, opaque ID, version,
-  previous authoritative state, allowed next transition, created_at,
+  trusted principal AND session — both mandatory (owner decision U-1,
+  2026-10-01) — family, operation, resource type, opaque ID, version,
+  expected authoritative state (Phase C0 semantics: the state
+  established by the preparation outcome and expected to remain current
+  at the later transition — never the pre-preparation state), allowed
+  next transition, created_at,
   expiry, correlation ID); single-use; invalidated on authoritative state
   change; re-validated against current server state; classifier never
   creates or modifies it.

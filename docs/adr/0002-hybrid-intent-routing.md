@@ -208,9 +208,12 @@ narrowly and change no other accepted decision:
 - Typed, session/tenant-scoped, bounded, expiring workflow-context registry,
   armed by deterministic routing and typed tool outcomes only; production
   cross-turn follow-ups become possible (D1) while bare affirmatives act
-  only on typed, unexpired pending confirmations binding tenant, principal
-  or session, workflow family, exact operation, resource type, opaque
-  resource ID, version, previous authoritative state, allowed next
+  only on typed, unexpired pending confirmations binding tenant, trusted
+  principal AND session (both mandatory — owner decision U-1, 2026-10-01),
+  workflow family, exact operation, resource type, opaque
+  resource ID, version, expected authoritative state (Phase C0
+  semantics: the state established by the preparation outcome and
+  expected to remain current at the later transition), allowed next
   transition, creation timestamp, expiry, and correlation ID —
   single-use, invalidated on authoritative state change, re-validated
   against current server state, failing closed when cross-tenant, expired,
@@ -238,6 +241,42 @@ narrowly and change no other accepted decision:
   only) → active (narrowed authority). Rollback = set mode `off`, which
   restores the legacy router and legacy externally observable behavior
   (§Activation model).
+
+### Phase C0 prerequisite amendment (owner authorization, 2026-10-01)
+
+Phase C was blocked at the entry review (owner decisions U-1/U-2): the
+deterministic adapter can create ordinary workflow context only and can
+never create or arm a consumable PendingConfirmation — routing inputs
+(command, verb, opaque identifier, history, decision) establish no
+authoritative version, previous state, legal transition, existence, or
+permission. A PendingConfirmation may be created only from a trusted,
+closed, typed **ConfirmationReadyOutcome** produced at the
+domain-service boundary from authoritative post-state and trusted
+request identity; a loose `Dict[str, Any]`, dictionary-key pattern,
+model message, request echo, or routing record is not such an outcome.
+
+The owner selected prerequisite option (a): a governed cross-
+repository contract change landing as **Phase C0** before Phase C
+(governing domain ADR: retriva-crm-assistant
+`docs/adr/adr-026-confirmation-ready-outcome-contract.md`). Phase C0-A
+(2026-10-01, documentation gate) amended this ADR and the Spec 001
+pack: Phase C0 is inserted before Phase C; the previously recorded
+limitation ("no typed tool-result markers in the accepted tool
+registry") is resolved by the domain-owned contract, not by Gateway
+synthesis. First workflow: **ACP version approval → ACP activation**
+(`confirmation_ready` block on the approve response;
+`expected_authoritative_state` = the state established by the
+preparation outcome and expected to remain current at the later
+transition — `APPROVED`, never the pre-approval state; preparation
+transition token = the immutable `qualification.acp_approvals`
+record identifier). The outcome is preparation evidence only; the final
+activation repeats tenant, principal, existence, version, state,
+transition, concurrency, and idempotency validation at the domain
+boundary. Proof obligations: TR95-TR107 (acceptance.md). Phase C
+remains blocked until Gate C0 passes; Phase C0 implements no registry,
+no confirmation storage, no claim behavior, and no bare-affirmative
+routing. This amendment changes no Gate B decision and no other
+accepted decision of this ADR.
 
 ### Gateway/Core responsibility split
 
