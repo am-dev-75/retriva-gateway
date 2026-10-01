@@ -33,6 +33,7 @@ from retriva_gateway.api.v2.chat import (
     _agent_chat,
     _run_agent_mode,
 )
+from retriva_gateway.core.routing import get_workflow_context_registry
 from retriva_gateway.config import Settings, settings
 from retriva_gateway.core.models import ChatRequest
 
@@ -233,7 +234,25 @@ def test_shadow_active_consequential_without_resource_clarifies(
 @pytest.mark.parametrize("mode", ["shadow", "active"])
 def test_shadow_active_bare_yes_falls_to_plain_rag(mode, monkeypatch):
     monkeypatch.setattr(settings, "AGENT_INTENT_ROUTER_MODE", mode)
-    assert _run_agent_mode(_request("yes"), "corr") is None
+    # Phase C (Spec 001): in shadow/active a bare affirmative is a
+    # confirmation-claim candidate — without a valid claim it now
+    # CLARIFIES (fail-closed; never a workflow, never RAG-silence that
+    # ignores a pending operation).  Mode off keeps the exact legacy
+    # plain-RAG behavior (rollback state unchanged).
+    result = _run_agent_mode(_request("yes"), "corr")
+    if mode == "off":
+        assert result is None
+    else:
+        assert result is not None
+        assert result is not _AGENT_SENTINEL
+        assert result.status_code == 200
+        import json as _json
+        body = _json.loads(result.body)
+        content = body["content"].lower()
+        assert "confirmation" in content or "explicitly" in content
+        # No registry state was created by the failed claim.
+        assert get_workflow_context_registry().snapshot().pending_total \
+            == 0
 
 
 @pytest.mark.parametrize("mode", ["off", "shadow", "active"])

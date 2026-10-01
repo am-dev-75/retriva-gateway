@@ -383,9 +383,16 @@ def test_engine_input_surface_is_message_only():
 
 
 def test_kb_and_metadata_are_inert_by_construction():
-    # The public routing entry point is equally message-only.
+    # The public routing entry point is equally message-only: the
+    # message surface never widens.  Phase C adds exactly one optional
+    # keyword-only TRUSTED-context parameter (server-side registry
+    # inputs; never KB/metadata from the message or request body).
     signature = inspect.signature(route_non_streaming)
-    assert list(signature.parameters) == ["message"]
+    params = list(signature.parameters)
+    assert params == ["message", "routing"]
+    assert signature.parameters["routing"].kind \
+        is inspect.Parameter.KEYWORD_ONLY
+    assert signature.parameters["routing"].default is None
 
 
 def test_repeatability_for_identical_inputs():
@@ -442,7 +449,11 @@ def dataclass_fields_are_classification_only(result) -> bool:
     allowed = {
         "rule", "topic", "intent", "mode", "explicitness", "reason_codes",
         "families", "consequential_operations", "resource_reference",
-        "unavailable_vocabulary"}
+        "unavailable_vocabulary",
+        # Phase C: the weak follow-up's matched operations (closed
+        # Intent tuple — detection-only classification data; the
+        # resource comes from the typed registry, never the engine).
+        "followup_intents"}
     return set(result.__dataclass_fields__) <= allowed
 
 

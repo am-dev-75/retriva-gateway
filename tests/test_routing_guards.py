@@ -106,9 +106,17 @@ def test_guard_is_pure_and_stateless():
 
 def test_guard_function_has_no_side_channel_inputs():
     # The scaffold reads only the typed result: no session, tenant,
-    # history, or model inputs exist to mis-authorize with.
+    # history, or model inputs exist to mis-authorize with.  Phase C
+    # adds one optional keyword-only ``resolved_resource`` — a resource
+    # id resolved from the trusted typed workflow-context registry by
+    # the pipeline (server state; routing assistance only), never from
+    # the message, request, or model.
     signature = inspect.signature(evaluate_consequential_guard)
-    assert list(signature.parameters) == ["result"]
+    params = list(signature.parameters)
+    assert params == ["result", "resolved_resource"]
+    assert signature.parameters["resolved_resource"].kind \
+        is inspect.Parameter.KEYWORD_ONLY
+    assert signature.parameters["resolved_resource"].default is None
 
 
 def test_guard_cannot_pass_non_explicit_classification():

@@ -268,8 +268,14 @@ def test_routing_package_export_is_validation_only():
     import retriva_gateway.core.routing as routing
     assert routing.ConfirmationReadyBlock is ConfirmationReadyBlock
     assert callable(routing.validate_confirmation_ready)
-    assert not hasattr(routing, "PendingConfirmation")
-    assert not hasattr(routing, "WorkflowContext")
+    # Phase C supersedes the C0 absence assertions: the typed
+    # PendingConfirmation/WorkflowContext records now exist by design.
+    # The export still carries NO persistence, claim-authority, or
+    # execution concepts — nothing that stores or acts.
+    for forbidden in ("PendingConfirmationStore",
+                     "ConfirmationStorage", "claim_authority",
+                     "ConfirmationLedger", "persist_confirmation"):
+        assert not hasattr(routing, forbidden)
 
 
 # ---------------------------------------------------------------------------
