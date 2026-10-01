@@ -43,17 +43,30 @@ closure report, not silent reinterpretation):
    questions, not instructions, and never count as command matches.  A
    command in a DIFFERENT clause of the same message still counts (and, if
    consequential, makes the message multi-intent).
-3. R-NEGATION scope.  The accepted rule text scopes negation to mutation
-   verbs; this engine fires it for ANY negated workflow operation verb
-   ("Do not propose a cohort" must not enter a workflow either).  The
+3. R-NEGATION scope.  The rule fires for ANY negated workflow operation
+   verb — including safe, analytical, and proposal verbs ("Do not
+   propose a cohort" must not enter a workflow either) — Gate B
+   correction, owner decision D-1 (the interpretation flagged at the
+   Phase B evidence reconciliation was ratified by the owner).  The
    outcome class is unchanged: never routed to a workflow, falls to RAG.
-4. Vocabulary without a C1 intent.  ACP evidence-enrichment commands
-   ("enrich the customers"), import rejection, and ACP deactivation are
-   recognized workflow vocabulary (they feed adjacency and multi-intent
-   detection and the guard's consequential set) but have NO intent in the
-   closed C1 vocabulary; they fail closed to CLARIFICATION_REQUIRED.
-   Closure-report question SQ-1 asks the owner to either extend C1 or
-   bless a mapping in a future revision.
+4. Vocabulary without a C1 intent.  Import rejection and ACP
+   deactivation are recognized workflow vocabulary (they feed adjacency
+   and multi-intent detection and the guard's consequential set) but
+   have NO intent in the closed C1 vocabulary; they fail closed to
+   CLARIFICATION_REQUIRED.  (Gate B correction, owner decision D-3: the
+   ACP evidence-enrichment operations now map to the three new C1
+   intents, so they no longer belong to this class; SQ-1 is resolved.)
+5. Gate B correction interpretations (owner decisions D-1..D-3,
+   2026-10-01).  Multi-intent informational clauses count without a
+   family noun when another clause's recognized operation and opaque
+   resource identifier identify the family, and the analysis considers
+   the complete normalized message before any earlier informational
+   rule can terminate evaluation (D-2a); the R-DOC-FRAMING command veto
+   fires only for genuinely imperative/requestive forms — closed marker
+   set: please, kindly, go ahead, do it, per favore, procedi, fallo
+   (D-2c); enrichment request and evidence acceptance are consequential
+   and take DESTRUCTIVE_MUTATION mode per the accepted
+   agent/tools.py ToolDefinitions (destructive=True) and ADR-024 (D-3).
 
 Phase C gap (documented, fail-closed): R-FOLLOWUP can only resolve against
 the typed workflow-context registry, which does not exist until Phase C;
@@ -201,7 +214,8 @@ _OPAQUE_ID = re.compile(r"\b[a-z]{2,20}_[0-9a-z][0-9a-z\-]{0,63}\b")
 # camp_*; import batches).  A generic opaque id with an unknown prefix
 # provides an explicit resource for the guard but no family strength.
 _ID_FAMILY_PREFIXES: Tuple[Tuple["re.Pattern[str]", Topic], ...] = (
-    (re.compile(r"^(?:acpver|acpcv|cohort)"), Topic.ACP),
+    (re.compile(r"^(?:acpver|acpcv|cohver|cohort)"), Topic.ACP),
+    (re.compile(r"^ench"), Topic.ACP),   # enrichment job ids (ench_...)
     (re.compile(r"^job"), Topic.QUALIFICATION),
     (re.compile(r"^(?:batch|imp|importb|import_)"), Topic.COMPANY_IMPORT),
     (re.compile(r"^camp"), Topic.CAMPAIGN),
@@ -256,11 +270,9 @@ class OperationSpec:
     reason: ReasonCode = ReasonCode.EXPLICIT_ACTION_VERB
 
 
-# Consequential operations with no C1 intent fail closed (module note 4).
-_ENRICHMENT_NOUNS = (
-    r"customers?", r"companies", r"evidence", r"evidenze",
-    r"observations?", r"osservazioni?", r"aziende", r"clienti",
-)
+# Operations with no C1 intent (import rejection, ACP deactivation: no
+# chat tools exist; legacy routing never provided deactivation) fail
+# closed (module note 4, owner decision D-3).
 
 OPERATIONS: Tuple[OperationSpec, ...] = (
     # --- ACP family ---
@@ -270,7 +282,7 @@ OPERATIONS: Tuple[OperationSpec, ...] = (
          r"ricostituisc\w*", r"ricrea\w*"), False),
     OperationSpec(
         Topic.ACP, Intent.ACP_GENERATION,
-        (r"generat\w*", r"genera\b", r"crea\b", r"creat\w*"), False),
+        (r"generat\w*", r"genera\b", r"crea\w*", r"creat\w*"), False),
     OperationSpec(
         Topic.ACP, Intent.ACP_COHORT_REVIEW,
         (r"reviews?", r"reviewing", r"rived\w*", r"revisiona\w*"), False,
@@ -307,6 +319,34 @@ OPERATIONS: Tuple[OperationSpec, ...] = (
         Topic.ACP, Intent.ACP_STATUS,
         (r"statu\w*", r"stato", r"show", r"list", r"read",
          r"mostra\w*", r"visualizz\w*", r"vedi\b"), False),
+    # --- ACP evidence enrichment (Gate B correction, owner decision D-3;
+    # per the accepted agent/tools.py ToolDefinitions and ADR-024: the
+    # request is destructive=True / explicit-approval-only (paid
+    # web-research recording UNVERIFIED observations); the job read is
+    # read-only; acceptance is destructive=True, audited supersession).
+    # Placed at the end of the ACP block so the R-COMMAND noun-based
+    # tie-break prefers the enrichment-job status read over the generic
+    # qualification status ("Show me the enrichment job ench_5"). ---
+    OperationSpec(
+        Topic.ACP, Intent.ACP_EVIDENCE_ENRICHMENT,
+        (r"enrich\w*", r"arricchisc\w*"), True,
+        family_override_nouns=(
+            r"cohorts?", r"coorte", r"versions?", r"versione", r"acp",
+            r"evidence", r"evidenze", r"customers?", r"companies",
+            r"observations?", r"osservazioni?", r"aziende", r"clienti",
+            r"enrichment\w*", r"arricchiment\w*")),
+    OperationSpec(
+        Topic.ACP, Intent.ACP_EVIDENCE_ENRICHMENT_STATUS,
+        (r"statu\w*", r"stato", r"progress\w*", r"show", r"list",
+         r"read", r"check\w*", r"get\w*", r"mostra\w*", r"vedi\b"), False,
+        family_override_nouns=(r"enrichment\w*", r"arricchiment\w*",
+                               r"evidence\s+jobs?", r"observation\w*")),
+    OperationSpec(
+        Topic.ACP, Intent.ACP_EVIDENCE_ACCEPTANCE,
+        (r"accept\w*", r"accetta\w*"), True,
+        family_override_nouns=(r"evidence", r"evidenze", r"observations?",
+                              r"osservazioni?", r"results?", r"risultat\w*",
+                              r"enrichment\w*", r"arricchiment\w*")),
     # --- QUALIFICATION family ---
     OperationSpec(
         Topic.QUALIFICATION, Intent.QUALIFICATION_REQUEST,
@@ -382,12 +422,6 @@ OPERATIONS: Tuple[OperationSpec, ...] = (
         Topic.CAMPAIGN, Intent.CAMPAIGN_STATUS,
         (r"statu\w*", r"stato", r"show", r"list", r"mostra\w*",
          r"vedi\b"), False),
-    # --- ACP evidence enrichment (narrowed per D3; no C1 intent -> SQ-1) ---
-    OperationSpec(
-        Topic.ACP, None,
-        (r"enrich\w*", r"arricchisc\w*", r"accept\w*", r"accetta\w*"),
-        False, family_override_nouns=_ENRICHMENT_NOUNS,
-        reason=ReasonCode.CONSEQUENTIAL_UNAVAILABLE),
 )
 
 # Noun pairs that are workflow matches even without a verb (legacy parity:
@@ -401,8 +435,14 @@ _NOUN_PAIR_RULES: Tuple[Tuple[Topic, Intent, str, str, bool], ...] = (
      False),
 )
 
-# C1 modes for consequential intents (per ADR-023 destructive flags).
-_DESTRUCTIVE_INTENTS = {Intent.ACP_SUPERSESSION, Intent.ACP_ROLLBACK}
+# C1 modes for consequential intents (per the destructive flags of the
+# accepted tool registry — ADR-023; Gate B correction, owner decision
+# D-3: the enrichment request and the evidence acceptance are both
+# destructive=True per the accepted agent/tools.py ToolDefinitions).
+_DESTRUCTIVE_INTENTS = {
+    Intent.ACP_SUPERSESSION, Intent.ACP_ROLLBACK,
+    Intent.ACP_EVIDENCE_ENRICHMENT, Intent.ACP_EVIDENCE_ACCEPTANCE,
+}
 
 _DOC_FRAMING_ANCHORS = re.compile(
     r"^(?:how\s+(?:do|can|to|does|did|would|should)|"
@@ -414,6 +454,17 @@ _DOC_FRAMING_ANCHORS = re.compile(
     r"come\s+(?:si|funziona)|cos'?\s*[eè]|che\s+cos'?\s*[eè]|"
     r"spiega|spiegami|dimmi|descrivi|qual\s*[eè]|"
     r"cosa\s*[eè])\b"
+)
+
+# Genuinely imperative/requestive markers (Gate B correction, owner
+# decision D-2c): the R-DOC-FRAMING command veto fires only when one of
+# these closed-set markers co-occurs with a consequential operation verb
+# and an explicit opaque identifier in the SAME clause.  Interrogative
+# frames ("How do I activate acpver_123?") carry no marker and remain
+# informational.
+_IMPERATIVE_MARKERS = re.compile(
+    r"\b(?:please|kindly|go\s+ahead|do\s+it|per\s+favore|procedi|"
+    r"fallo)\b"
 )
 
 _HYPOTHETICAL_ANCHORS = re.compile(
@@ -519,6 +570,11 @@ class ClauseAnalysis:
     negated: bool = False
     command_matches: List[CommandMatch] = field(default_factory=list)
     family_nouns: set = field(default_factory=set)
+    # Any closed-vocabulary operation word in the clause (position
+    # agnostic): informational clauses carrying it count toward
+    # multi-intent detection without a family noun (Gate B correction,
+    # owner decision D-2a).
+    has_operation_word: bool = False
 
     @property
     def claimed(self) -> bool:
@@ -561,15 +617,20 @@ class _MessageScan:
 
     @property
     def is_multi_intent(self) -> bool:
-        """Spec §Multi-intent policy detection (TR59-TR66).
+        """Spec §Multi-intent policy detection (TR59-TR66, TR89).
 
         Informational/analysis intent + consequential intent across
         distinct clauses, or two or more distinct consequential expressed
         operations.  Doc-framed and hypothetical clauses count as
-        informational intents; negated clauses never count.  Distinctness
-        is per expressed operation (clause + verb), so one verb matching
-        several closed-vocabulary specs of one message is still ONE
-        operation.
+        informational intents when they carry workflow vocabulary (a
+        family noun is NOT required — Gate B correction, owner decision
+        D-2a: the consequential clause's recognized operation and opaque
+        resource identifier identify the family); negated clauses never
+        count.  Distinctness is per expressed operation (clause + verb),
+        so one verb matching several closed-vocabulary specs of one
+        message is still ONE operation.  The full normalized message and
+        its clauses are considered before any earlier informational rule
+        can terminate evaluation.
         """
         matches = self.effective_matches
         consequential = [m for m in matches if m.consequential]
@@ -582,7 +643,8 @@ class _MessageScan:
         informational_clauses = (
             {m.clause_index for m in safe}
             | {c.index for c in self.clauses
-               if (c.doc_framed or c.hypothetical) and c.family_nouns}
+               if (c.doc_framed or c.hypothetical)
+               and (c.family_nouns or c.has_operation_word)}
         )
         cons_clauses = {m.clause_index for m in consequential}
         return bool(informational_clauses - cons_clauses)
@@ -697,6 +759,9 @@ class DeterministicEngine:
             for topic, pattern in self._family_patterns.items():
                 if pattern.search(clause.text):
                     clause.family_nouns.add(topic)
+            if any(pattern.search(clause.text)
+                   for _spec, pattern in self._op_patterns):
+                clause.has_operation_word = True
             if clause.claimed:
                 continue
             clause.command_matches = self._command_matches_in_clause(
@@ -791,10 +856,13 @@ class DeterministicEngine:
         doc_clauses = [c for c in scan.clauses if c.doc_framed]
         if not doc_clauses:
             return None
-        # Vetoed only when an explicit imperative command with an explicit
-        # resource fires in the SAME clause (arch §2).
+        # Vetoed only when the clause itself carries a genuinely
+        # imperative/requestive form (closed marker set, D-2c) together
+        # with a consequential operation verb and an explicit resource
+        # reference (arch §2; Gate B correction, owner decision D-2c).
         for clause in doc_clauses:
-            if _OPAQUE_ID.search(clause.text) \
+            if _IMPERATIVE_MARKERS.search(clause.text) \
+                    and _OPAQUE_ID.search(clause.text) \
                     and self._consequential_verb_in(clause.text):
                 return None
         families = tuple(sorted(
@@ -927,7 +995,7 @@ class DeterministicEngine:
                 resource_reference=first.explicit_resource,
             )
         # Recognized workflow vocabulary with no C1 intent: fail closed
-        # (module note 4 — enrichment, import rejection, deactivation).
+        # (module note 4 — import rejection, deactivation).
         unavailable = [m for m in matches if m.strong and m.intent is None]
         if unavailable:
             ordered = sorted(

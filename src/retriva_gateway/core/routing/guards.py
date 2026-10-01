@@ -51,6 +51,12 @@ CONSEQUENTIAL_INTENTS: FrozenSet[Intent] = frozenset({
     Intent.ACP_ACTIVATION,
     Intent.ACP_SUPERSESSION,
     Intent.ACP_ROLLBACK,
+    # Gate B correction (owner decision D-3): the accepted ACP
+    # evidence-enrichment request and the evidence acceptance are
+    # consequential per the accepted agent/tools.py ToolDefinitions
+    # (destructive=True) and ADR-024 decisions 4/6.
+    Intent.ACP_EVIDENCE_ENRICHMENT,
+    Intent.ACP_EVIDENCE_ACCEPTANCE,
     Intent.QUALIFICATION_APPROVAL,
     Intent.COMPANY_IMPORT_APPROVAL,
     Intent.COMPANY_IMPORT_COMMIT,

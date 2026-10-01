@@ -43,6 +43,12 @@ def test_consequential_intent_set_matches_accepted_operations():
     assert Intent.ACP_ROLLBACK in CONSEQUENTIAL_INTENTS
     assert Intent.COMPANY_IMPORT_COMMIT in CONSEQUENTIAL_INTENTS
     assert Intent.CAMPAIGN_MARK_ADDRESSED in CONSEQUENTIAL_INTENTS
+    # Gate B correction (owner decision D-3): the enrichment request and
+    # the evidence acceptance are consequential; the read-only job status
+    # is not.
+    assert Intent.ACP_EVIDENCE_ENRICHMENT in CONSEQUENTIAL_INTENTS
+    assert Intent.ACP_EVIDENCE_ACCEPTANCE in CONSEQUENTIAL_INTENTS
+    assert Intent.ACP_EVIDENCE_ENRICHMENT_STATUS not in CONSEQUENTIAL_INTENTS
     # Safe operations are never in the consequential set.
     assert Intent.ACP_COHORT_PROPOSAL not in CONSEQUENTIAL_INTENTS
     assert Intent.QUALIFICATION_REQUEST not in CONSEQUENTIAL_INTENTS

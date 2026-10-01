@@ -223,10 +223,12 @@ def test_narrowed_enrichment_no_longer_overmatches_d3():
     assert route_of("Tell me about enriching customer evidence") == Route.RAG
     assert route_of("How do I enrich the evidence for my customers?"
                     ) == Route.RAG
-    # Direct enrichment commands have no C1 intent (SQ-1): fail closed.
+    # Gate B correction (owner decision D-3): direct enrichment commands
+    # map to C1 — an explicit-resource request enters the agent loop
+    # through the guard, and a resource-less request fails closed there.
     routed = route_non_streaming("Enrich the customers")
     assert routed.route == Route.CLARIFY
-    assert ReasonCode.CONSEQUENTIAL_UNAVAILABLE in routed.decision.reason_codes
+    assert ReasonCode.GUARD_RESOURCE_UNRESOLVED in routed.decision.reason_codes
 
 
 # ---------------------------------------------------------------------------

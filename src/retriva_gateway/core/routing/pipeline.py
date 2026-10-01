@@ -28,7 +28,7 @@ Route mapping (accepted decision table, deterministic subset only):
 - clear safe workflow proposal/analysis                  -> AGENT_LOOP;
 - explicit consequential + guard scaffold PASS           -> AGENT_LOOP;
 - explicit consequential + guard scaffold FAIL           -> CLARIFY;
-- vocabulary without a C1 intent (enrichment, rejection,
+- vocabulary without a C1 intent (import rejection,
   deactivation)                                          -> CLARIFY;
 - MULTI-INTENT                                           -> CLARIFY;
 - AMBIGUOUS workflow-adjacent                            -> CLARIFY;

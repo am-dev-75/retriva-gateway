@@ -106,6 +106,9 @@ _OPERATION_LABELS = {
     Intent.ACP_ACTIVATION: "activate the ACP version",
     Intent.ACP_SUPERSESSION: "supersede the active ACP",
     Intent.ACP_ROLLBACK: "roll back the ACP",
+    # Gate B correction (owner decision D-3).
+    Intent.ACP_EVIDENCE_ENRICHMENT: "start the evidence enrichment",
+    Intent.ACP_EVIDENCE_ACCEPTANCE: "accept the enrichment evidence",
     Intent.QUALIFICATION_APPROVAL: "approve the qualification results",
     Intent.COMPANY_IMPORT_APPROVAL: "approve the import batch",
     Intent.COMPANY_IMPORT_COMMIT: "commit the import batch",
