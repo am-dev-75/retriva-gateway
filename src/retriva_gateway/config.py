@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import json
-from typing import Annotated, Any, List
+from typing import Annotated, Any, List, Literal
 
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from pydantic import BeforeValidator, computed_field, model_validator
@@ -100,6 +100,17 @@ class Settings(BaseSettings):
     AGENT_MAX_TOOL_ITERATIONS: int = 6
     # Per-tool-call timeout in seconds.
     AGENT_TOOL_TIMEOUT_SECONDS: float = 120.0
+
+    # --- Hybrid intent routing (Spec 001 / ADR-0002, Phase B) ---
+    # off (default) = the legacy single-regex router: exact legacy
+    # externally observable behavior, including the documented D1-D5
+    # defects, and the exact legacy qualification-specific 503 body.
+    # off is the rollback state.  shadow / active activate the new
+    # deterministic pipeline and its D1-D5 fixes; Phase B implements the
+    # deterministic subset only (no classifier until Phase D, so active
+    # grants no classifier influence yet).  Strict closed set: any other
+    # value fails startup validation (never silently coerced).
+    AGENT_INTENT_ROUTER_MODE: Literal["off", "shadow", "active"] = "off"
 
     # --- Trusted service principal (Spec 021 review fix: actor fidelity) ---
     # When auth is DISABLED (RETRIVA_AUTH_PROVIDER=none) the gateway is the

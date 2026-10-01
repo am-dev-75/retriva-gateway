@@ -40,6 +40,15 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
     generic grounding refusal).  Routing is intent detection only —
     never authorization; the tools and the trusted principal decide
     what may run.
+
+    Spec 001 / ADR-0002 (Phase B): ``AGENT_INTENT_ROUTER_MODE`` selects
+    the router.  ``off`` (default, rollback state) keeps the legacy
+    single-regex path below with exact legacy behavior, including the
+    documented D1-D5 defects.  ``shadow``/``active`` route non-streaming
+    messages through the new deterministic pipeline (Phase B subset: no
+    classifier until Phase D).  Streaming is NOT handled by the new
+    pipeline in Phase B — it keeps the legacy passthrough in every mode
+    (the typed 409 arrives in Phase E).
     """
     if not settings.AGENT_TOOLS_ENABLED:
         return None
@@ -49,7 +58,14 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
             logger.warning(f"[{corr_id}] agent mode requested with stream=True; using plain chat")
             return None
         return _AGENT_SENTINEL
-    if not request.stream:
+    if request.stream:
+        # Phase B (Spec 001): streaming stays on the legacy SSE
+        # passthrough in every mode; workflow_stream_unsupported is a
+        # Phase E behavior.  Nothing here may change streaming.
+        return None
+    if settings.AGENT_INTENT_ROUTER_MODE == "off":
+        # Legacy router — authoritative path in off (Spec 001 §Activation
+        # model); do not reimplement legacy behavior in the new engine.
         from retriva_gateway.core.intent import IntentDetector
         if IntentDetector.is_crm_workflow(
                 request.message or "",
@@ -58,6 +74,29 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
                 f"[{corr_id}] Chat routing: CRM workflow intent → "
                 f"agent loop")
             return _AGENT_SENTINEL
+        return None
+    # New deterministic pipeline (shadow/active; Phase B subset).
+    from retriva_gateway.core.routing import route_non_streaming
+    routed = route_non_streaming(request.message or "")
+    decision = routed.decision
+    if routed.route.value == "AGENT_LOOP":
+        logger.info(
+            f"[{corr_id}] Chat routing: deterministic pipeline → agent "
+            f"loop (intent={decision.intent.value}, "
+            f"reasons={[r.value for r in decision.reason_codes]})")
+        return _AGENT_SENTINEL
+    if routed.route.value == "CLARIFY":
+        logger.info(
+            f"[{corr_id}] Chat routing: deterministic pipeline → "
+            f"clarification (intent={decision.intent.value}, "
+            f"reasons={[r.value for r in decision.reason_codes]})")
+        return JSONResponse(content={
+            "id": f"msg_{datetime.datetime.now().timestamp()}",
+            "role": "assistant",
+            "content": routed.clarification,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "citations": [],
+        })
     return None
 
 
@@ -65,8 +104,15 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
 _AGENT_SENTINEL = object()
 
 
-async def _agent_chat(request: ChatRequest, corr_id: str) -> JSONResponse:
-    """Run the bounded agent loop (async; called from the chat endpoint)."""
+async def _agent_chat(request: ChatRequest, corr_id: str, *,
+                      legacy_error_body: bool = False) -> JSONResponse:
+    """Run the bounded agent loop (async; called from the chat endpoint).
+
+    ``legacy_error_body`` preserves the exact legacy qualification-
+    specific 503 body (mode ``off`` — the D5 rollback contract); the new
+    pipeline (shadow/active) uses the generic family-neutral body (the
+    D5 fix, Spec 001 Phase B).
+    """
     from retriva_gateway.agent.loop import (
         AgentLoopError,
         run_agent_loop,
@@ -95,10 +141,17 @@ async def _agent_chat(request: ChatRequest, corr_id: str) -> JSONResponse:
             metadata_filter_mode=request.metadata_filter_mode.value,
         )
     except AgentLoopError as e:
+        if legacy_error_body:
+            return JSONResponse(status_code=503, content={
+                "detail": (
+                    f"Candidate qualification cannot be executed from this chat: "
+                    f"{e}. I will not simulate scores or Web Research results."
+                )
+            })
         return JSONResponse(status_code=503, content={
             "detail": (
-                f"Candidate qualification cannot be executed from this chat: "
-                f"{e}. I will not simulate scores or Web Research results."
+                f"The requested workflow cannot be executed from this chat: "
+                f"{e}. I will not simulate or guess workflow results."
             )
         })
     except Exception as e:  # noqa: BLE001
@@ -152,8 +205,17 @@ async def chat(request: ChatRequest):
     # Agent mode: bounded tool-calling loop over typed extension tools.
     # Only when explicitly requested (tools_enabled + session_id) and
     # enabled in config; plain chat otherwise (backward compatible).
-    if _run_agent_mode(request, corr_id) is not None:
-        return await _agent_chat(request, corr_id)
+    # Spec 001 Phase B: mode off keeps the legacy router (and the exact
+    # legacy D5 503 body); shadow/active use the deterministic pipeline
+    # (generic family-neutral 503 body) and may return a typed
+    # clarification instead of entering the loop.
+    agent_result = _run_agent_mode(request, corr_id)
+    if agent_result is _AGENT_SENTINEL:
+        return await _agent_chat(
+            request, corr_id,
+            legacy_error_body=(settings.AGENT_INTENT_ROUTER_MODE == "off"))
+    if agent_result is not None:
+        return agent_result
 
     # Priority: metadata_filters (list) > filters (dict)
     explicit_filters = request.metadata_filters or request.filters or []
