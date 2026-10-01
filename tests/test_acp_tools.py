@@ -665,7 +665,7 @@ def test_get_acp_generation_prerequisites_projects_members():
     assert member["evidence_status_live"] == "INSUFFICIENT"
     assert member["evidence_status_frozen"] == "UNKNOWN"
     assert member["missing_fields"] == ["industry"]
-    assert "never fabricate" in result["next"]
+    assert "rule 26" in result["next"]
     assert "not ready" in result["chat_summary"]
 
 
@@ -694,6 +694,7 @@ def test_enrich_tool_posts_job_with_attribution_actor():
     assert result["job_id"] == "ench_1"
     assert result["state"] == "CREATED"
     assert "get_acp_evidence_enrichment_job" in result["next"]
+    assert "separate approval" in result["next"]
     assert "Nothing is accepted yet" in result["chat_summary"]
 
 
@@ -747,7 +748,7 @@ def test_get_enrichment_job_projects_bounded_company_results():
         "https://example.com"
     assert company["unresolved_fields"] == ["employee_count"]
     assert result["observation_ids"] == ["obs_1", "obs_2"]
-    assert "SEPARATE explicit approval" in result["next"]
+    assert "separate acceptance approval" in result["next"]
 
 
 def test_accept_tool_posts_and_projects_audited_acceptance():
@@ -771,7 +772,7 @@ def test_accept_tool_posts_and_projects_audited_acceptance():
     assert captured[0]["json"]["actor_id"] == "chat:sess_acp"
     assert result["accepted_count"] == 1
     assert result["accepted"][0]["field_key"] == "industry"
-    assert "NEW cohort version" in result["next"]
+    assert "staged workflow" in result["next"]
 
 
 def test_get_enrichment_job_running_state_directs_single_poll():
@@ -785,4 +786,19 @@ def test_get_enrichment_job_running_state_directs_single_poll():
                       side_effect=fake_request):
         result = asyncio.run(_tool_get_acp_evidence_enrichment_job(
             {"job_id": "ench_3"}, _ctx()))
-    assert "once per turn" in result["next"]
+    assert "poll again" in result["next"]
+
+def test_acp_tools_gate(monkeypatch):
+    """Spec 021 review fix 21: AGENT_ACP_TOOLS_ENABLED=false removes the
+    19 ACP/enrichment schemas from the registry (deployments without
+    the CRM PostgreSQL extension); the non-ACP CRM tools stay."""
+    import retriva_gateway.agent.tools as tools_mod
+    monkeypatch.setattr(tools_mod.settings, "AGENT_ACP_TOOLS_ENABLED",
+                        False)
+    registry = tools_mod.build_default_tool_registry()
+    assert all(registry.get(name) is None for name in ACP_TOOL_NAMES)
+    assert registry.get("get_qualification_readiness") is not None
+    monkeypatch.setattr(tools_mod.settings, "AGENT_ACP_TOOLS_ENABLED",
+                        True)
+    registry = tools_mod.build_default_tool_registry()
+    assert all(registry.get(name) is not None for name in ACP_TOOL_NAMES)

@@ -151,3 +151,37 @@ def test_anonymous_principal_header_when_auth_disabled():
     from retriva_gateway.core import client as core_client_mod
     headers = core_client_mod.core_client._get_headers()
     assert headers["X-Retriva-User"] == "anonymous"
+
+
+def test_service_principal_when_configured_and_auth_disabled(
+        monkeypatch):
+    """Spec 021 review fix (actor fidelity): with auth disabled AND a
+    service principal configured, the gateway presents the machine
+    principal (X-Service-Principal) instead of the meaningless
+    anonymous user header — the CRM then honors declared body actor
+    ids (chat:sess_..., reviewer ids) for attribution.  With auth
+    ENABLED the user header stays authoritative and the service
+    principal is never sent."""
+    from retriva_gateway.core import client as core_client_mod
+    from retriva_gateway.config import Settings
+    monkeypatch.setattr(core_client_mod.settings, "RETRIVA_AUTH_PROVIDER",
+                        "none")
+    monkeypatch.setattr(core_client_mod.settings,
+                        "RETRIVA_SERVICE_PRINCIPAL", " svc-research ")
+    headers = core_client_mod.core_client._get_headers()
+    assert headers["X-Service-Principal"] == "svc-research"
+    assert "X-Retriva-User" not in headers
+
+    # Auth enabled: the user header wins, the principal is never sent.
+    monkeypatch.setattr(core_client_mod.settings, "RETRIVA_AUTH_PROVIDER",
+                        "entra")
+    from retriva_gateway.core.context import Principal, principal_ctx
+    principal = Principal(id="user-42", name="U", email="",
+                          roles=["user"], permissions=[])
+    token = principal_ctx.set(principal)
+    try:
+        headers = core_client_mod.core_client._get_headers()
+    finally:
+        principal_ctx.reset(token)
+    assert headers["X-Retriva-User"] == "user-42"
+    assert "X-Service-Principal" not in headers

@@ -349,7 +349,7 @@ def build_crm_tools() -> List[ToolDefinition]:
     attachment IDs must belong to the current session; job IDs must be
     job_… identifiers previously returned by the pipeline.
     """
-    return [
+    tools = [
         ToolDefinition(
             name="get_qualification_readiness",
             description=(
@@ -880,560 +880,579 @@ def build_crm_tools() -> List[ToolDefinition]:
             },
             execute=_tool_update_company_campaign_outcome,
         ),
-        # -----------------------------------------------------------------
-        # ACP workflow tools (Spec 020 / ADR-023).  PostgreSQL business
-        # workflow over the accepted /api/v2/crm/acp/ API — never RAG,
-        # never the KB/Qdrant/tag/SQLite, never model-generated SQL.
-        # -----------------------------------------------------------------
-        ToolDefinition(
-            name="propose_acp_cohort",
-            description=(
-                "Start the PostgreSQL ACP workflow: propose a reference "
-                "cohort of customer companies from the PostgreSQL "
-                "Company Intelligence Database (DRAFT only). Call on "
-                "requests to extrapolate, create, derive or rebuild the "
-                "Average Customer Profile when no reviewed cohort "
-                "version was specified. The initial request authorizes "
-                "PROPOSAL ONLY: never approves, never generates, never "
-                "activates. Returns counts, warnings, blocking issues "
-                "and the review URL. NOT a knowledge-base question — "
-                "do not fall back to RAG answers."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Short cohort name, e.g. "
-                                       "'Active customers'.",
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Optional human description.",
-                    },
-                },
-                "required": ["name"],
-                "additionalProperties": False,
-            },
-            execute=_tool_propose_acp_cohort,
-        ),
-        ToolDefinition(
-            name="get_acp_cohort",
-            description=(
-                "Read one ACP reference cohort (status, current "
-                "version, counts, snapshot hash when approved). "
-                "Read-only."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "cohort_id": {
-                        "type": "string",
-                        "description": "Cohort ID (acpc_...).",
-                    },
-                },
-                "required": ["cohort_id"],
-                "additionalProperties": False,
-            },
-            execute=_tool_get_acp_cohort,
-        ),
-        ToolDefinition(
-            name="list_acp_cohort_members",
-            description=(
-                "List the members of an ACP cohort version with their "
-                "decision states (include/exclude/pending/outlier/"
-                "insufficient-data), minimum review-level fields only. "
-                "Read-only."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "cohort_id": {
-                        "type": "string",
-                        "description": "Cohort ID (acpc_...).",
-                    },
-                    "version_number": {
-                        "type": "integer",
-                        "description": "Optional version number; the "
-                                       "current version when omitted.",
-                    },
-                },
-                "required": ["cohort_id"],
-                "additionalProperties": False,
-            },
-            execute=_tool_list_acp_cohort_members,
-        ),
-        ToolDefinition(
-            name="update_acp_cohort_member",
-            description=(
-                "Record ONE reviewed cohort membership decision "
-                "(include, exclude, weight, outlier, insufficient-data, "
-                "or manual removal). Use ONLY on explicit user review "
-                "decisions; decision history and audit are preserved; "
-                "this never approves the cohort."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "cohort_id": {
-                        "type": "string",
-                        "description": "Cohort ID (acpc_...).",
-                    },
-                    "organization_id": {
-                        "type": "string",
-                        "description": "Canonical organization ID of "
-                                       "the member.",
-                    },
-                    "decision": {
-                        "type": "string",
-                        "enum": ["INCLUDED", "EXCLUDED",
-                                 "PENDING_REVIEW", "OUTLIER",
-                                 "INSUFFICIENT_DATA"],
-                        "description": "The reviewed decision.",
-                    },
-                    "weight": {
-                        "type": "number",
-                        "description": "Weight (only meaningful for "
-                                       "INCLUDED).",
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "Short decision reason (for "
-                                       "exclusion/outlier/insufficient).",
-                    },
-                    "reviewer_comment": {
-                        "type": "string",
-                        "description": "Optional reviewer comment.",
-                    },
-                    "remove": {
-                        "type": "boolean",
-                        "description": "true = manual removal "
-                                       "(MANUAL_REMOVAL provenance).",
-                    },
-                },
-                "required": ["cohort_id", "organization_id", "decision"],
-                "additionalProperties": False,
-            },
-            execute=_tool_update_acp_cohort_member,
-        ),
-        ToolDefinition(
-            name="submit_acp_cohort_for_review",
-            description=(
-                "Report the cohort review lifecycle state. In the "
-                "accepted workflow the version is submitted implicitly "
-                "when approved; this tool returns the lifecycle "
-                "guidance and the review URL. Does not approve."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "cohort_id": {
-                        "type": "string",
-                        "description": "Cohort ID (acpc_...).",
-                    },
-                    "version_number": {
-                        "type": "integer",
-                        "description": "Optional version number.",
-                    },
-                },
-                "required": ["cohort_id"],
-                "additionalProperties": False,
-            },
-            execute=_tool_submit_acp_cohort_for_review,
-        ),
-        ToolDefinition(
-            name="approve_acp_cohort",
-            description=(
-                "Approve and freeze the reviewed cohort version into an "
-                "immutable snapshot (hash verified upstream). Call ONLY "
-                "when the user EXPLICITLY requests cohort approval. "
-                "Refuses while membership decisions are unresolved. "
-                "Never generates an ACP and never activates anything."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "cohort_id": {
-                        "type": "string",
-                        "description": "Cohort ID (acpc_...).",
-                    },
-                    "version_number": {
-                        "type": "integer",
-                        "description": "Optional version number; the "
-                                       "open version otherwise.",
-                    },
-                    "comment": {
-                        "type": "string",
-                        "description": "Optional approval comment.",
-                    },
-                },
-                "required": ["cohort_id"],
-                "additionalProperties": False,
-            },
-            execute=_tool_approve_acp_cohort,
-            destructive=True,
-        ),
-        ToolDefinition(
-            name="generate_acp",
-            description=(
-                "Generate a review-ready ACP draft from an APPROVED "
-                "cohort version (deterministic induction over frozen, "
-                "snapshot-hash-verified inputs). With llm_summary=true "
-                "the narrative summary is LLM-enriched from the member "
-                "evidence and the authoritative global CCO — a "
-                "commercial-grade profile document, provenance-stamped; "
-                "the scoring dimensions stay deterministic either way. "
-                "Call ONLY on an explicit generation request; set "
-                "llm_summary when the user asks for a detailed/ "
-                "commercial narrative. Never approves and never "
-                "activates; the active ACP stays unchanged."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "acp_cohort_version_id": {
-                        "type": "string",
-                        "description": "APPROVED cohort version ID "
-                                       "(acpcv_...).",
-                    },
-                    "idempotency_key": {
-                        "type": "string",
-                        "description": "Optional idempotency key: "
-                                       "re-running with the same key "
-                                       "returns the recorded run.",
-                    },
-                    "llm_summary": {
-                        "type": "boolean",
-                        "description": "Enrich the narrative summary "
-                                       "with the task LLM (grounded in "
-                                       "the authoritative global CCO). "
-                                       "Default: deterministic digest.",
-                    },
-                },
-                "required": ["acp_cohort_version_id"],
-                "additionalProperties": False,
-            },
-            execute=_tool_generate_acp,
-        ),
-        ToolDefinition(
-            name="get_acp_generation_run",
-            description=(
-                "Read one ACP generation run (status, snapshot hash, "
-                "result ACP version, contribution counters). "
-                "Read-only."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "generation_run_id": {
-                        "type": "string",
-                        "description": "Generation run ID (acpr_...).",
-                    },
-                },
-                "required": ["generation_run_id"],
-                "additionalProperties": False,
-            },
-            execute=_tool_get_acp_generation_run,
-        ),
-        ToolDefinition(
-            name="get_acp_version",
-            description=(
-                "Read one ACP version (status, validation, review "
-                "readiness, payload and snapshot hashes). Read-only."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "acp_id": {
-                        "type": "string",
-                        "description": "Logical ACP ID (icp_.../acp_...).",
-                    },
-                    "version_number": {
-                        "type": "integer",
-                        "description": "Version number.",
-                    },
-                },
-                "required": ["acp_id", "version_number"],
-                "additionalProperties": False,
-            },
-            execute=_tool_get_acp_version,
-        ),
-        ToolDefinition(
-            name="submit_acp_for_review",
-            description=(
-                "Submit a generated ACP draft for review (DRAFT -> "
-                "REVIEW_READY; the payload stays byte-identical). "
-                "Never generates, never scores, never activates."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "acp_id": {
-                        "type": "string",
-                        "description": "Logical ACP ID.",
-                    },
-                    "version_number": {
-                        "type": "integer",
-                        "description": "Version number.",
-                    },
-                },
-                "required": ["acp_id", "version_number"],
-                "additionalProperties": False,
-            },
-            execute=_tool_submit_acp_for_review,
-        ),
-        ToolDefinition(
-            name="approve_acp",
-            description=(
-                "Approve the complete ACP version (immutable approval "
-                "record). Call ONLY when the user EXPLICITLY requests "
-                "ACP approval. Never activates; the currently active "
-                "ACP stays unchanged."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "acp_id": {
-                        "type": "string",
-                        "description": "Logical ACP ID.",
-                    },
-                    "version_number": {
-                        "type": "integer",
-                        "description": "Version number.",
-                    },
-                    "comments": {
-                        "type": "string",
-                        "description": "Optional review comments.",
-                    },
-                },
-                "required": ["acp_id", "version_number"],
-                "additionalProperties": False,
-            },
-            execute=_tool_approve_acp,
-            destructive=True,
-        ),
-        ToolDefinition(
-            name="activate_acp",
-            description=(
-                "ACTIVATE an approved ACP version (transactional, "
-                "exactly one active ACP per tenant, ledger + audit). "
-                "Call ONLY on an explicit activation request — never "
-                "infer activation from create/generate/extrapolate/"
-                "review/approve wording. Fails closed if another ACP "
-                "is already active."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "acp_id": {
-                        "type": "string",
-                        "description": "Logical ACP ID.",
-                    },
-                    "version_number": {
-                        "type": "integer",
-                        "description": "Version number.",
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "Optional activation reason.",
-                    },
-                },
-                "required": ["acp_id", "version_number"],
-                "additionalProperties": False,
-            },
-            execute=_tool_activate_acp,
-            destructive=True,
-        ),
-        ToolDefinition(
-            name="rollback_acp_activation",
-            description=(
-                "Roll back an ACP activation through the activation "
-                "ledger (restores the previously active version; a new "
-                "ledger operation; history is never rewritten). Call "
-                "ONLY on an explicit rollback request."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "acp_id": {
-                        "type": "string",
-                        "description": "Logical ACP ID to restore.",
-                    },
-                    "version_number": {
-                        "type": "integer",
-                        "description": "Version number to restore.",
-                    },
-                    "rollback_of_activation_id": {
-                        "type": "string",
-                        "description": "Activation ID being rolled "
-                                       "back (from activate output).",
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "Optional rollback reason.",
-                    },
-                },
-                "required": ["acp_id", "version_number"],
-                "additionalProperties": False,
-            },
-            execute=_tool_rollback_acp_activation,
-            destructive=True,
-        ),
-        ToolDefinition(
-            name="get_active_acp",
-            description=(
-                "Resolve the tenant's currently ACTIVE ACP (identity, "
-                "status, hashes; no payload content). Read-only. "
-                "The active ACP is comparison data only — never source "
-                "evidence for a new cohort."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {},
-                "required": [],
-                "additionalProperties": False,
-            },
-            execute=_tool_get_active_acp,
-        ),
-        ToolDefinition(
-            name="get_acp_lineage",
-            description=(
-                "Read the lineage of one ACP version (cohort, snapshot "
-                "hash, generation run, approvals, activation ledger) — "
-                "opaque IDs and hashes only. Read-only."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "acp_id": {
-                        "type": "string",
-                        "description": "Logical ACP ID.",
-                    },
-                    "version_number": {
-                        "type": "integer",
-                        "description": "Version number.",
-                    },
-                },
-                "required": ["acp_id", "version_number"],
-                "additionalProperties": False,
-            },
-            execute=_tool_get_acp_lineage,
-        ),
-        # -------------------------------------------------------------
-        # Evidence enrichment (Spec 021 / ADR-024): generation
-        # prerequisites visibility + permission-gated enrichment via the
-        # qualification research machinery. UNVERIFIED observations;
-        # acceptance is a separate explicit step. ACP generation stays
-        # deterministic and provider-free.
-        # -------------------------------------------------------------
-        ToolDefinition(
-            name="get_acp_generation_prerequisites",
-            description=(
-                "Read the live generation prerequisites of one cohort "
-                "version: per-member evidence status (frozen vs live), "
-                "missing policy fields and stale fields — i.e. which "
-                "customer companies are NOT yet enriched. Use when "
-                "generation reported incomplete evidence, or when the "
-                "user asks whether the cohort companies are enriched. "
-                "Read-only."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "acp_cohort_version_id": {
-                        "type": "string",
-                        "description": "Cohort version ID (cohver_...).",
-                    },
-                },
-                "required": ["acp_cohort_version_id"],
-                "additionalProperties": False,
-            },
-            execute=_tool_get_acp_generation_prerequisites,
-        ),
-        ToolDefinition(
-            name="enrich_acp_cohort_evidence",
-            description=(
-                "Start the evidence-enrichment job for one cohort "
-                "version's members (default: every non-excluded "
-                "member; optional explicit subset). Uses the same "
-                "web-research machinery as new-lead qualification to "
-                "fill the missing policy fields; researched values land "
-                "as UNVERIFIED observations. Call ONLY on the user's "
-                "explicit approval to enrich; never fabricates evidence "
-                "and NEVER accepts the results (acceptance is a "
-                "separate explicit step)."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "acp_cohort_version_id": {
-                        "type": "string",
-                        "description": "Cohort version ID (cohver_...).",
-                    },
-                    "organization_ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Optional subset of member "
-                                       "organization IDs to enrich.",
-                    },
-                },
-                "required": ["acp_cohort_version_id"],
-                "additionalProperties": False,
-            },
-            execute=_tool_enrich_acp_cohort_evidence,
-            destructive=True,
-        ),
-        ToolDefinition(
-            name="get_acp_evidence_enrichment_job",
-            description=(
-                "Read one evidence-enrichment job: state, per-company "
-                "resolved fields (values, source domain, confidence, "
-                "observation IDs) and unresolved fields. Read-only."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "job_id": {
-                        "type": "string",
-                        "description": "Enrichment job ID (ench_...).",
-                    },
-                },
-                "required": ["job_id"],
-                "additionalProperties": False,
-            },
-            execute=_tool_get_acp_evidence_enrichment_job,
-        ),
-        ToolDefinition(
-            name="accept_acp_enrichment_evidence",
-            description=(
-                "Accept the evidence observations recorded by one "
-                "completed enrichment job (audited; supersedes the "
-                "previous accepted value per field). Call ONLY on the "
-                "user's SEPARATE explicit approval AFTER presenting the "
-                "per-company field summary. Never fabricates and never "
-                "generates."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "job_id": {
-                        "type": "string",
-                        "description": "Enrichment job ID (ench_...).",
-                    },
-                    "observation_ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Optional subset of the job's "
-                                       "observation IDs to accept.",
-                    },
-                },
-                "required": ["job_id"],
-                "additionalProperties": False,
-            },
-            execute=_tool_accept_acp_enrichment_evidence,
-            destructive=True,
-        ),
     ]
+
+
+    # Spec 021 review fix 21: deployments without the CRM PostgreSQL
+    # extension set AGENT_ACP_TOOLS_ENABLED=false to keep the 19
+    # ACP/enrichment tool schemas off every agent-mode iteration.
+    if settings.AGENT_ACP_TOOLS_ENABLED:
+        tools.extend(build_acp_tools())
+    return tools
+
+
+def build_acp_tools() -> List[ToolDefinition]:
+    """ACP workflow tools (Spec 020 / ADR-023, extended by Spec 021 /
+    ADR-024): PostgreSQL business workflow over the accepted
+    /api/v2/crm/acp/ API — never RAG, never the KB/Qdrant/tag/SQLite,
+    never model-generated SQL.  Gated by AGENT_ACP_TOOLS_ENABLED."""
+    return [
+# -----------------------------------------------------------------
+# ACP workflow tools (Spec 020 / ADR-023).  PostgreSQL business
+# workflow over the accepted /api/v2/crm/acp/ API — never RAG,
+# never the KB/Qdrant/tag/SQLite, never model-generated SQL.
+# -----------------------------------------------------------------
+ToolDefinition(
+    name="propose_acp_cohort",
+    description=(
+        "Start the PostgreSQL ACP workflow: propose a reference "
+        "cohort of customer companies from the PostgreSQL "
+        "Company Intelligence Database (DRAFT only). Call on "
+        "requests to extrapolate, create, derive or rebuild the "
+        "Average Customer Profile when no reviewed cohort "
+        "version was specified. The initial request authorizes "
+        "PROPOSAL ONLY: never approves, never generates, never "
+        "activates. Returns counts, warnings, blocking issues "
+        "and the review URL. NOT a knowledge-base question — "
+        "do not fall back to RAG answers."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Short cohort name, e.g. "
+                               "'Active customers'.",
+            },
+            "description": {
+                "type": "string",
+                "description": "Optional human description.",
+            },
+        },
+        "required": ["name"],
+        "additionalProperties": False,
+    },
+    execute=_tool_propose_acp_cohort,
+),
+ToolDefinition(
+    name="get_acp_cohort",
+    description=(
+        "Read one ACP reference cohort (status, current "
+        "version, counts, snapshot hash when approved). "
+        "Read-only."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "cohort_id": {
+                "type": "string",
+                "description": "Cohort ID (acpc_...).",
+            },
+        },
+        "required": ["cohort_id"],
+        "additionalProperties": False,
+    },
+    execute=_tool_get_acp_cohort,
+),
+ToolDefinition(
+    name="list_acp_cohort_members",
+    description=(
+        "List the members of an ACP cohort version with their "
+        "decision states (include/exclude/pending/outlier/"
+        "insufficient-data), minimum review-level fields only. "
+        "Read-only."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "cohort_id": {
+                "type": "string",
+                "description": "Cohort ID (acpc_...).",
+            },
+            "version_number": {
+                "type": "integer",
+                "description": "Optional version number; the "
+                               "current version when omitted.",
+            },
+        },
+        "required": ["cohort_id"],
+        "additionalProperties": False,
+    },
+    execute=_tool_list_acp_cohort_members,
+),
+ToolDefinition(
+    name="update_acp_cohort_member",
+    description=(
+        "Record ONE reviewed cohort membership decision "
+        "(include, exclude, weight, outlier, insufficient-data, "
+        "or manual removal). Use ONLY on explicit user review "
+        "decisions; decision history and audit are preserved; "
+        "this never approves the cohort."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "cohort_id": {
+                "type": "string",
+                "description": "Cohort ID (acpc_...).",
+            },
+            "organization_id": {
+                "type": "string",
+                "description": "Canonical organization ID of "
+                               "the member.",
+            },
+            "decision": {
+                "type": "string",
+                "enum": ["INCLUDED", "EXCLUDED",
+                         "PENDING_REVIEW", "OUTLIER",
+                         "INSUFFICIENT_DATA"],
+                "description": "The reviewed decision.",
+            },
+            "weight": {
+                "type": "number",
+                "description": "Weight (only meaningful for "
+                               "INCLUDED).",
+            },
+            "reason": {
+                "type": "string",
+                "description": "Short decision reason (for "
+                               "exclusion/outlier/insufficient).",
+            },
+            "reviewer_comment": {
+                "type": "string",
+                "description": "Optional reviewer comment.",
+            },
+            "remove": {
+                "type": "boolean",
+                "description": "true = manual removal "
+                               "(MANUAL_REMOVAL provenance).",
+            },
+        },
+        "required": ["cohort_id", "organization_id", "decision"],
+        "additionalProperties": False,
+    },
+    execute=_tool_update_acp_cohort_member,
+),
+ToolDefinition(
+    name="submit_acp_cohort_for_review",
+    description=(
+        "Report the cohort review lifecycle state. In the "
+        "accepted workflow the version is submitted implicitly "
+        "when approved; this tool returns the lifecycle "
+        "guidance and the review URL. Does not approve."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "cohort_id": {
+                "type": "string",
+                "description": "Cohort ID (acpc_...).",
+            },
+            "version_number": {
+                "type": "integer",
+                "description": "Optional version number.",
+            },
+        },
+        "required": ["cohort_id"],
+        "additionalProperties": False,
+    },
+    execute=_tool_submit_acp_cohort_for_review,
+),
+ToolDefinition(
+    name="approve_acp_cohort",
+    description=(
+        "Approve and freeze the reviewed cohort version into an "
+        "immutable snapshot (hash verified upstream). Call ONLY "
+        "when the user EXPLICITLY requests cohort approval. "
+        "Refuses while membership decisions are unresolved. "
+        "Never generates an ACP and never activates anything."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "cohort_id": {
+                "type": "string",
+                "description": "Cohort ID (acpc_...).",
+            },
+            "version_number": {
+                "type": "integer",
+                "description": "Optional version number; the "
+                               "open version otherwise.",
+            },
+            "comment": {
+                "type": "string",
+                "description": "Optional approval comment.",
+            },
+        },
+        "required": ["cohort_id"],
+        "additionalProperties": False,
+    },
+    execute=_tool_approve_acp_cohort,
+    destructive=True,
+),
+ToolDefinition(
+    name="generate_acp",
+    description=(
+        "Generate a review-ready ACP draft from an APPROVED "
+        "cohort version (deterministic induction over frozen, "
+        "snapshot-hash-verified inputs). With llm_summary=true "
+        "the narrative summary is LLM-enriched from the member "
+        "evidence and the authoritative global CCO — a "
+        "commercial-grade profile document, provenance-stamped; "
+        "the scoring dimensions stay deterministic either way. "
+        "Call ONLY on an explicit generation request; set "
+        "llm_summary when the user asks for a detailed/ "
+        "commercial narrative. Never approves and never "
+        "activates; the active ACP stays unchanged."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "acp_cohort_version_id": {
+                "type": "string",
+                "description": "APPROVED cohort version ID "
+                               "(acpcv_...).",
+            },
+            "idempotency_key": {
+                "type": "string",
+                "description": "Optional idempotency key: "
+                               "re-running with the same key "
+                               "returns the recorded run.",
+            },
+            "llm_summary": {
+                "type": "boolean",
+                "description": "Enrich the narrative summary "
+                               "with the task LLM (grounded in "
+                               "the authoritative global CCO). "
+                               "Default: deterministic digest.",
+            },
+        },
+        "required": ["acp_cohort_version_id"],
+        "additionalProperties": False,
+    },
+    execute=_tool_generate_acp,
+),
+ToolDefinition(
+    name="get_acp_generation_run",
+    description=(
+        "Read one ACP generation run (status, snapshot hash, "
+        "result ACP version, contribution counters). "
+        "Read-only."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "generation_run_id": {
+                "type": "string",
+                "description": "Generation run ID (acpr_...).",
+            },
+        },
+        "required": ["generation_run_id"],
+        "additionalProperties": False,
+    },
+    execute=_tool_get_acp_generation_run,
+),
+ToolDefinition(
+    name="get_acp_version",
+    description=(
+        "Read one ACP version (status, validation, review "
+        "readiness, payload and snapshot hashes). Read-only."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "acp_id": {
+                "type": "string",
+                "description": "Logical ACP ID (icp_.../acp_...).",
+            },
+            "version_number": {
+                "type": "integer",
+                "description": "Version number.",
+            },
+        },
+        "required": ["acp_id", "version_number"],
+        "additionalProperties": False,
+    },
+    execute=_tool_get_acp_version,
+),
+ToolDefinition(
+    name="submit_acp_for_review",
+    description=(
+        "Submit a generated ACP draft for review (DRAFT -> "
+        "REVIEW_READY; the payload stays byte-identical). "
+        "Never generates, never scores, never activates."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "acp_id": {
+                "type": "string",
+                "description": "Logical ACP ID.",
+            },
+            "version_number": {
+                "type": "integer",
+                "description": "Version number.",
+            },
+        },
+        "required": ["acp_id", "version_number"],
+        "additionalProperties": False,
+    },
+    execute=_tool_submit_acp_for_review,
+),
+ToolDefinition(
+    name="approve_acp",
+    description=(
+        "Approve the complete ACP version (immutable approval "
+        "record). Call ONLY when the user EXPLICITLY requests "
+        "ACP approval. Never activates; the currently active "
+        "ACP stays unchanged."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "acp_id": {
+                "type": "string",
+                "description": "Logical ACP ID.",
+            },
+            "version_number": {
+                "type": "integer",
+                "description": "Version number.",
+            },
+            "comments": {
+                "type": "string",
+                "description": "Optional review comments.",
+            },
+        },
+        "required": ["acp_id", "version_number"],
+        "additionalProperties": False,
+    },
+    execute=_tool_approve_acp,
+    destructive=True,
+),
+ToolDefinition(
+    name="activate_acp",
+    description=(
+        "ACTIVATE an approved ACP version (transactional, "
+        "exactly one active ACP per tenant, ledger + audit). "
+        "Call ONLY on an explicit activation request — never "
+        "infer activation from create/generate/extrapolate/"
+        "review/approve wording. Fails closed if another ACP "
+        "is already active."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "acp_id": {
+                "type": "string",
+                "description": "Logical ACP ID.",
+            },
+            "version_number": {
+                "type": "integer",
+                "description": "Version number.",
+            },
+            "reason": {
+                "type": "string",
+                "description": "Optional activation reason.",
+            },
+        },
+        "required": ["acp_id", "version_number"],
+        "additionalProperties": False,
+    },
+    execute=_tool_activate_acp,
+    destructive=True,
+),
+ToolDefinition(
+    name="rollback_acp_activation",
+    description=(
+        "Roll back an ACP activation through the activation "
+        "ledger (restores the previously active version; a new "
+        "ledger operation; history is never rewritten). Call "
+        "ONLY on an explicit rollback request."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "acp_id": {
+                "type": "string",
+                "description": "Logical ACP ID to restore.",
+            },
+            "version_number": {
+                "type": "integer",
+                "description": "Version number to restore.",
+            },
+            "rollback_of_activation_id": {
+                "type": "string",
+                "description": "Activation ID being rolled "
+                               "back (from activate output).",
+            },
+            "reason": {
+                "type": "string",
+                "description": "Optional rollback reason.",
+            },
+        },
+        "required": ["acp_id", "version_number"],
+        "additionalProperties": False,
+    },
+    execute=_tool_rollback_acp_activation,
+    destructive=True,
+),
+ToolDefinition(
+    name="get_active_acp",
+    description=(
+        "Resolve the tenant's currently ACTIVE ACP (identity, "
+        "status, hashes; no payload content). Read-only. "
+        "The active ACP is comparison data only — never source "
+        "evidence for a new cohort."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
+    },
+    execute=_tool_get_active_acp,
+),
+ToolDefinition(
+    name="get_acp_lineage",
+    description=(
+        "Read the lineage of one ACP version (cohort, snapshot "
+        "hash, generation run, approvals, activation ledger) — "
+        "opaque IDs and hashes only. Read-only."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "acp_id": {
+                "type": "string",
+                "description": "Logical ACP ID.",
+            },
+            "version_number": {
+                "type": "integer",
+                "description": "Version number.",
+            },
+        },
+        "required": ["acp_id", "version_number"],
+        "additionalProperties": False,
+    },
+    execute=_tool_get_acp_lineage,
+),
+# -------------------------------------------------------------
+# Evidence enrichment (Spec 021 / ADR-024): generation
+# prerequisites visibility + permission-gated enrichment via the
+# qualification research machinery. UNVERIFIED observations;
+# acceptance is a separate explicit step. ACP generation stays
+# deterministic and provider-free.
+# -------------------------------------------------------------
+ToolDefinition(
+    name="get_acp_generation_prerequisites",
+    description=(
+        "Read the live generation prerequisites of one cohort "
+        "version: per-member evidence status (frozen vs live), "
+        "missing policy fields and stale fields — i.e. which "
+        "customer companies are NOT yet enriched. Use when "
+        "generation reported incomplete evidence, or when the "
+        "user asks whether the cohort companies are enriched. "
+        "Read-only."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "acp_cohort_version_id": {
+                "type": "string",
+                "description": "Cohort version ID (cohver_...).",
+            },
+        },
+        "required": ["acp_cohort_version_id"],
+        "additionalProperties": False,
+    },
+    execute=_tool_get_acp_generation_prerequisites,
+),
+ToolDefinition(
+    name="enrich_acp_cohort_evidence",
+    description=(
+        "Start the evidence-enrichment job for one cohort "
+        "version's members (default: every non-excluded "
+        "member; optional explicit subset). Uses the same "
+        "web-research machinery as new-lead qualification to "
+        "fill the missing policy fields; researched values land "
+        "as UNVERIFIED observations. Call ONLY on the user's "
+        "explicit approval to enrich; never fabricates evidence "
+        "and NEVER accepts the results (acceptance is a "
+        "separate explicit step)."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "acp_cohort_version_id": {
+                "type": "string",
+                "description": "Cohort version ID (cohver_...).",
+            },
+            "organization_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional subset of member "
+                               "organization IDs to enrich.",
+            },
+        },
+        "required": ["acp_cohort_version_id"],
+        "additionalProperties": False,
+    },
+    execute=_tool_enrich_acp_cohort_evidence,
+    destructive=True,
+),
+ToolDefinition(
+    name="get_acp_evidence_enrichment_job",
+    description=(
+        "Read one evidence-enrichment job: state, per-company "
+        "resolved fields (values, source domain, confidence, "
+        "observation IDs) and unresolved fields. Read-only."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "job_id": {
+                "type": "string",
+                "description": "Enrichment job ID (ench_...).",
+            },
+        },
+        "required": ["job_id"],
+        "additionalProperties": False,
+    },
+    execute=_tool_get_acp_evidence_enrichment_job,
+),
+ToolDefinition(
+    name="accept_acp_enrichment_evidence",
+    description=(
+        "Accept the evidence observations recorded by one "
+        "completed enrichment job (audited; supersedes the "
+        "previous accepted value per field). Call ONLY on the "
+        "user's SEPARATE explicit approval AFTER presenting the "
+        "per-company field summary. Never fabricates and never "
+        "generates."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "job_id": {
+                "type": "string",
+                "description": "Enrichment job ID (ench_...).",
+            },
+            "observation_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional subset of the job's "
+                               "observation IDs to accept.",
+            },
+        },
+        "required": ["job_id"],
+        "additionalProperties": False,
+    },
+    execute=_tool_accept_acp_enrichment_evidence,
+    destructive=True,
+),
+    ]
+
+
 
 
 async def _tool_analyze_company_import(
@@ -2355,10 +2374,8 @@ async def _tool_get_acp_generation_prerequisites(
         "review_url": _public_review_url(ACP_COHORT_CONSOLE_PATH),
     }
     out["next"] = (
-        "if not ready: report the un-enriched companies and their "
-        "missing fields, then STOP and ask the user to approve "
-        "enrichment (enrich_acp_cohort_evidence); never fabricate "
-        "evidence")
+        "if not ready: report the un-enriched members and their "
+        "missing fields, then stop for the user's approval (rule 26)")
     state = "ready" if out["ready"] else "not ready"
     insufficient = sum(1 for m in out["members"]
                        if m["evidence_status_live"] == "INSUFFICIENT")
@@ -2394,11 +2411,8 @@ async def _tool_enrich_acp_cohort_evidence(
         "organization_ids": result.get("organization_ids"),
         "field_targets": result.get("field_targets"),
     }
-    out["next"] = ("poll get_acp_evidence_enrichment_job (once per "
-                   "turn); when COMPLETED, present the per-company "
-                   "field summary (values, source domains, unresolved "
-                   "fields) and ask for SEPARATE explicit approval to "
-                   "accept the recorded evidence")
+    out["next"] = ("poll get_acp_evidence_enrichment_job once per "
+                   "turn; acceptance is a separate approval (rule 27)")
     out["chat_summary"] = (
         f"Evidence enrichment job {out['job_id']} started for "
         f"{len(out['organization_ids'] or [])} company(ies); targets: "
@@ -2446,15 +2460,12 @@ async def _tool_get_acp_evidence_enrichment_job(
             "skipped_fields": company_result.get("skipped_fields"),
         })
     if out["state"] == "COMPLETED":
-        out["next"] = ("present the per-company summary and ask for "
-                       "SEPARATE explicit approval to accept the "
-                       "recorded evidence "
-                       "(accept_acp_enrichment_evidence)")
+        out["next"] = ("present the per-company summary and request "
+                       "separate acceptance approval (rule 27)")
     elif out["state"] == "FAILED":
         out["next"] = "report the failure; do not retry without the user"
     else:
-        out["next"] = ("the job is still running; poll again on the "
-                       "user's next message (once per turn)")
+        out["next"] = "still running; poll again on the user's next message"
     out["chat_summary"] = (
         f"Enrichment job {job_id}: {out['state']}; "
         f"{len(out['companies'])} company(ies).")
@@ -2485,12 +2496,8 @@ async def _tool_accept_acp_enrichment_evidence(
              "field_key": a.get("field_key")}
             for a in result.get("accepted") or []],
     }
-    out["next"] = ("evidence accepted; continue the staged workflow — "
-                   "a DRAFT cohort version can proceed to member "
-                   "decisions and approval (which re-freezes evidence), "
-                   "while an APPROVED version with frozen insufficient "
-                   "evidence requires a NEW cohort version "
-                   "(re-proposal) before generation")
+    out["next"] = ("evidence accepted; continue the staged workflow "
+                   "(rule 28)")
     out["chat_summary"] = (
         f"Accepted {out['accepted_count']} evidence observation(s) "
         f"from job {job_id} (audited; supersession per field).")

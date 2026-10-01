@@ -41,7 +41,20 @@ class CoreClient:
         # authenticated principal id travels to Core as a gateway-set
         # header; client-supplied values of this header are never
         # forwarded because these headers are built from scratch.
-        headers["X-Retriva-User"] = get_principal().id
+        #
+        # Actor fidelity with auth DISABLED (Spec 021 review fix): the
+        # gateway is then the trusted machine caller — present the
+        # configured service principal instead of a (meaningless)
+        # anonymous user header, so the CRM honors declared body actor
+        # ids (chat:sess_..., reviewer ids) for attribution.  With auth
+        # ENABLED the authenticated user header stays authoritative.
+        if settings.GATEWAY_ENABLE_AUTH:
+            headers["X-Retriva-User"] = get_principal().id
+        elif settings.RETRIVA_SERVICE_PRINCIPAL.strip():
+            headers["X-Service-Principal"] = \
+                settings.RETRIVA_SERVICE_PRINCIPAL.strip()
+        else:
+            headers["X-Retriva-User"] = get_principal().id
         return headers
 
     async def _request(

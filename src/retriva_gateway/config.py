@@ -91,10 +91,26 @@ class Settings(BaseSettings):
     AGENT_TOOLS_ENABLED: bool = True
     # Allow-list of tool names the model may invoke. Empty = all registered.
     AGENT_TOOL_ALLOWLIST: StringList = []
+    # Spec 021 review fix 21: the 19 ACP/enrichment tool schemas re-send
+    # on every agent-mode iteration.  Deployments without the CRM
+    # PostgreSQL extension set this false so the schemas (and their
+    # token cost) disappear; the tools also all fail typed there.
+    AGENT_ACP_TOOLS_ENABLED: bool = True
     # Max LLM<->tool iterations per chat request (recursion protection).
     AGENT_MAX_TOOL_ITERATIONS: int = 6
     # Per-tool-call timeout in seconds.
     AGENT_TOOL_TIMEOUT_SECONDS: float = 120.0
+
+    # --- Trusted service principal (Spec 021 review fix: actor fidelity) ---
+    # When auth is DISABLED (RETRIVA_AUTH_PROVIDER=none) the gateway is the
+    # trusted machine caller: present this principal to the CRM extension
+    # (X-Service-Principal) so the CRM honors declared body actor ids for
+    # attribution (chat:sess_..., console reviewer ids) instead of collapsing
+    # every action to "anonymous".  Must match the CRM's
+    # CRM_EXECUTOR_SERVICE_PRINCIPAL; empty keeps the legacy anonymous
+    # behavior.  With auth ENABLED the authenticated user header stays
+    # authoritative and this value is never sent.
+    RETRIVA_SERVICE_PRINCIPAL: str = ""
 
     LOG_LEVEL: str = "INFO"
 
