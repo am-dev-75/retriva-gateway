@@ -2611,6 +2611,42 @@ async def _tool_approve_acp(
         payload)
     if "error" in result:
         return result
+    # Spec 001 Phase C0 / ADR-026: the optional service-certified
+    # confirmation_ready block is preparation evidence for the later
+    # activation — never authorization to mutate and never acted upon
+    # here (no automatic activation; the domain repeats every
+    # validation on the eventual explicit activate call).  The Gateway
+    # transports the block without synthesizing or altering
+    # authoritative fields, while strictly validating schema version,
+    # fields, enums, bounds, and the correlation/tenant/principal
+    # provenance (owner decision U-3: tenant cross-check against the
+    # trusted DEFAULT_TENANT_ID; principal against the authenticated
+    # Gateway principal).  A rejected block is removed completely and
+    # logged content-free (closed category only); the completed
+    # approval result is preserved unchanged either way.
+    upstream_block = result.pop("confirmation_ready", None)
+    if upstream_block is not None:
+        from retriva_gateway.core.context import get_principal
+        from retriva_gateway.core.routing.confirmation_ready import (
+            ConfirmationReadyRejection,
+            validate_confirmation_ready,
+        )
+        outcome = validate_confirmation_ready(
+            upstream_block,
+            correlation_id=ctx.correlation_id,
+            tenant_id=settings.DEFAULT_TENANT_ID,
+            principal_id=get_principal().id,
+        )
+        if isinstance(outcome, ConfirmationReadyRejection):
+            # Content-free: correlation-safe event name, closed
+            # category, static contract version — never the rejected
+            # block or any tenant/principal/resource/token value.
+            logger.warning(
+                f"[{ctx.correlation_id}] confirmation_ready_rejected "
+                f"category={outcome.category.value} "
+                f"contract=confirmation_ready/v1")
+        else:
+            result["confirmation_ready"] = outcome.model_dump()
     result["activation_ready"] = True
     result["active_acp_unchanged"] = True
     result["chat_summary"] = (

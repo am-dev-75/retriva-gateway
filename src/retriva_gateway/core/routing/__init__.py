@@ -28,6 +28,12 @@ from .deterministic import (
     RULE_PRIORITIES,
     normalize_message,
 )
+from .confirmation_ready import (
+    ConfirmationReadyBlock,
+    ConfirmationReadyRejection,
+    RejectionCategory,
+    validate_confirmation_ready,
+)
 from .guards import CONSEQUENTIAL_INTENTS, evaluate_consequential_guard
 from .pipeline import PhaseBChatRoute, route_non_streaming
 from .taxonomy import (
@@ -46,8 +52,11 @@ from .taxonomy import (
 __all__ = [
     "SCHEMA_VERSION",
     "CONSEQUENTIAL_INTENTS",
+    "ConfirmationReadyBlock",
+    "ConfirmationReadyRejection",
     "DeterministicEngine",
     "DeterministicResult",
+    "RejectionCategory",
     "RULE_PRIORITIES",
     "PhaseBChatRoute",
     "DecisionSource",
@@ -62,4 +71,5 @@ __all__ = [
     "evaluate_consequential_guard",
     "normalize_message",
     "route_non_streaming",
+    "validate_confirmation_ready",
 ]
