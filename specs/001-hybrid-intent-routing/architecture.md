@@ -86,11 +86,22 @@ Typed rule list, evaluated in priority order; each rule produces
 - `R-DOC-FRAMING` (priority 10): knowledge-framing detector (EN+IT anchors:
   how do/can/to, what is/are, explain, tell me about, come funziona,
   cos'è, ...) over workflow vocabulary → `WORKFLOW_DOCUMENTATION`,
-  mode INFORMATIONAL. Vetoed only when an explicit imperative command
-  pattern also matches with an explicit resource reference.
+  mode INFORMATIONAL. Vetoed only when the clause itself contains a
+  genuinely imperative or requestive form (closed marker set: please /
+  kindly / go ahead / do it / per favore / procedi / fallo) together with
+  an operation verb and an explicit resource reference (Gate B correction,
+  owner decision D-2c). Interrogative frames carrying operation verbs and
+  opaque identifiers ("How do I activate acpver_123?", "Come si attiva
+  acpver_123?") remain informational: an operation verb plus an
+  identifier does not by itself convert an explanatory question into a
+  workflow command.
 - `R-NEGATION` (20): negation scope detection (do not/don't/never/niente/non
-  + verb within window) over a mutation verb → mode UNKNOWN, explicitness
-  NEGATED → never routes to the workflow; falls to RAG/clarification.
+  + verb within window) over ANY recognized workflow operation verb —
+  including otherwise safe, analytical, proposal-oriented, or
+  non-consequential operation verbs (Gate B correction, owner decision
+  D-1) → mode UNKNOWN, explicitness NEGATED → never routes to the
+  workflow; falls to RAG/clarification. A negated operation is never an
+  executable workflow command.
 - `R-HYPOTHETIC` (25): conditional/hypothetical framing (what if / suppose /
   if we were to / se potessi / "write a prompt to…", "show an example…",
   "draft a request that…") → INFORMATIONAL / QUOTED_EXAMPLE class.
@@ -99,17 +110,36 @@ Typed rule list, evaluated in priority order; each rule produces
 - `R-COMMAND` (40): explicit imperative command rules per workflow family
   and operation, reusing the accepted verb/noun vocabulary of
   `intent.py:75-93` (narrowed per D3), with explicit-resource patterns
-  (`acpver_*`, `cohort_*`, `job_*`, `camp_*`, opaque-ID regex) and
+  (`acpver_*`, `cohver_*`, `cohort_*`, `job_*`, `ench_*`, `camp_*`,
+  opaque-ID regex) and
   mode assignment: read/status → ANALYSIS; approve/commit/activate/
   supersede/rollback/deactivate/mark-addressed → MUTATION or
-  DESTRUCTIVE_MUTATION (per ADR-023 destructive flags).
+  DESTRUCTIVE_MUTATION (per ADR-023 destructive flags). The accepted ACP
+  evidence-enrichment operations map to C1 (Gate B correction, owner
+  decision D-3, per the accepted `agent/tools.py` ToolDefinitions and
+  ADR-024): enrichment request → `ACP_EVIDENCE_ENRICHMENT`
+  (consequential — `destructive=True`, explicit-approval-only, paid
+  web-research recording UNVERIFIED observations); enrichment-job
+  status/results → `ACP_EVIDENCE_ENRICHMENT_STATUS` (safe, read-only);
+  evidence acceptance → `ACP_EVIDENCE_ACCEPTANCE` (consequential —
+  audited, supersedes the previous accepted value per field). Import
+  rejection and ACP deactivation have no chat tools and remain outside
+  C1 (fail-closed vocabulary; legacy routing never provided deactivation).
 - `R-QUESTION` (50): capability/status questions ("can Retriva import…",
   "what is the qualification readiness…") → CAPABILITY_QUESTION /
   STATUS_EXPLANATION, INFORMATIONAL.
 - `R-MULTI-INTENT` (55): multiple family/operation matches, or
   conjunction/sequencing phrasing ("and then", "e poi", ";") joining
   workflow intents → `CLARIFICATION_REQUIRED` (spec §Multi-intent policy;
-  never partial execution).
+  never partial execution). Informational clauses (doc-framed or
+  hypothetical) count as informational workflow intents when they carry
+  workflow vocabulary — a family noun is NOT required when another
+  clause's recognized operation and opaque resource identifier identify
+  the family (Gate B correction, owner decision D-2a: "How does
+  activation work? Activate acpver_123." → multi-intent clarification,
+  never a RAG answer that silently ignores the consequential command).
+  Multi-intent analysis considers the complete normalized message and its
+  clauses before any earlier informational rule can terminate evaluation.
 - `R-FOLLOWUP` (60): short affirmative/pronoun follow-up ("yes", "enrich
   them", "approve it") resolves only against the typed workflow-context
   registry; without a context hit → abstain (AMBIGUOUS).

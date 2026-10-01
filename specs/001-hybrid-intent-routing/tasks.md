@@ -59,6 +59,16 @@
       legacy routing, streaming, and exact D5 503 body); TR1 and the
       dispatch components of TR5/TR6 (TR2-TR4 complete proof deferred to
       Phase D per dossier O-1).
+- [x] Gate B correction applied (owner decisions D-1–D-4): D-1 negation
+      scope for every recognized workflow operation verb (EN/IT tests
+      TR88); D-2 informational/multi-intent corners (TR89, TR90, TR91);
+      D-3 C1 enrichment extension — ACP_EVIDENCE_ENRICHMENT /
+      ACP_EVIDENCE_ENRICHMENT_STATUS / ACP_EVIDENCE_ACCEPTANCE per the
+      accepted `agent/tools.py` ToolDefinitions (destructive=True for
+      request and acceptance; read-only status) and ADR-024 decisions
+      4/6 (TR92-TR94); import rejection and ACP deactivation remain
+      outside C1 (fail-closed); D-4 baseline-relative Gate B compatibility
+      policy recorded in plan Gate B.
 
 ## Phase C — workflow context + guards
 

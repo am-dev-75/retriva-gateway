@@ -42,7 +42,11 @@ independently through its own governance process and does not block gate A.
 **Gate B: full existing gateway test suite + new deterministic tests pass;
 mode `off` proven behavior-identical (compatibility cases 61-68, TR84:
 legacy routing, streaming, and the exact legacy D5 503 body); TR1 and the
-TR5/TR6 dispatch components green.**
+TR5/TR6 dispatch components green; Gate B correction proofs TR88-TR94 green
+(negation scope D-1; multi-intent/informational corners D-2; accepted ACP
+evidence-enrichment vocabulary D-3). Compatibility is evaluated
+baseline-relative per owner decision D-4 (zero regressions against the
+accepted baseline d5d6312; recorded pre-existing failures are excluded).**
 
 ## Phase C — workflow context + explicit-intent guards
 

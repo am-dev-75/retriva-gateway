@@ -161,6 +161,50 @@ Option A, as specified in `specs/001-hybrid-intent-routing/` (revision 2):
   command routing; EN/IT normalization; narrowed enrichment matching (D3);
   deterministic MULTI-INTENT detection → clarification, never partial
   execution.
+
+### Gate B correction (owner decisions D-1–D-4, 2026-10-01)
+
+The owner ratified and corrected the following normative rules at the
+Gate B evidence reconciliation; they amend this ADR and the spec pack
+narrowly and change no other accepted decision:
+
+1. **D-1 (negation scope).** R-NEGATION applies to every recognized
+   workflow operation verb — including otherwise safe, analytical,
+   proposal-oriented, or non-consequential operation verbs. A negated
+   operation is never an executable workflow command ("Do not propose a
+   cohort." / "Non creare una proposta di coorte." → RAG).
+2. **D-2 (informational corners).** (a) An informational clause plus a
+   consequential command is multi-intent and clarifies ("How does
+   activation work? Activate acpver_123." → clarification; the
+   informational clause needs no family noun when the consequential
+   clause's recognized operation and opaque resource identifier identify
+   the family); multi-intent analysis considers the complete normalized
+   message before any earlier informational rule terminates evaluation.
+   (c) Interrogative frames with operation verbs and opaque identifiers
+   remain informational ("How do I activate acpver_123?" /
+   "Come si attiva acpver_123?" → RAG); the command veto applies only to
+   genuinely imperative or requestive command forms.
+3. **D-3 (enrichment taxonomy).** C1 gains the three accepted ACP
+   evidence-enrichment intents, classified per the accepted
+   `retriva_gateway/agent/tools.py` ToolDefinitions and ADR-024 (decisions
+   4 and 6): `ACP_EVIDENCE_ENRICHMENT` (consequential — the tool registry
+   marks the request `destructive=True`, explicit-approval-only, paid
+   web-research recording UNVERIFIED observations), 
+   `ACP_EVIDENCE_ENRICHMENT_STATUS` (safe, read-only job status/results),
+   and `ACP_EVIDENCE_ACCEPTANCE` (consequential — `destructive=True`,
+   audited, supersedes the previous accepted value per field). Import
+   rejection and ACP deactivation remain outside C1 (no chat tools exist;
+   legacy routing never provided deactivation) and stay fail-closed. The
+   ordinary `shadow`/`active` deterministic pipeline preserves access to
+   the enrichment workflows under these semantics; explicit opt-in
+   remains available but is not the sole ordinary access path.
+4. **D-4 (Gate B compatibility policy).** The complete suite is not
+   required to become green when failures already existed at the accepted
+   baseline `d5d6312` (128 passed / 3 failed / 1 skipped), provided a
+   controlled comparison proves the same canonical environment, command,
+   test order, failing node IDs, and equivalent failure causes, with zero
+   new or changed failures attributable to Phase B. Proof items
+   TR88-TR94 (acceptance.md) carry the Gate B correction provenance.
 - Typed, session/tenant-scoped, bounded, expiring workflow-context registry,
   armed by deterministic routing and typed tool outcomes only; production
   cross-turn follow-ups become possible (D1) while bare affirmatives act

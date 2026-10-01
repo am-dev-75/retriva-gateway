@@ -22,6 +22,24 @@ recorded at `retriva-core/docs/governance/GF-001-dangling-reranker-adr-reference
 
 ## Revision 2 summary (owner review "accept with changes")
 
+Gate B correction (2026-10-01, owner decisions D-1–D-4): D-1 ratifies the
+negation rule for every recognized workflow operation verb (EN/IT); D-2
+corrects the multi-intent informational corners (informational clauses
+count without family nouns when the consequential clause's operation and
+opaque identifier identify the family) and the informational treatment of
+interrogative frames with opaque identifiers (the command veto applies only
+to genuinely imperative or requestive forms); D-3 extends C1 with the three
+accepted ACP evidence-enrichment intents
+(`ACP_EVIDENCE_ENRICHMENT` — consequential per the accepted
+`agent/tools.py` `destructive=True` ToolDefinition and ADR-024 decisions
+4/6; `ACP_EVIDENCE_ENRICHMENT_STATUS` — safe read-only;
+`ACP_EVIDENCE_ACCEPTANCE` — consequential, audited supersession) while
+import rejection and ACP deactivation remain outside C1 (no chat tools
+exist; legacy routing never provided deactivation) and stay fail-closed;
+D-4 accepts the baseline-relative, zero-regression Gate B compatibility
+policy. New proof items TR88-TR94 carry the Gate B correction provenance
+(acceptance.md).
+
 Revision 2 applies the owner's required revisions without changing the
 accepted architectural principle or any previously accepted decision listed
 in §Accepted decisions. It adds or corrects:
@@ -266,6 +284,17 @@ implementation.
    quoted-text, code-block, pasted-documentation, prompt-writing and
    explain-an-API detectors; EN/IT normalization; typo tolerance where safe;
    explicit-command detection; safe default AMBIGUOUS → clarification/RAG.
+   Negation applies to every recognized workflow operation verb — including
+   otherwise safe, analytical, proposal-oriented, or non-consequential
+   operation verbs (Gate B correction, owner decision D-1): a negated
+   operation is never an executable workflow command and routes to RAG.
+   Interrogative frames with operation verbs and opaque identifiers remain
+   informational (Gate B correction, owner decision D-2c); the command veto
+   applies only to genuinely imperative or requestive forms. Informational
+   clauses count for multi-intent detection when they carry workflow
+   vocabulary, without requiring a family noun when another clause's
+   recognized operation and opaque resource identifier identify the family
+   (Gate B correction, owner decision D-2a).
 3. Deterministic explicit-intent guards for consequential operations
    (approve/commit/activate/supersede/rollback/deactivate/mark-addressed/
    canonical import mutation/merge/exclusion activation/paid-provider
@@ -342,11 +371,17 @@ implementation.
   state or spends paid-provider budget, per CRM ADR-022/023/024 stage
   separation (approve, commit, activate, supersede, rollback, deactivate,
   mark-addressed, canonical import mutation, organization merge, exclusion
-  activation, paid-provider authorization).
+  activation, paid-provider authorization; and — per the accepted
+  `agent/tools.py` ToolDefinitions and ADR-024 decisions 4/6 — the ACP
+  evidence-enrichment request (  `destructive=True`, explicit-approval-only,
+  paid web-research recording UNVERIFIED observations) and the ACP
+  evidence acceptance (`destructive=True`, audited, supersedes the
+  previous accepted value per field)).
 - **Safe workflow proposal/analysis**: non-mutating workflow operations
-  (propose/analyze/status/review-preparation/readiness), which may enter the
-  bounded agent loop because the loop itself cannot mutate without further
-  deterministic gates.
+  (propose/analyze/status/review-preparation/readiness, including the
+  read-only ACP evidence-enrichment job status/result query), which may
+  enter the bounded agent loop because the loop itself cannot mutate
+  without further deterministic gates.
 - **AMBIGUOUS**: the deterministic engine cannot select a route at its
   configured confidence; only this outcome may invoke the classifier.
 - **Workflow-adjacent AMBIGUOUS**: AMBIGUOUS with at least one
@@ -417,6 +452,8 @@ Intent (closed vocabulary, aligned with the accepted tool registry):
 CAPABILITY_QUESTION, ACP_COHORT_PROPOSAL, ACP_COHORT_REVIEW,
 ACP_COHORT_APPROVAL, ACP_GENERATION, ACP_REVIEW, ACP_APPROVAL,
 ACP_ACTIVATION, ACP_SUPERSESSION, ACP_ROLLBACK, ACP_STATUS, ACP_LINEAGE,
+ACP_EVIDENCE_ENRICHMENT, ACP_EVIDENCE_ENRICHMENT_STATUS,
+ACP_EVIDENCE_ACCEPTANCE,
 QUALIFICATION_REQUEST, QUALIFICATION_STATUS, QUALIFICATION_REVIEW,
 QUALIFICATION_APPROVAL, COMPANY_IMPORT_ANALYSIS, COMPANY_IMPORT_REVIEW,
 COMPANY_IMPORT_APPROVAL, COMPANY_IMPORT_COMMIT, COMPANY_IMPORT_STATUS,
@@ -1047,7 +1084,7 @@ rollback (mode `off`) procedures; dataset documentation; limitations
 ## Acceptance summary
 
 Full criteria live in `acceptance.md`: deterministic suite (68 mapped
-A-cases plus the TR matrix TR1-TR87 — TR1-TR60 preserving the source review
+A-cases plus the TR matrix TR1-TR94 — TR1-TR60 preserving the source review
 numbering, TR61-TR80 completing its unnumbered section requirements,
 TR81-TR87 covering registry eviction and mode gating per the revision-2
 repair), EN/IT evaluation gates with safety-first thresholds, shadow-mode

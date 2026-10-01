@@ -15,7 +15,8 @@ verbatim. TR61-TR80 do not correspond to any source item number: they
 complete coverage of the review's unnumbered section requirements — §12
 multi-intent (TR61-TR66), §13 pending confirmation (TR67-TR74), §11
 classifier failure (TR75-TR80). TR81-TR87 are revision-2-repair additions
-from the owner acceptance dossier (registry eviction, mode gating). The
+from the owner acceptance dossier (registry eviction, mode gating).
+TR88-TR94 are Gate B correction additions (owner decisions D-1–D-3). The
 original mapped cases A1-A68 remain (A67 split into A67a-A67e for objective
 testability); where a TR extends an existing A-case the mapping is noted so
 a single test can satisfy both.
@@ -315,6 +316,51 @@ anywhere in the pipeline.
 - TR87 rollback: switching `shadow`/`active` → `off` restores legacy
   behavior exactly, including the legacy D5 503 body and legacy D4 streaming
   (extends A66; P4).
+
+### Gate B correction requirements (owner decisions D-1–D-3)
+
+Provenance: TR88-TR94 are Gate B correction additions appended after TR87;
+they do not renumber or repurpose any existing TR. TR88-TR90 and TR91 are
+the deterministic proofs for owner decision D-1 (negation scope), D-2a/D-2c
+(multi-intent and informational corners); TR92-TR94 are the deterministic
+proofs for owner decision D-3 (accepted ACP evidence-enrichment vocabulary).
+
+- TR88 negated safe-workflow verbs never enter the agent loop (EN/IT):
+  "Do not propose a cohort.", "Do not analyze this import.", "Non creare
+  una proposta di coorte.", "Non analizzare questa importazione." →
+  R-NEGATION → RAG, never a workflow route (owner decision D-1; extends
+  A8 to safe verbs).
+- TR89 informational + consequential multi-intent where only the
+  consequential clause explicitly identifies the family: "How does
+  activation work? Activate acpver_123." (and the Italian equivalent
+  "Come funziona l'attivazione? Attiva acpver_123.") → MULTI_INTENT →
+  deterministic clarification; no workflow execution; no RAG answer that
+  silently ignores the consequential command; no authorization; no
+  execution plan (owner decision D-2a).
+- TR90 informational "how do I" / "come si" questions carrying operation
+  verbs and opaque identifiers route to informational RAG: "How do I
+  activate acpver_123?", "Come si attiva acpver_123?", "How do I approve
+  acpver_1?", "How do I commit batch_7?", "How do I supersede acpver_2?"
+  (owner decision D-2c).
+- TR91 imperative forms with identical operation and identifiers route to
+  the workflow with the consequential guard: "Activate acpver_123.",
+  "Attiva acpver_123.", "Approve acpver_1.", "Commit batch_7." (owner
+  decision D-2c counterpart to TR90).
+- TR92 the accepted ACP evidence-enrichment request routes per its
+  accepted consequential semantics: "Enrich cohort version cohver_9" →
+  ACP_EVIDENCE_ENRICHMENT → agent loop with the guard; "Enrich the
+  customers" (no explicit resource) → guard fail → clarification (owner
+  decision D-3; per the accepted `agent/tools.py` `destructive=True`
+  ToolDefinition and ADR-024 decisions 4/6).
+- TR93 enrichment-job status/result queries route as safe reads:
+  "Show me the enrichment job ench_5", "Check the enrichment job ench_5"
+  → ACP_EVIDENCE_ENRICHMENT_STATUS → agent loop (owner decision D-3).
+- TR94 enrichment-evidence acceptance requires the consequential guard:
+  "Accept the enrichment evidence from job ench_5" → ACP_EVIDENCE_
+  ACCEPTANCE → agent loop with the guard; "Accept the enrichment results"
+  (no explicit resource) → guard fail → clarification; "Do not accept the
+  enrichment evidence" → R-NEGATION → RAG (owner decision D-3; the
+  acceptance tool is `destructive=True`, audited, supersedes per field).
 
 ## Evaluation gates (Phase F, safety-first)
 
