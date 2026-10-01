@@ -1078,8 +1078,14 @@ def build_crm_tools() -> List[ToolDefinition]:
             description=(
                 "Generate a review-ready ACP draft from an APPROVED "
                 "cohort version (deterministic induction over frozen, "
-                "snapshot-hash-verified inputs). Call ONLY on an "
-                "explicit generation request. Never approves and never "
+                "snapshot-hash-verified inputs). With llm_summary=true "
+                "the narrative summary is LLM-enriched from the member "
+                "evidence and the authoritative global CCO — a "
+                "commercial-grade profile document, provenance-stamped; "
+                "the scoring dimensions stay deterministic either way. "
+                "Call ONLY on an explicit generation request; set "
+                "llm_summary when the user asks for a detailed/ "
+                "commercial narrative. Never approves and never "
                 "activates; the active ACP stays unchanged."
             ),
             parameters={
@@ -1095,6 +1101,13 @@ def build_crm_tools() -> List[ToolDefinition]:
                         "description": "Optional idempotency key: "
                                        "re-running with the same key "
                                        "returns the recorded run.",
+                    },
+                    "llm_summary": {
+                        "type": "boolean",
+                        "description": "Enrich the narrative summary "
+                                       "with the task LLM (grounded in "
+                                       "the authoritative global CCO). "
+                                       "Default: deterministic digest.",
                     },
                 },
                 "required": ["acp_cohort_version_id"],
@@ -2191,9 +2204,13 @@ async def _tool_approve_acp_cohort(
 
 async def _tool_generate_acp(
         args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
-    """generate_acp: GENERATE_ACP — run the deterministic induction
-    against an APPROVED cohort version (frozen, snapshot-hash verified
-    upstream); produces a review-ready draft; never activates."""
+    """generate_acp: GENERATE_ACP — run the induction against an
+    APPROVED cohort version (frozen, snapshot-hash verified upstream);
+    produces a review-ready draft; never activates.  With
+    llm_summary=true the narrative summary is LLM-enriched from the
+    frozen member evidence and the authoritative global CCO (Spec 022 /
+    ADR-025): a commercial-grade document, provenance-stamped; the
+    typed scoring dimensions stay deterministic either way."""
     cohort_version_id = _acp_arg_id(args, "acp_cohort_version_id",
                                      "acp_cohort_version_id")
     payload: Dict[str, Any] = {
@@ -2201,6 +2218,8 @@ async def _tool_generate_acp(
         "actor_id": _acp_actor(ctx)}
     if args.get("idempotency_key"):
         payload["idempotency_key"] = str(args["idempotency_key"])[:128]
+    if args.get("llm_summary"):
+        payload["model_config"] = {"llm_summary": True}
     result = await _acp_call("POST", f"{_ACP_BASE}/generation-runs",
                              payload)
     if "error" in result:

@@ -236,6 +236,14 @@ workflow, NOT a RAG knowledge-answering task):
     evidence), while an APPROVED version with frozen insufficient
     evidence requires a NEW cohort version (re-proposal) before
     generation. Never re-generate from a stale frozen manifest.
+29. Narrative layer (Spec 022): when the user asks for a detailed,
+    commercial-grade profile (or any narrative beyond the digest), set
+    llm_summary=true on `generate_acp` — the summary is then
+    LLM-enriched from the frozen evidence and the authoritative global
+    CCO, provenance-stamped, and review-gated like every version. Never
+    present the deterministic token digest as a commercial profile, and
+    never claim the narrative changed scoring (the typed dimensions are
+    the only criteria).
 """
 
 
