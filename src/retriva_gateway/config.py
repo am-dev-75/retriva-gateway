@@ -112,6 +112,15 @@ class Settings(BaseSettings):
     # value fails startup validation (never silently coerced).
     AGENT_INTENT_ROUTER_MODE: Literal["off", "shadow", "active"] = "off"
 
+    # --- Workflow-context registry (Spec 001 Phase C; addendum D-5) ---
+    # Process-global, startup-validated bounds — they cannot vary by
+    # tenant, principal, session, KB, request, metadata, message,
+    # classifier, or model.  No environment-template change.
+    AGENT_WORKFLOW_CONTEXT_MAX_ENTRIES: int = 200
+    AGENT_WORKFLOW_CONTEXT_TTL_SECONDS: int = 1800
+    # Hard cap on the service-provided confirmation lifetime (seconds).
+    AGENT_CONFIRMATION_MAX_LIFETIME_SECONDS: int = 900
+
     # --- Trusted service principal (Spec 021 review fix: actor fidelity) ---
     # When auth is DISABLED (RETRIVA_AUTH_PROVIDER=none) the gateway is the
     # trusted machine caller: present this principal to the CRM extension
@@ -138,6 +147,23 @@ class Settings(BaseSettings):
         """Keep the capability flag in sync: if STT is enabled, advertise speech_input."""
         if self.STT_ENABLED:
             self.GATEWAY_ENABLE_SPEECH_INPUT = True
+        return self
+
+    @model_validator(mode="after")
+    def _validate_phase_c_registry_bounds(self) -> "Settings":
+        """Startup validation of the Phase C registry bounds (addendum
+        D-5): positive entries/TTL; confirmation lifetime within
+        1..900 seconds.  Fails startup on any violation."""
+        if self.AGENT_WORKFLOW_CONTEXT_MAX_ENTRIES <= 0:
+            raise ValueError(
+                "AGENT_WORKFLOW_CONTEXT_MAX_ENTRIES must be positive")
+        if self.AGENT_WORKFLOW_CONTEXT_TTL_SECONDS <= 0:
+            raise ValueError(
+                "AGENT_WORKFLOW_CONTEXT_TTL_SECONDS must be positive")
+        if not 1 <= self.AGENT_CONFIRMATION_MAX_LIFETIME_SECONDS <= 900:
+            raise ValueError(
+                "AGENT_CONFIRMATION_MAX_LIFETIME_SECONDS must be within "
+                "1..900 seconds")
         return self
 
 settings = Settings()

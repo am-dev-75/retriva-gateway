@@ -92,7 +92,14 @@ class ToolContext:
 
     The model never supplies these values; they come from the authenticated
     request.  `allowed_attachment_ids` bounds which attachments the model
-    may reference (session-scoped).
+    may reference (session-scoped).  `claimed_confirmation` (Spec 001
+    Phase C, addendum D-3) is a server-set, immutable ClaimedConfirmation
+    context populated only by the Gateway after a successful atomic
+    confirmation claim: it is not part of any model-visible tool
+    schema, cannot be supplied through tool arguments or ChatRequest,
+    is immutable during the loop, is cleared at loop completion, and is
+    consumed only by the matching ACP activation tool (unrelated tools
+    ignore it).
     """
 
     session_id: str
@@ -100,6 +107,7 @@ class ToolContext:
     collection_name: str = ""
     allowed_attachment_ids: List[str] = field(default_factory=list)
     correlation_id: str = ""
+    claimed_confirmation: Optional["object"] = None
 
 
 class ToolExecutionError(Exception):
@@ -2660,7 +2668,20 @@ async def _tool_activate_acp(
         args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
     """activate_acp: ACTIVATE_ACP — transactionally activate an
     APPROVED ACP version (exactly one active per tenant; ledger + audit
-    upstream; rollback preserved)."""
+    upstream; rollback preserved).
+
+    Spec 001 Phase C (addendum D-2/D-3): when a claimed confirmation is
+    present on the trusted context, the model's activation arguments
+    must match the claimed binding exactly (operation, resource,
+    authoritative version); any mismatch fails closed with NO upstream
+    request and no restoration of the confirmation, and no internal
+    claim data is exposed.  On match, the Gateway sends ONLY the derived
+    execution idempotency key from the trusted claimed context; the
+    model-visible schema carries no idempotency field and model-supplied
+    idempotency data does not exist.  Without a claimed confirmation
+    the behavior is exactly the established one (no new key; no general
+    idempotency policy for explicit commands).
+    """
     acp_id = _acp_arg_id(args, "acp_id", "acp_id")
     version_number = int(args.get("version_number") or 0)
     if version_number <= 0:
@@ -2669,6 +2690,22 @@ async def _tool_activate_acp(
     payload: Dict[str, Any] = {"actor_id": _acp_actor(ctx)}
     if args.get("reason"):
         payload["reason"] = str(args["reason"])[:500]
+    claimed = ctx.claimed_confirmation
+    if claimed is not None:
+        if (claimed.operation != "ACP_ACTIVATION"
+                or claimed.resource_id != acp_id
+                or claimed.authoritative_version != version_number):
+            # Fail closed: the model cannot redirect a claimed
+            # activation to another ACP or version; nothing executes,
+            # nothing internal is exposed, the confirmation stays
+            # consumed (CLAIMED is terminal, never restored).
+            raise ToolExecutionError(
+                "claim_argument_mismatch",
+                "The activation arguments do not match the confirmed "
+                "operation prepared in this session. The confirmation "
+                "has been consumed; repeat the preparation (approve) "
+                "and confirm again if you still want to proceed.")
+        payload["idempotency_key"] = claimed.execution_idempotency_key
     result = await _acp_call(
         "POST",
         f"{_ACP_BASE}/versions/{acp_id}/{version_number}/activate",

@@ -317,6 +317,8 @@ async def run_agent_loop(
     history: Optional[List[Dict[str, str]]] = None,
     max_iterations: Optional[int] = None,
     tool_timeout_s: Optional[float] = None,
+    context_registry: Optional["object"] = None,
+    resolved_reference: Optional["object"] = None,
 ) -> AgentLoopResult:
     """Run the bounded tool-calling loop and return the final message.
 
@@ -324,6 +326,27 @@ async def run_agent_loop(
     tool calls are short-circuited (recursion protection); every tool
     execution is schema-validated, allow-listed, timeout-bounded, and
     executed with the trusted ToolContext (never model-supplied identity).
+
+    Spec 001 Phase C (additive; mode shadow/active only — chat.py passes
+    the process-global workflow-context registry and, when present, the
+    server-set claimed confirmation or resolved reference):
+
+    - ``context_registry``: the typed tool-outcome observer runs after
+      every successful tool execution and BEFORE the result is appended
+      to the model-visible transcript — it may create a
+      PendingConfirmation ONLY from the already-validated C0
+      ``confirmation_ready`` block, re-validated against the current
+      trusted context; it never creates anything from prose, arbitrary
+      dictionaries, or routing decisions.
+    - ``ctx.claimed_confirmation``: the server-only immutable claimed
+      context — its CLOSED model-visible line (five fields only) is
+      injected into the trusted-context system message; the claim id,
+      preparation token, execution idempotency key, tenant, principal,
+      session, KB, and internal correlations are NEVER model-visible.
+      It is cleared when the loop ends (scoped to one execution).
+    - ``resolved_reference``: an ordinary-context resource resolution
+      for an explicit follow-up (routing assistance only) — exposed as
+      a closed trusted-context line carrying the resource reference.
     """
     corr_id = get_correlation_id() or "unknown"
     max_iterations = settings.AGENT_MAX_TOOL_ITERATIONS
@@ -332,6 +355,10 @@ async def run_agent_loop(
 
     tools_schema = registry.openai_schema(allowed)
     if not tools_schema:
+        # Phase C (addendum D-3): the claimed context is scoped to one
+        # loop execution — cleared on every exit path, including this
+        # pre-loop failure.
+        ctx.claimed_confirmation = None
         raise AgentLoopError("No chat tools are registered; agent mode unavailable.")
 
     messages: List[Dict[str, Any]] = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}]
@@ -351,6 +378,26 @@ async def run_agent_loop(
         context_lines.append(
             "- attachments available in this session: NONE (ask the user to "
             "attach the candidate document)"
+        )
+    # Phase C (addendum D-3): the CLOSED model-visible claimed-context
+    # line — five permitted fields only (operation, resource type,
+    # resource ID, authoritative version, expected state); never the
+    # claim ID, preparation token, execution idempotency key, tenant,
+    # principal, session, KB, or internal correlations.
+    if ctx.claimed_confirmation is not None:
+        context_lines.append(
+            ctx.claimed_confirmation.model_visible_line())
+    # Phase C: ordinary-context resource resolution for an explicit
+    # follow-up (routing assistance only — the tool re-validates
+    # server-side; the resource reference is one the user already
+    # named in this session).
+    if resolved_reference is not None:
+        context_lines.append(
+            f"- the user is referring to "
+            f"{resolved_reference.resource_type} "
+            f"{resolved_reference.resource_id} (resolved from this "
+            f"session's workflow context for the requested "
+            f"{resolved_reference.operation} operation)"
         )
     messages.append({
         "role": "system",
@@ -418,8 +465,42 @@ async def run_agent_loop(
                 result = await _execute_tool(tool, call, ctx, tool_timeout=tool_timeout)
                 logger.info(
                     f"[{corr_id}] agent tool {name} iter={iteration} "
-                    f"took {time.monotonic() - t0:.2f}s"
+                    f"took={time.monotonic() - t0:.2f}s"
                 )
+                # Phase C tool-outcome observer: runs immediately after
+                # the trusted tool execution result is returned and
+                # BEFORE the result is appended to the model-visible
+                # transcript.  Creates a PendingConfirmation ONLY from
+                # the already-validated C0 confirmation_ready block
+                # (re-validated against the current trusted context);
+                # never from prose or arbitrary dictionaries.  Failures
+                # never break the loop; logging is content-free.
+                if context_registry is not None:
+                    try:
+                        from retriva_gateway.core.context import (
+                            get_principal,
+                        )
+                        from retriva_gateway.core.routing.context import (
+                            ObservationOutcome,
+                            observe_tool_result,
+                        )
+                        outcome = observe_tool_result(
+                            context_registry,
+                            tenant_id=settings.DEFAULT_TENANT_ID,
+                            session_id=ctx.session_id,
+                            kb_id=ctx.kb_id,
+                            correlation_id=ctx.correlation_id
+                            or (get_correlation_id() or ""),
+                            principal_id=get_principal().id,
+                            tool_name=name,
+                            result=result)
+                        if outcome is not ObservationOutcome.NONE:
+                            logger.info(
+                                f"[{corr_id}] workflow_context_observed "
+                                f"outcome={outcome.value} tool={name}")
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            f"[{corr_id}] workflow_context_observer_failed")
             executed.append({
                 "iteration": iteration,
                 "tool": name,
@@ -446,6 +527,10 @@ async def run_agent_loop(
             "produced. Please ask for the current job status to continue."
         )
 
+    # Phase C (addendum D-3): the claimed context is scoped to ONE
+    # agent-loop execution — cleared at loop completion (the caller
+    # also clears it on every path, including exceptions).
+    ctx.claimed_confirmation = None
     return AgentLoopResult(
         content=final_content,
         tool_calls_executed=executed,

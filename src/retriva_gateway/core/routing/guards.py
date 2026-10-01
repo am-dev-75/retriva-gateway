@@ -37,7 +37,7 @@ opaque identifier fails closed to clarification.
 """
 
 from dataclasses import dataclass
-from typing import FrozenSet
+from typing import FrozenSet, Optional
 
 from .deterministic import DeterministicResult, _OPAQUE_ID
 from .taxonomy import Explicitness, Intent, ReasonCode
@@ -76,16 +76,21 @@ class GuardScaffoldResult:
     reason_codes: FrozenSet[ReasonCode]
 
 
-def evaluate_consequential_guard(result: DeterministicResult
-                                 ) -> GuardScaffoldResult:
+def evaluate_consequential_guard(
+        result: DeterministicResult,
+        *,
+        resolved_resource: Optional[str] = None,
+) -> GuardScaffoldResult:
     """Fail-closed explicit-intent check for consequential operations.
 
     PASS requires ALL of:
     1. an explicit operation verb in the current message (the engine's
        EXPLICIT explicitness — negation, hypothetical framing, quotation,
        and code blocks already vetoed upstream);
-    2. an explicitly stated opaque resource identifier (Phase B's only
-       resolvable resource; typed workflow-context hits arrive in Phase C).
+    2. an explicitly stated opaque resource identifier, OR — Phase C
+       only — a resource resolved from the typed WorkflowContext
+       registry by the pipeline (``resolved_resource``: trusted server
+       routing state; routing assistance only, never authorization).
 
     Anything else fails closed; the pipeline then clarifies.
     """
@@ -97,7 +102,7 @@ def evaluate_consequential_guard(result: DeterministicResult
     reasons: FrozenSet[ReasonCode] = frozenset()
     if result.explicitness != Explicitness.EXPLICIT:
         reasons = reasons | {ReasonCode.GUARD_RESOURCE_UNRESOLVED}
-    resource = result.resource_reference
+    resource = result.resource_reference or resolved_resource
     if not resource or not _OPAQUE_ID.fullmatch(resource):
         reasons = reasons | {ReasonCode.GUARD_RESOURCE_UNRESOLVED}
     return GuardScaffoldResult(

@@ -75,15 +75,34 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
                 f"agent loop")
             return _AGENT_SENTINEL
         return None
-    # New deterministic pipeline (shadow/active; Phase B subset).
-    from retriva_gateway.core.routing import route_non_streaming
-    routed = route_non_streaming(request.message or "")
+    # New deterministic pipeline (shadow/active; Phase B subset +
+    # Phase C typed workflow-context participation).
+    from retriva_gateway.core.context import get_principal
+    from retriva_gateway.core.routing import (
+        TrustedRoutingContext,
+        get_workflow_context_registry,
+        route_non_streaming,
+    )
+    from retriva_gateway.core.routing.context import WorkflowContextKey
+    routing = TrustedRoutingContext(
+        registry=get_workflow_context_registry(),
+        key=WorkflowContextKey(
+            tenant_id=settings.DEFAULT_TENANT_ID,
+            session_id=request.session_id or f"sess_{corr_id}",
+            kb_id=request.kb_ids[0] if request.kb_ids else "default"),
+        principal_id=get_principal().id)
+    routed = route_non_streaming(request.message or "", routing=routing)
     decision = routed.decision
     if routed.route.value == "AGENT_LOOP":
         logger.info(
             f"[{corr_id}] Chat routing: deterministic pipeline → agent "
             f"loop (intent={decision.intent.value}, "
             f"reasons={[r.value for r in decision.reason_codes]})")
+        if routed.claimed is not None or routed.resolved is not None:
+            # Phase C: carry the server-only claimed execution context /
+            # ordinary resolved reference into the loop admission.
+            return _AgentAdmission(
+                claimed=routed.claimed, resolved=routed.resolved)
         return _AGENT_SENTINEL
     if routed.route.value == "CLARIFY":
         logger.info(
@@ -104,20 +123,40 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
 _AGENT_SENTINEL = object()
 
 
+class _AgentAdmission:
+    """Phase C agent-loop admission carrying server-only routing
+    context (a claimed execution context or an ordinary resolved
+    reference) into the bounded loop.  Never model-visible, never
+    request-body-settable; constructed only by ``_run_agent_mode``."""
+
+    def __init__(self, *, claimed=None, resolved=None):
+        self.claimed = claimed
+        self.resolved = resolved
+
+
 async def _agent_chat(request: ChatRequest, corr_id: str, *,
-                      legacy_error_body: bool = False) -> JSONResponse:
+                      legacy_error_body: bool = False,
+                      claimed=None, resolved=None) -> JSONResponse:
     """Run the bounded agent loop (async; called from the chat endpoint).
 
     ``legacy_error_body`` preserves the exact legacy qualification-
     specific 503 body (mode ``off`` — the D5 rollback contract); the new
     pipeline (shadow/active) uses the generic family-neutral body (the
     D5 fix, Spec 001 Phase B).
+
+    Phase C: ``claimed`` (server-only ClaimedConfirmationContext) is
+    set on the trusted ToolContext for exactly this loop execution and
+    cleared at its completion; ``resolved`` is an ordinary-context
+    resource resolution exposed as a closed trusted-context line.  The
+    workflow-context registry participates only in shadow/active (mode
+    off never constructs, reads, or writes registry state).
     """
     from retriva_gateway.agent.loop import (
         AgentLoopError,
         run_agent_loop,
     )
     from retriva_gateway.agent.tools import ToolContext, build_default_tool_registry
+    from retriva_gateway.core.routing import get_workflow_context_registry
 
     registry = build_default_tool_registry(
         allow_list=settings.AGENT_TOOL_ALLOWLIST or None
@@ -130,6 +169,7 @@ async def _agent_chat(request: ChatRequest, corr_id: str, *,
         kb_id=request.kb_ids[0] if request.kb_ids else "default",
         allowed_attachment_ids=list(request.attachment_ids or []),
         correlation_id=corr_id,
+        claimed_confirmation=claimed,
     )
     try:
         result = await run_agent_loop(
@@ -139,6 +179,10 @@ async def _agent_chat(request: ChatRequest, corr_id: str, *,
             kb_ids=request.kb_ids,
             metadata_filters=[f.model_dump() for f in (request.metadata_filters or [])],
             metadata_filter_mode=request.metadata_filter_mode.value,
+            context_registry=(
+                None if settings.AGENT_INTENT_ROUTER_MODE == "off"
+                else get_workflow_context_registry()),
+            resolved_reference=resolved,
         )
     except AgentLoopError as e:
         if legacy_error_body:
@@ -159,6 +203,11 @@ async def _agent_chat(request: ChatRequest, corr_id: str, *,
         return JSONResponse(status_code=502, content={
             "detail": f"Agent loop failed: {e}",
         })
+    finally:
+        # Phase C (addendum D-3): the server-only claimed context is
+        # scoped to ONE agent-loop execution — cleared when the loop
+        # ends, on every path (normal, typed-error, exception).
+        ctx.claimed_confirmation = None
     return JSONResponse(content={
         "id": f"msg_{datetime.datetime.now().timestamp()}",
         "role": "assistant",
@@ -214,6 +263,15 @@ async def chat(request: ChatRequest):
         return await _agent_chat(
             request, corr_id,
             legacy_error_body=(settings.AGENT_INTENT_ROUTER_MODE == "off"))
+    if isinstance(agent_result, _AgentAdmission):
+        # Phase C: agent-loop admission carrying the server-only
+        # claimed execution context and/or the ordinary resolved
+        # reference (never model-visible; set only by the Gateway).
+        return await _agent_chat(
+            request, corr_id,
+            legacy_error_body=False,
+            claimed=agent_result.claimed,
+            resolved=agent_result.resolved)
     if agent_result is not None:
         return agent_result
 

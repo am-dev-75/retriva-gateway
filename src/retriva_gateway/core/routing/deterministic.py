@@ -127,6 +127,36 @@ def normalize_message(message: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Bare affirmatives (Spec 001 Phase C; TR67).  Closed EN/IT set matched
+# against the FULL normalized message (punctuation-stripped, anchored):
+# a bare affirmative carries NO operation verb and NO resource, so it can
+# act only through an atomic claim of exactly one eligible typed
+# pending confirmation (core/routing/context.py).  Everything else
+# keeps its existing route.
+# ---------------------------------------------------------------------------
+
+_BARE_AFFIRMATIVE_FORMS = frozenset({
+    # English
+    "yes", "yeah", "yep", "yes please", "ok", "okay", "sure",
+    "alright", "confirm", "confirm it", "confirmed", "do it",
+    "do that", "do it please", "please do", "go ahead", "proceed",
+    "please proceed",
+    # Italian
+    "si", "si grazie", "ok", "certo", "certamente", "conferma",
+    "confermalo", "conferma pure", "fallo", "fallo pure", "fai pure",
+    "procedi", "vai avanti", "avanti",
+})
+
+
+def is_bare_affirmative_message(message: str) -> bool:
+    """True when the whole message is exactly one closed affirmative
+    form (deterministic; no partial or embedded matches)."""
+    normalized = normalize_message(message)
+    stripped = normalized.strip().rstrip(".!?")
+    return stripped in _BARE_AFFIRMATIVE_FORMS
+
+
+# ---------------------------------------------------------------------------
 # Quoted-content masking (R-QUOTED; A10/A12).
 # ---------------------------------------------------------------------------
 
@@ -596,6 +626,11 @@ class DeterministicResult:
     consequential_operations: Tuple[str, ...]
     resource_reference: Optional[str] = None
     unavailable_vocabulary: bool = False
+    # Phase C: the matched operations of a weak follow-up shape
+    # (pronoun / generic-resource object), in closed deterministic
+    # order.  Detection-only — the resource comes from the typed
+    # workflow-context registry, never from the engine.
+    followup_intents: Tuple["Intent", ...] = ()
 
 
 class _MessageScan:
@@ -1101,8 +1136,36 @@ class DeterministicEngine:
             reason = ReasonCode.WORKFLOW_ADJACENT
         else:
             reason = ReasonCode.NON_ADJACENT_AMBIGUITY
-        return self._ambiguous(scan.families_present,
-                               scan.consequential_keys, reason)
+        result = self._ambiguous(scan.families_present,
+                                scan.consequential_keys, reason)
+        if reason is ReasonCode.FOLLOWUP_CONTEXT:
+            # Phase C: expose the weak follow-up's matched operations
+            # (pronoun / generic-resource object) so the typed
+            # workflow-context registry can resolve the resource.  The
+            # weak match is detection-only — the registry, never the
+            # engine, supplies the resource; the registry's allowed-next
+            # hints arbitrate among candidate operations (e.g.
+            # "approve" matching both the cohort and the version
+            # approval specs) in closed deterministic order.
+            candidates: List[Intent] = []
+            for match in scan.effective_matches:
+                if (match.intent is not None
+                        and match.intent not in candidates):
+                    candidates.append(match.intent)
+            if candidates:
+                return DeterministicResult(
+                    rule=result.rule, topic=result.topic,
+                    intent=result.intent, mode=result.mode,
+                    explicitness=result.explicitness,
+                    reason_codes=result.reason_codes,
+                    families=result.families,
+                    consequential_operations=(
+                        result.consequential_operations),
+                    resource_reference=result.resource_reference,
+                    unavailable_vocabulary=(
+                        result.unavailable_vocabulary),
+                    followup_intents=tuple(candidates))
+        return result
 
     def _ambiguous(self, families: Sequence[Topic],
                    consequential: Sequence[str],

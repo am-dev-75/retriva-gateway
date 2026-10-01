@@ -22,20 +22,43 @@ policy (``policy.py``), and metrics (``metrics.py``) arrive in their own
 authorized phases (D, C, E, E).
 """
 
-from .deterministic import (
-    DeterministicEngine,
-    DeterministicResult,
-    RULE_PRIORITIES,
-    normalize_message,
-)
 from .confirmation_ready import (
     ConfirmationReadyBlock,
     ConfirmationReadyRejection,
     RejectionCategory,
     validate_confirmation_ready,
 )
+from .context import (
+    AttachOutcome,
+    ClaimRejection,
+    ClaimResult,
+    ClaimedConfirmationContext,
+    ConfirmationState,
+    PendingConfirmation,
+    RegistryStatsSnapshot,
+    ResolvedReference,
+    WorkflowContext,
+    WorkflowContextKey,
+    WorkflowContextRegistry,
+    derive_execution_idempotency_key,
+    from_validated_outcome,
+    get_workflow_context_registry,
+    observe_tool_result,
+    reset_workflow_context_registry_for_tests,
+)
+from .deterministic import (
+    DeterministicEngine,
+    DeterministicResult,
+    RULE_PRIORITIES,
+    is_bare_affirmative_message,
+    normalize_message,
+)
 from .guards import CONSEQUENTIAL_INTENTS, evaluate_consequential_guard
-from .pipeline import PhaseBChatRoute, route_non_streaming
+from .pipeline import (
+    PhaseBChatRoute,
+    TrustedRoutingContext,
+    route_non_streaming,
+)
 from .taxonomy import (
     SCHEMA_VERSION,
     DecisionSource,
@@ -52,13 +75,25 @@ from .taxonomy import (
 __all__ = [
     "SCHEMA_VERSION",
     "CONSEQUENTIAL_INTENTS",
+    "AttachOutcome",
+    "ClaimRejection",
+    "ClaimResult",
+    "ClaimedConfirmationContext",
     "ConfirmationReadyBlock",
     "ConfirmationReadyRejection",
+    "ConfirmationState",
     "DeterministicEngine",
     "DeterministicResult",
+    "PendingConfirmation",
     "RejectionCategory",
+    "RegistryStatsSnapshot",
+    "ResolvedReference",
     "RULE_PRIORITIES",
     "PhaseBChatRoute",
+    "TrustedRoutingContext",
+    "WorkflowContext",
+    "WorkflowContextKey",
+    "WorkflowContextRegistry",
     "DecisionSource",
     "Explicitness",
     "Intent",
@@ -68,8 +103,14 @@ __all__ = [
     "Route",
     "RoutingDecision",
     "Topic",
+    "derive_execution_idempotency_key",
     "evaluate_consequential_guard",
+    "from_validated_outcome",
+    "get_workflow_context_registry",
+    "is_bare_affirmative_message",
     "normalize_message",
+    "observe_tool_result",
+    "reset_workflow_context_registry_for_tests",
     "route_non_streaming",
     "validate_confirmation_ready",
 ]
