@@ -45,6 +45,7 @@ therefore the permanent Phase B behavior.  Streaming is NOT handled here
 from dataclasses import dataclass
 from typing import Optional
 
+from retriva_gateway.config import settings
 from .clarifications import build_clarification
 from .context import (
     BARE_AFFIRMATIVE_AMBIGUOUS,
@@ -76,6 +77,7 @@ from .taxonomy import (
     RoutingDecision,
     Topic,
 )
+from .metrics import routing_metrics
 
 _ENGINE = DeterministicEngine()
 
@@ -134,6 +136,43 @@ def route_non_streaming(message: str,
     return _phase_c(routed, result, message, routing)
 
 
+def _emit_deterministic_metrics(result: "DeterministicResult",
+                                 route: "Route", reasons: list) -> None:
+    """Closed-label deterministic decision metrics (Spec 001 §Metrics).
+    Off the classifier path; incremented for every deterministic route
+    so the 11 families are exercised by the Gateway's own decisions."""
+    m = routing_metrics()
+    m.inc("deterministic_match_total", intent=result.intent.value)
+    m.inc("routing_decision_total", route=route.value,
+          source="deterministic")
+    if route is Route.AGENT_LOOP and result.intent in _CONSEQUENTIAL_INTENTS:
+        fam = (result.topic.value
+               if result.topic.value in ("ACP", "QUALIFICATION",
+                                          "COMPANY_IMPORT", "CAMPAIGN")
+               else "unknown")
+        m.inc("workflow_route_total", family=fam)
+    elif route is Route.RAG:
+        m.inc("rag_route_total")
+    elif route is Route.CLARIFY:
+        if ReasonCode.GUARD_RESOURCE_UNRESOLVED in reasons:
+            m.inc("clarification_total", reason="guard_resource_unresolved")
+        elif ReasonCode.MULTI_INTENT in reasons:
+            m.inc("clarification_total", reason="multi_intent")
+        elif ReasonCode.CONSEQUENTIAL_UNAVAILABLE in reasons:
+            m.inc("clarification_total", reason="consequential_unavailable")
+        elif ReasonCode.WORKFLOW_ADJACENT in reasons:
+            m.inc("clarification_total", reason="workflow_adjacent")
+        else:
+            m.inc("clarification_total", reason="no_deterministic_match")
+        # Explicit consequential intent deterministically rejected
+        # (e.g. negated/hypothetical/quoted, or guard fail) is an
+        # explicit-intent rejection for the closed operation label.
+        if result.explicitness is Explicitness.EXPLICIT and \
+                result.intent in _CONSEQUENTIAL_INTENTS:
+            m.inc("explicit_intent_rejection_total",
+                  operation=result.intent.value)
+
+
 def _to_route(result: DeterministicResult) -> PhaseBChatRoute:
     reasons = list(result.reason_codes)
 
@@ -141,32 +180,48 @@ def _to_route(result: DeterministicResult) -> PhaseBChatRoute:
         # Typed refusal for unsupported workflows (R-UNSUPPORTED): the
         # decision keeps the UNSUPPORTED intent; the response is the
         # closed refusal template.
-        return _clarify(result, reasons, decision_intent=Intent.UNSUPPORTED)
+        out = _clarify(result, reasons, decision_intent=Intent.UNSUPPORTED)
+        _emit_deterministic_metrics(result, out.route, reasons)
+        return out
 
     if result.intent == Intent.CLARIFICATION_REQUIRED:
         # Multi-intent, unavailable vocabulary, or guard-fail clarification.
-        return _clarify(result, reasons)
+        out = _clarify(result, reasons)
+        _emit_deterministic_metrics(result, out.route, reasons)
+        return out
 
     if result.intent in _CONSEQUENTIAL_INTENTS:
         guard = evaluate_consequential_guard(result)
         if not guard.passed:
             reasons = list(dict.fromkeys(
                 reasons + sorted(guard.reason_codes, key=lambda r: r.value)))
-            return _clarify(result, reasons)
-        return _decision(result, Route.AGENT_LOOP, reasons)
+            out = _clarify(result, reasons)
+            _emit_deterministic_metrics(result, out.route, reasons)
+            return out
+        out = _decision(result, Route.AGENT_LOOP, reasons)
+        _emit_deterministic_metrics(result, out.route, reasons)
+        return out
 
     if result.intent in (Intent.RAG_QUESTION, Intent.WORKFLOW_DOCUMENTATION,
                          Intent.STATUS_EXPLANATION,
                          Intent.CAPABILITY_QUESTION):
-        return _decision(result, Route.RAG, reasons)
+        out = _decision(result, Route.RAG, reasons)
+        _emit_deterministic_metrics(result, out.route, reasons)
+        return out
 
     if result.intent == Intent.AMBIGUOUS:
         if ReasonCode.NON_ADJACENT_AMBIGUITY in result.reason_codes:
-            return _decision(result, Route.RAG, reasons)
-        return _clarify(result, reasons)
+            out = _decision(result, Route.RAG, reasons)
+            _emit_deterministic_metrics(result, out.route, reasons)
+            return out
+        out = _clarify(result, reasons)
+        _emit_deterministic_metrics(result, out.route, reasons)
+        return out
 
     # Safe workflow proposal/analysis intents enter the bounded agent loop.
-    return _decision(result, Route.AGENT_LOOP, reasons)
+    out = _decision(result, Route.AGENT_LOOP, reasons)
+    _emit_deterministic_metrics(result, out.route, reasons)
+    return out
 
 
 def _decision(result: DeterministicResult, route: Route,
@@ -374,54 +429,26 @@ def _claim_clarification(text: str, reason: ReasonCode
 
 
 # ---------------------------------------------------------------------------
-# Phase D — classifier policy (pure functions; Spec 001 Phase D).
-# The SINGLE authorized invocation lives in api/v2/chat.py; these
-# functions apply deterministic policy to an already-validated C2
-# record.  The classifier is untrusted advisory input: it can create no
-# route outside the closed set, authorize no tool, execute nothing,
-# touch no registry/confirmation state, and bypass no guard.
+# Phase D/E — classifier policy (Spec 001 Phase D minimal integration
+# superseded by the complete Phase E policy module: the decision tables,
+# confidence semantics, shadow diagnostics, and the consequential
+# prohibitions live in core/routing/policy.py).  Re-exported here for
+# the established package surface; apply_classification dispatches to
+# the shadow (route-neutral) or active (narrow authority) table.
 # ---------------------------------------------------------------------------
 
+from .policy import (  # noqa: E402,F401
+    apply_active,
+    apply_classification,
+    apply_shadow,
+)
+
 _INFORMATIONAL = (Intent.RAG_QUESTION, Intent.WORKFLOW_DOCUMENTATION,
-                  Intent.STATUS_EXPLANATION, Intent.CAPABILITY_QUESTION)
-
-
-def eligible_for_classification(routed: PhaseBChatRoute) -> bool:
-    """Eligible deterministic ambiguity ONLY (Spec 001 Phase D): the
-    deterministic ambiguous class the router cannot classify
-    confidently — a clarification whose closed reason set is exactly
-    {NO_DETERMINISTIC_MATCH, WORKFLOW_ADJACENT} (workflow vocabulary is
-    present but no deterministic rule fires).
-
-    Never eligible: deterministic informational/command outcomes,
-    multi-intent clarify (MULTI_INTENT), unavailable-vocabulary clarify
-    (CONSEQUENTIAL_UNAVAILABLE), guard-fail clarify
-    (GUARD_RESOURCE_UNRESOLVED), Phase C follow-up shapes
-    (FOLLOWUP_CONTEXT — registry paths own them), bare-affirmation
-    claims, negated/hypothetical/quoted/prompt-writing vetoes
-    (explicitness carries the veto), and non-adjacent informational
-    ambiguity (its deterministic route is already RAG)."""
-    decision = routed.decision
-    if (routed.route is not Route.CLARIFY
-            or routed.claimed is not None
-            or routed.resolved is not None):
-        return False
-    if decision.intent not in (Intent.AMBIGUOUS,
-                                Intent.CLARIFICATION_REQUIRED):
-        return False
-    reasons = set(decision.reason_codes)
-    if reasons != {ReasonCode.NO_DETERMINISTIC_MATCH,
-                   ReasonCode.WORKFLOW_ADJACENT}:
-        return False
-    if decision.explicitness in (Explicitness.NEGATED,
-                                  Explicitness.HYPOTHETICAL,
-                                  Explicitness.QUOTED_EXAMPLE):
-        return False
-    return True
+                   Intent.STATUS_EXPLANATION, Intent.CAPABILITY_QUESTION)
 
 
 def classification_context_hints(registry, key) -> dict:
-    """Privacy-safe categorical context summary (Spec 001 §Phase D):
+    """Privacy-safe categorical context summary (Spec 001 §Phase D/E):
     presence booleans and a closed family hint ONLY — never resource
     IDs, WorkflowContext fields, confirmation bindings, tenant/
     principal/session/KB identifiers, or any content."""
@@ -443,110 +470,116 @@ def classification_context_hints(registry, key) -> dict:
     }
 
 
-def apply_classification(routed: PhaseBChatRoute,
-                         classification: "IntentClassification",
-                         *, mode: str,
-                         config: "IntentClassifierConfig") \
-        -> PhaseBChatRoute:
-    """Apply the accepted Phase D policy to a validated C2 record.
+def eligible_for_classification(routed: PhaseBChatRoute) -> bool:
+    """Eligible deterministic ambiguity ONLY (Spec 001 Phase E — the
+    complete accepted table): BOTH ambiguity classes the deterministic
+    router cannot confidently classify —
 
-    shadow: the deterministic route remains authoritative; the safe
-    structured values are recorded on the decision ONLY
-    (classifier_invoked, shadow, confidence) — no route change, no
-    persistent storage.
+    * workflow-adjacent: clarification whose closed reason set is
+      exactly {NO_DETERMINISTIC_MATCH, WORKFLOW_ADJACENT};
+    * non-adjacent: the RAG-routed AMBIGUOUS class whose reason set is
+      exactly {NO_DETERMINISTIC_MATCH, NON_ADJACENT_AMBIGUITY}.
 
-    active (Phase D narrow prerequisites ONLY — Phase E owns the
-    complete policy): ambiguous informational recommendation at or
-    above the minimum confidence may resolve to RAG; ambiguous
-    SAFE-workflow recommendation at or above the safe-workflow
-    threshold may resolve to the agent loop; everything else —
-    including EVERY consequential recommendation and every
-    below-threshold result — clarifies.  Guards, Phase C confirmation
-    state, and multi-intent Policy B remain authoritative; the
-    classifier never executes, authorizes, claims, or creates state.
-    """
+    Never eligible: deterministic informational/command outcomes,
+    multi-intent clarify (MULTI_INTENT), unavailable-vocabulary clarify
+    (CONSEQUENTIAL_UNAVAILABLE), guard-fail clarify
+    (GUARD_RESOURCE_UNRESOLVED), Phase C follow-up shapes
+    (FOLLOWUP_CONTEXT — registry paths own them), bare-affirmation
+    claim candidates, and every deterministic veto (negated/
+    hypothetical/quoted/code/prompt-writing — the explicitness veto
+    carries them)."""
     decision = routed.decision
-    recorded = RoutingDecision(
-        route=decision.route,
-        source=DecisionSource.GUARD,
-        topic=classification.topic,
-        intent=decision.intent,
-        mode=decision.mode,
-        explicitness=decision.explicitness,
-        confidence=classification.confidence,
-        reason_codes=tuple(decision.reason_codes),
-        classifier_invoked=True,
-        shadow=(mode == "shadow"),
-    )
-    if mode == "shadow":
-        # Route unchanged; safe structured values only (Phase E owns
-        # published telemetry; nothing is persisted here).
-        return PhaseBChatRoute(
-            route=routed.route, decision=recorded,
-            clarification=routed.clarification)
-
-    # active — narrow Phase D scope.
-    if classification.requires_clarification \
-            or classification.confidence < config.min_confidence:
-        return _active_clarification(routed, classification, recorded)
-    if classification.intent in _INFORMATIONAL:
-        decision_rag = RoutingDecision(
-            route=Route.RAG,
-            source=DecisionSource.GUARD,
-            topic=classification.topic,
-            intent=classification.intent,
-            mode=classification.mode,
-            explicitness=classification.explicitness,
-            confidence=classification.confidence,
-            reason_codes=(ReasonCode.WORKFLOW_ADJACENT,),
-            classifier_invoked=True,
-            shadow=False)
-        return PhaseBChatRoute(route=Route.RAG,
-                               decision=decision_rag)
-    if classification.intent in _CONSEQUENTIAL_INTENTS:
-        # Consequential ambiguity ALWAYS clarifies in Phase D — the
-        # classifier never selects, confirms, or authorizes a
-        # consequential transition.
-        return _active_clarification(routed, classification, recorded)
-    if classification.confidence >= config.safe_workflow_min_confidence:
-        # Ambiguous SAFE workflow (proposal/analysis/read) may enter
-        # the bounded agent loop; the guard re-validation and the tool
-        # boundary remain fully authoritative.
-        decision_loop = RoutingDecision(
-            route=Route.AGENT_LOOP,
-            source=DecisionSource.GUARD,
-            topic=classification.topic,
-            intent=classification.intent,
-            mode=classification.mode,
-            explicitness=classification.explicitness,
-            confidence=classification.confidence,
-            reason_codes=(ReasonCode.WORKFLOW_ADJACENT,),
-            classifier_invoked=True,
-            shadow=False)
-        return PhaseBChatRoute(route=Route.AGENT_LOOP,
-                               decision=decision_loop)
-    return _active_clarification(routed, classification, recorded)
+    if (routed.claimed is not None
+            or routed.resolved is not None):
+        return False
+    if decision.explicitness in (Explicitness.NEGATED,
+                                  Explicitness.HYPOTHETICAL,
+                                  Explicitness.QUOTED_EXAMPLE):
+        return False
+    reasons = set(decision.reason_codes)
+    if decision.intent is Intent.AMBIGUOUS:
+        return reasons == {ReasonCode.NO_DETERMINISTIC_MATCH,
+                           ReasonCode.NON_ADJACENT_AMBIGUITY}
+    if decision.intent is Intent.CLARIFICATION_REQUIRED:
+        return reasons == {ReasonCode.NO_DETERMINISTIC_MATCH,
+                           ReasonCode.WORKFLOW_ADJACENT}
+    return False
 
 
-def _active_clarification(routed: PhaseBChatRoute,
-                           classification: "IntentClassification",
-                           recorded: RoutingDecision
-                           ) -> PhaseBChatRoute:
-    return PhaseBChatRoute(
-        route=Route.CLARIFY,
-        decision=RoutingDecision(
-            route=Route.CLARIFY,
-            source=DecisionSource.GUARD,
-            topic=classification.topic,
-            intent=Intent.CLARIFICATION_REQUIRED,
-            mode=InteractionMode.UNKNOWN,
-            explicitness=classification.explicitness,
-            confidence=classification.confidence,
-            reason_codes=(ReasonCode.WORKFLOW_ADJACENT,),
-            classifier_invoked=True,
-            shadow=False),
-        clarification=(
-            classification.clarification_reason
-            or routed.clarification
-            or "Please state which operation you mean, including the "
-               "exact resource identifier."))
+# ---------------------------------------------------------------------------
+# Phase E — streaming gate (Spec 001 §Streaming policy; C5/7b).  The
+# deterministic engine ONLY: no classifier, no registry access, no
+# tools, no agent loop, no mutation — evaluated BEFORE any classifier
+# eligibility, in shadow/active only (mode off bypasses the gate and
+# preserves legacy streaming exactly).
+# ---------------------------------------------------------------------------
+
+class StreamingDecision:
+    """Closed streaming-gate outcomes."""
+
+    RAG_PASSTHROUGH = "rag_passthrough"
+    REFUSE_STREAM = "refuse_stream"
+    STREAM_CLARIFY = "stream_clarify"
+
+
+#: The closed workflow-intent set for the streaming refusal (C5):
+#: mutation or safe proposal intents (explicitness EXPLICIT).
+_STREAM_WORKFLOW_INTENTS = frozenset({
+    Intent.ACP_COHORT_PROPOSAL, Intent.ACP_COHORT_REVIEW,
+    Intent.ACP_COHORT_APPROVAL, Intent.ACP_GENERATION,
+    Intent.ACP_REVIEW, Intent.ACP_APPROVAL, Intent.ACP_ACTIVATION,
+    Intent.ACP_SUPERSESSION, Intent.ACP_ROLLBACK,
+    Intent.ACP_EVIDENCE_ENRICHMENT,
+    Intent.ACP_EVIDENCE_ENRICHMENT_STATUS,
+    Intent.ACP_EVIDENCE_ACCEPTANCE,
+    Intent.QUALIFICATION_REQUEST, Intent.QUALIFICATION_REVIEW,
+    Intent.QUALIFICATION_APPROVAL,
+    Intent.COMPANY_IMPORT_ANALYSIS, Intent.COMPANY_IMPORT_REVIEW,
+    Intent.COMPANY_IMPORT_APPROVAL, Intent.COMPANY_IMPORT_COMMIT,
+    Intent.CAMPAIGN_CREATE, Intent.CAMPAIGN_AUDIENCE_ANALYSIS,
+    Intent.CAMPAIGN_AUDIENCE_REVIEW, Intent.CAMPAIGN_AUDIENCE_APPROVAL,
+    Intent.CAMPAIGN_AUDIENCE_COMMIT, Intent.CAMPAIGN_HISTORY_IMPORT,
+    Intent.CAMPAIGN_MARK_ADDRESSED, Intent.CAMPAIGN_OUTCOME_UPDATE,
+})
+
+
+def classify_streaming_message(message: str):
+    """The deterministic streaming classification (engine only).
+
+    Returns (StreamingDecision, workflow_family or None, reason):
+    * RAG_PASSTHROUGH — clear informational, non-adjacent ambiguity,
+      and every non-workflow shape: the unchanged cited SSE RAG path;
+    * REFUSE_STREAM — an explicit supported workflow command: the
+      typed 409 (never SSE start, never a tool);
+    * STREAM_CLARIFY — workflow-adjacent ambiguity (incl. multi-intent,
+      guard-fail, unavailable-vocabulary, and follow-up shapes): the
+      neutral streamed clarification (no classifier call, no
+      retrieval, no tools, execute nothing).
+    """
+    result = _ENGINE.classify(message)
+    decision = RoutingDecision(
+        route=Route.RAG,
+        source=DecisionSource.DETERMINISTIC,
+        topic=result.topic,
+        intent=result.intent,
+        mode=result.mode,
+        explicitness=result.explicitness,
+        reason_codes=result.reason_codes)
+    if (result.intent in _STREAM_WORKFLOW_INTENTS
+            and result.explicitness is Explicitness.EXPLICIT):
+        family = (result.topic.value
+                  if result.topic.value in ("ACP", "QUALIFICATION",
+                                            "COMPANY_IMPORT",
+                                            "CAMPAIGN") else None)
+        return StreamingDecision.REFUSE_STREAM, family, result
+    reasons = set(result.reason_codes)
+    if result.intent in (Intent.AMBIGUOUS,
+                         Intent.CLARIFICATION_REQUIRED):
+        adjacent = bool(reasons & {
+            ReasonCode.WORKFLOW_ADJACENT, ReasonCode.MULTI_INTENT,
+            ReasonCode.GUARD_RESOURCE_UNRESOLVED,
+            ReasonCode.CONSEQUENTIAL_UNAVAILABLE,
+            ReasonCode.FOLLOWUP_CONTEXT})
+        if adjacent:
+            return StreamingDecision.STREAM_CLARIFY, None, result
+    return StreamingDecision.RAG_PASSTHROUGH, None, result

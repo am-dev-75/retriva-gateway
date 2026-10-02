@@ -59,9 +59,38 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
             return None
         return _AGENT_SENTINEL
     if request.stream:
-        # Phase B (Spec 001): streaming stays on the legacy SSE
-        # passthrough in every mode; workflow_stream_unsupported is a
-        # Phase E behavior.  Nothing here may change streaming.
+        # Spec 001 §Streaming policy (Phase E): mode off bypasses this
+        # gate and preserves legacy streaming EXACTLY.  In shadow and
+        # active the gate uses the deterministic engine ONLY — never
+        # the classifier, never the registry, never the agent loop,
+        # never a tool; it never claims a mutation occurred.
+        if settings.AGENT_INTENT_ROUTER_MODE == "off":
+            return None
+        from retriva_gateway.core.routing.pipeline import (
+            StreamingDecision,
+            classify_streaming_message,
+        )
+        from retriva_gateway.core.routing.metrics import routing_metrics
+        decision, family, engine_result = classify_streaming_message(
+            request.message or "")
+        if decision is StreamingDecision.REFUSE_STREAM:
+            # 7.2: deterministic workflow command over streaming —
+            # typed 409, no SSE start, no tool, no execution claim.
+            routing_metrics().inc(
+                "routing_decision_total", route="REFUSE_STREAM",
+                source="deterministic")
+            return _streaming_refusal(family, corr_id)
+        if decision is StreamingDecision.STREAM_CLARIFY:
+            # 7.3: workflow-adjacent ambiguity — neutral streamed
+            # clarification (no classifier call, no retrieval, no
+            # tools); the classifier is structurally bypassed here.
+            routing_metrics().inc("classifier_bypass_total")
+            routing_metrics().inc(
+                "routing_decision_total", route="STREAM_CLARIFY",
+                source="deterministic")
+            return _streaming_clarification(corr_id, engine_result)
+        # 7.1 / non-adjacent ambiguity: the unchanged cited SSE RAG
+        # passthrough below.
         return None
     if settings.AGENT_INTENT_ROUTER_MODE == "off":
         # Legacy router — authoritative path in off (Spec 001 §Activation
@@ -158,20 +187,87 @@ class _ClassifierEligible:
         self.key = key
 
 
+#: The retry contract's closed endpoint reference (the Gateway's own
+#: chat route; Spec 001 C5 — machine-readable, content-free).
+_CHAT_ENDPOINT_PATH = "/api/v2/chat"
+
+#: Closed reason code for the streaming refusal (C5: safe reason).
+_STREAM_REFUSAL_REASON = "streaming_workflow_command"
+
+
+def _streaming_refusal(family, corr_id: str) -> JSONResponse:
+    """7.2 (Spec 001 C5): the typed 409 with the machine-readable
+    retry contract.  No SSE starts; no tool; the Gateway performs no
+    automatic retry; the body never contains the raw message, tool
+    arguments, model output, confirmation data, resource IDs, tenant or
+    principal identity, or internal details."""
+    detail = {
+        "code": "workflow_stream_unsupported",
+        "message": (
+            "Workflow operations require a non-streaming request. "
+            "Resend the same request without streaming to run the "
+            "operation."),
+        "retry": {
+            "mode": "non_streaming",
+            "action": "resend_without_stream",
+            "endpoint": _CHAT_ENDPOINT_PATH,
+        },
+        "correlation_id": corr_id,
+        "reason": _STREAM_REFUSAL_REASON,
+    }
+    # workflow_family only when safely known deterministically.
+    if family:
+        detail["workflow_family"] = family
+    return JSONResponse(status_code=409, content={"detail": detail})
+
+
+def _streaming_clarification(corr_id: str, result):
+    """7.3 (Spec 001): the neutral streamed clarification — SSE opens,
+    emits the deterministic clarification text, closes.  No classifier
+    call, no retrieval, no tools, no execution; no new SSE event types
+    (the established `data: {chunk}` shape)."""
+    from fastapi.responses import StreamingResponse
+    from retriva_gateway.core.routing.clarifications import (
+        build_clarification,
+    )
+
+    text = build_clarification(result)
+
+    async def _generator():
+        first = {"id": f"chatcmpl-clarify-{corr_id}",
+                 "object": "chat.completion.chunk",
+                 "choices": [{"index": 0,
+                              "delta": {"role": "assistant"}}]}
+        yield f"data: {json.dumps(first)}\n\n".encode("utf-8")
+        body = {"id": f"chatcmpl-clarify-{corr_id}",
+                "object": "chat.completion.chunk",
+                "choices": [{"index": 0,
+                             "delta": {"content": text}}]}
+        yield f"data: {json.dumps(body)}\n\n".encode("utf-8")
+        done = {"id": f"chatcmpl-clarify-{corr_id}",
+                "object": "chat.completion.chunk",
+                "choices": [{"index": 0, "delta": {}}]}
+        yield f"data: {json.dumps(done)}\n\n".encode("utf-8")
+        yield b"data: [DONE]\n\n"
+    return StreamingResponse(_generator(), media_type="text/event-stream")
+
+
 async def _resolve_classification(eligible, corr_id):
-    """Phase D (Spec 001): the SINGLE authorized classifier call site.
+    """Spec 001 §Phase E — the SINGLE authorized classifier call site.
 
     Builds the minimal privacy-safe request (current normalized
     truncated message + categorical presence hints + prompt identity +
     trace correlation ONLY), calls the dedicated Core endpoint adapter,
-    strictly re-validates the untrusted C2 response, and applies the
-    accepted deterministic policy (pipeline.apply_classification).  On
-    ANY failure the deterministic routed result stands (fail_mode=
-    clarify).  Shadow keeps the deterministic route; active applies
-    only the accepted narrow prerequisites.  Recursion is impossible:
-    the flow never touches chat, RAG, the agent loop, tools, the
-    reranker, or another routing pass.
+    strictly re-validates the untrusted C2 response, times the call, and
+    applies the accepted deterministic policy (pipeline.apply_
+    classification).  On ANY failure the deterministic routed result
+    stands (fail_mode=clarify): shadow records the failure for the
+    diagnostic ring; active applies only the narrow prerequisites.
+    Recursion is impossible: this flow never touches chat, RAG, the
+    agent loop, tools, the reranker, or another routing pass.
     """
+    import time as _time
+
     from retriva_gateway.core.routing.classifier import (
         CoreEndpointClassifier,
         IntentClassificationError,
@@ -181,11 +277,13 @@ async def _resolve_classification(eligible, corr_id):
     )
     from retriva_gateway.core.routing.pipeline import (
         apply_classification,
+        apply_shadow,
         classification_context_hints,
     )
     from retriva_gateway.core.routing import (
         Route,
         get_workflow_context_registry,
+        routing_metrics,
     )
 
     routed = eligible.routed
@@ -206,22 +304,39 @@ async def _resolve_classification(eligible, corr_id):
     classifier = CoreEndpointClassifier(
         timeout_seconds=float(
             settings.AGENT_INTENT_CLASSIFIER_HTTP_TIMEOUT_SECONDS))
+    metrics = routing_metrics()
+    started = _time.perf_counter()
+    failure_category = ""
     try:
         payload = await classifier.classify(request_payload)
         classification = validate_classification(payload)
     except IntentClassificationError as exc:
+        failure_category = exc.category.value
         logger.info(
             f"[{corr_id}] intent_classification failed "
-            f"category={exc.category.value}")
+            f"category={failure_category}")
         classification = None
     except Exception:  # noqa: BLE001 — fail closed, no detail
+        failure_category = "classifier_unavailable"
         logger.info(
             f"[{corr_id}] intent_classification failed "
-            f"category=classifier_unavailable")
+            f"category={failure_category}")
         classification = None
+    latency_s = _time.perf_counter() - started
+
     if classification is None:
         # Deterministic degradation: the routed (clarifying) result
         # stands exactly as the deterministic pipeline produced it.
+        # Metrics record the failed call; shadow preserves the ring.
+        metrics.inc("classifier_call_total", provider="core",
+                    outcome="error")
+        metrics.inc("classifier_failure_total", category=failure_category)
+        metrics.observe_latency(latency_s)
+        if failure_category == "regional_policy_rejected":
+            metrics.inc("regional_policy_rejection_total")
+        if settings.AGENT_INTENT_ROUTER_MODE == "shadow":
+            apply_shadow(routed, None, failure_category=failure_category,
+                         latency_s=latency_s)
         return JSONResponse(content={
             "id": f"msg_{datetime.datetime.now().timestamp()}",
             "role": "assistant",
@@ -233,10 +348,14 @@ async def _resolve_classification(eligible, corr_id):
         f"[{corr_id}] intent_classification ok "
         f"intent={classification.intent.value} "
         f"confidence={classification.confidence:.2f}")
+    metrics.inc("classifier_call_total", provider="core", outcome="ok")
+    metrics.observe_latency(latency_s)
     final = apply_classification(
         routed, classification,
         mode=settings.AGENT_INTENT_ROUTER_MODE, config=config)
     decision = final.decision
+    metrics.inc("routing_decision_total", route=final.route.value,
+                source="classifier")
     if final.route is Route.RAG:
         # Active narrow scope: ambiguous informational recommendation
         # may resolve to RAG — the request falls through to the plain
