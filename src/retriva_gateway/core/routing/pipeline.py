@@ -371,3 +371,182 @@ def _claim_clarification(text: str, reason: ReasonCode
         shadow=False)
     return PhaseBChatRoute(
         route=Route.CLARIFY, decision=decision, clarification=text)
+
+
+# ---------------------------------------------------------------------------
+# Phase D — classifier policy (pure functions; Spec 001 Phase D).
+# The SINGLE authorized invocation lives in api/v2/chat.py; these
+# functions apply deterministic policy to an already-validated C2
+# record.  The classifier is untrusted advisory input: it can create no
+# route outside the closed set, authorize no tool, execute nothing,
+# touch no registry/confirmation state, and bypass no guard.
+# ---------------------------------------------------------------------------
+
+_INFORMATIONAL = (Intent.RAG_QUESTION, Intent.WORKFLOW_DOCUMENTATION,
+                  Intent.STATUS_EXPLANATION, Intent.CAPABILITY_QUESTION)
+
+
+def eligible_for_classification(routed: PhaseBChatRoute) -> bool:
+    """Eligible deterministic ambiguity ONLY (Spec 001 Phase D): the
+    deterministic ambiguous class the router cannot classify
+    confidently — a clarification whose closed reason set is exactly
+    {NO_DETERMINISTIC_MATCH, WORKFLOW_ADJACENT} (workflow vocabulary is
+    present but no deterministic rule fires).
+
+    Never eligible: deterministic informational/command outcomes,
+    multi-intent clarify (MULTI_INTENT), unavailable-vocabulary clarify
+    (CONSEQUENTIAL_UNAVAILABLE), guard-fail clarify
+    (GUARD_RESOURCE_UNRESOLVED), Phase C follow-up shapes
+    (FOLLOWUP_CONTEXT — registry paths own them), bare-affirmation
+    claims, negated/hypothetical/quoted/prompt-writing vetoes
+    (explicitness carries the veto), and non-adjacent informational
+    ambiguity (its deterministic route is already RAG)."""
+    decision = routed.decision
+    if (routed.route is not Route.CLARIFY
+            or routed.claimed is not None
+            or routed.resolved is not None):
+        return False
+    if decision.intent not in (Intent.AMBIGUOUS,
+                                Intent.CLARIFICATION_REQUIRED):
+        return False
+    reasons = set(decision.reason_codes)
+    if reasons != {ReasonCode.NO_DETERMINISTIC_MATCH,
+                   ReasonCode.WORKFLOW_ADJACENT}:
+        return False
+    if decision.explicitness in (Explicitness.NEGATED,
+                                  Explicitness.HYPOTHETICAL,
+                                  Explicitness.QUOTED_EXAMPLE):
+        return False
+    return True
+
+
+def classification_context_hints(registry, key) -> dict:
+    """Privacy-safe categorical context summary (Spec 001 §Phase D):
+    presence booleans and a closed family hint ONLY — never resource
+    IDs, WorkflowContext fields, confirmation bindings, tenant/
+    principal/session/KB identifiers, or any content."""
+    try:
+        record = registry.peek_context(key)
+    except AttributeError:
+        record = None
+    if record is None:
+        return {"workflow_context_present": False,
+                "pending_confirmation_present": False,
+                "workflow_family_hint": None}
+    pending = record.pending_confirmation
+    return {
+        "workflow_context_present": True,
+        "pending_confirmation_present": bool(
+            pending is not None
+            and pending.state is not None),
+        "workflow_family_hint": record.family,
+    }
+
+
+def apply_classification(routed: PhaseBChatRoute,
+                         classification: "IntentClassification",
+                         *, mode: str,
+                         config: "IntentClassifierConfig") \
+        -> PhaseBChatRoute:
+    """Apply the accepted Phase D policy to a validated C2 record.
+
+    shadow: the deterministic route remains authoritative; the safe
+    structured values are recorded on the decision ONLY
+    (classifier_invoked, shadow, confidence) — no route change, no
+    persistent storage.
+
+    active (Phase D narrow prerequisites ONLY — Phase E owns the
+    complete policy): ambiguous informational recommendation at or
+    above the minimum confidence may resolve to RAG; ambiguous
+    SAFE-workflow recommendation at or above the safe-workflow
+    threshold may resolve to the agent loop; everything else —
+    including EVERY consequential recommendation and every
+    below-threshold result — clarifies.  Guards, Phase C confirmation
+    state, and multi-intent Policy B remain authoritative; the
+    classifier never executes, authorizes, claims, or creates state.
+    """
+    decision = routed.decision
+    recorded = RoutingDecision(
+        route=decision.route,
+        source=DecisionSource.GUARD,
+        topic=classification.topic,
+        intent=decision.intent,
+        mode=decision.mode,
+        explicitness=decision.explicitness,
+        confidence=classification.confidence,
+        reason_codes=tuple(decision.reason_codes),
+        classifier_invoked=True,
+        shadow=(mode == "shadow"),
+    )
+    if mode == "shadow":
+        # Route unchanged; safe structured values only (Phase E owns
+        # published telemetry; nothing is persisted here).
+        return PhaseBChatRoute(
+            route=routed.route, decision=recorded,
+            clarification=routed.clarification)
+
+    # active — narrow Phase D scope.
+    if classification.requires_clarification \
+            or classification.confidence < config.min_confidence:
+        return _active_clarification(routed, classification, recorded)
+    if classification.intent in _INFORMATIONAL:
+        decision_rag = RoutingDecision(
+            route=Route.RAG,
+            source=DecisionSource.GUARD,
+            topic=classification.topic,
+            intent=classification.intent,
+            mode=classification.mode,
+            explicitness=classification.explicitness,
+            confidence=classification.confidence,
+            reason_codes=(ReasonCode.WORKFLOW_ADJACENT,),
+            classifier_invoked=True,
+            shadow=False)
+        return PhaseBChatRoute(route=Route.RAG,
+                               decision=decision_rag)
+    if classification.intent in _CONSEQUENTIAL_INTENTS:
+        # Consequential ambiguity ALWAYS clarifies in Phase D — the
+        # classifier never selects, confirms, or authorizes a
+        # consequential transition.
+        return _active_clarification(routed, classification, recorded)
+    if classification.confidence >= config.safe_workflow_min_confidence:
+        # Ambiguous SAFE workflow (proposal/analysis/read) may enter
+        # the bounded agent loop; the guard re-validation and the tool
+        # boundary remain fully authoritative.
+        decision_loop = RoutingDecision(
+            route=Route.AGENT_LOOP,
+            source=DecisionSource.GUARD,
+            topic=classification.topic,
+            intent=classification.intent,
+            mode=classification.mode,
+            explicitness=classification.explicitness,
+            confidence=classification.confidence,
+            reason_codes=(ReasonCode.WORKFLOW_ADJACENT,),
+            classifier_invoked=True,
+            shadow=False)
+        return PhaseBChatRoute(route=Route.AGENT_LOOP,
+                               decision=decision_loop)
+    return _active_clarification(routed, classification, recorded)
+
+
+def _active_clarification(routed: PhaseBChatRoute,
+                           classification: "IntentClassification",
+                           recorded: RoutingDecision
+                           ) -> PhaseBChatRoute:
+    return PhaseBChatRoute(
+        route=Route.CLARIFY,
+        decision=RoutingDecision(
+            route=Route.CLARIFY,
+            source=DecisionSource.GUARD,
+            topic=classification.topic,
+            intent=Intent.CLARIFICATION_REQUIRED,
+            mode=InteractionMode.UNKNOWN,
+            explicitness=classification.explicitness,
+            confidence=classification.confidence,
+            reason_codes=(ReasonCode.WORKFLOW_ADJACENT,),
+            classifier_invoked=True,
+            shadow=False),
+        clarification=(
+            classification.clarification_reason
+            or routed.clarification
+            or "Please state which operation you mean, including the "
+               "exact resource identifier."))

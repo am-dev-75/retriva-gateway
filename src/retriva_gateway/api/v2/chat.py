@@ -80,19 +80,30 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
     from retriva_gateway.core.context import get_principal
     from retriva_gateway.core.routing import (
         TrustedRoutingContext,
+        eligible_for_classification,
         get_workflow_context_registry,
         route_non_streaming,
     )
     from retriva_gateway.core.routing.context import WorkflowContextKey
+    key = WorkflowContextKey(
+        tenant_id=settings.DEFAULT_TENANT_ID,
+        session_id=request.session_id or f"sess_{corr_id}",
+        kb_id=request.kb_ids[0] if request.kb_ids else "default")
     routing = TrustedRoutingContext(
         registry=get_workflow_context_registry(),
-        key=WorkflowContextKey(
-            tenant_id=settings.DEFAULT_TENANT_ID,
-            session_id=request.session_id or f"sess_{corr_id}",
-            kb_id=request.kb_ids[0] if request.kb_ids else "default"),
+        key=key,
         principal_id=get_principal().id)
     routed = route_non_streaming(request.message or "", routing=routing)
     decision = routed.decision
+    # Phase D (Spec 001): eligible deterministic ambiguity only, and
+    # only when the (advisory, untrusted) classifier is enabled.  The
+    # SINGLE authorized call site lives in the endpoint's
+    # _resolve_classification (this function stays synchronous); the
+    # deterministic result stands unchanged on any classifier failure.
+    if (settings.AGENT_INTENT_CLASSIFIER_ENABLED
+            and eligible_for_classification(routed)):
+        return _ClassifierEligible(
+            routed=routed, message=request.message or "", key=key)
     if routed.route.value == "AGENT_LOOP":
         logger.info(
             f"[{corr_id}] Chat routing: deterministic pipeline → agent "
@@ -132,6 +143,186 @@ class _AgentAdmission:
     def __init__(self, *, claimed=None, resolved=None):
         self.claimed = claimed
         self.resolved = resolved
+
+
+class _ClassifierEligible:
+    """Phase D internal marker: an eligible deterministic ambiguity the
+    (untrusted, advisory) classifier may be consulted for.  Returned
+    only when the classifier is ENABLED and mode is shadow/active (the
+    legacy/off path never constructs it); the async endpoint resolves
+    it through the SINGLE authorized call site."""
+
+    def __init__(self, *, routed, message, key):
+        self.routed = routed
+        self.message = message
+        self.key = key
+
+
+async def _resolve_classification(eligible, corr_id):
+    """Phase D (Spec 001): the SINGLE authorized classifier call site.
+
+    Builds the minimal privacy-safe request (current normalized
+    truncated message + categorical presence hints + prompt identity +
+    trace correlation ONLY), calls the dedicated Core endpoint adapter,
+    strictly re-validates the untrusted C2 response, and applies the
+    accepted deterministic policy (pipeline.apply_classification).  On
+    ANY failure the deterministic routed result stands (fail_mode=
+    clarify).  Shadow keeps the deterministic route; active applies
+    only the accepted narrow prerequisites.  Recursion is impossible:
+    the flow never touches chat, RAG, the agent loop, tools, the
+    reranker, or another routing pass.
+    """
+    from retriva_gateway.core.routing.classifier import (
+        CoreEndpointClassifier,
+        IntentClassificationError,
+        build_classification_request,
+        classifier_config_from_settings,
+        validate_classification,
+    )
+    from retriva_gateway.core.routing.pipeline import (
+        apply_classification,
+        classification_context_hints,
+    )
+    from retriva_gateway.core.routing import (
+        Route,
+        get_workflow_context_registry,
+    )
+
+    routed = eligible.routed
+    config = classifier_config_from_settings()
+    # Privacy-safe categorical hints from the Phase C registry
+    # (presence booleans + closed family hint ONLY).
+    hints = classification_context_hints(
+        get_workflow_context_registry(), eligible.key)
+    request_payload = build_classification_request(
+        eligible.message,
+        max_input_chars=config.max_input_chars,
+        ambiguity_class="WORKFLOW_ADJACENT",
+        workflow_family_hint=hints["workflow_family_hint"],
+        workflow_context_present=hints["workflow_context_present"],
+        pending_confirmation_present=hints[
+            "pending_confirmation_present"],
+        correlation_id=corr_id)
+    classifier = CoreEndpointClassifier(
+        timeout_seconds=float(
+            settings.AGENT_INTENT_CLASSIFIER_HTTP_TIMEOUT_SECONDS))
+    try:
+        payload = await classifier.classify(request_payload)
+        classification = validate_classification(payload)
+    except IntentClassificationError as exc:
+        logger.info(
+            f"[{corr_id}] intent_classification failed "
+            f"category={exc.category.value}")
+        classification = None
+    except Exception:  # noqa: BLE001 — fail closed, no detail
+        logger.info(
+            f"[{corr_id}] intent_classification failed "
+            f"category=classifier_unavailable")
+        classification = None
+    if classification is None:
+        # Deterministic degradation: the routed (clarifying) result
+        # stands exactly as the deterministic pipeline produced it.
+        return JSONResponse(content={
+            "id": f"msg_{datetime.datetime.now().timestamp()}",
+            "role": "assistant",
+            "content": routed.clarification,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "citations": [],
+        })
+    logger.info(
+        f"[{corr_id}] intent_classification ok "
+        f"intent={classification.intent.value} "
+        f"confidence={classification.confidence:.2f}")
+    final = apply_classification(
+        routed, classification,
+        mode=settings.AGENT_INTENT_ROUTER_MODE, config=config)
+    decision = final.decision
+    if final.route is Route.RAG:
+        # Active narrow scope: ambiguous informational recommendation
+        # may resolve to RAG — the request falls through to the plain
+        # knowledge pipeline below (never a workflow, never the loop).
+        return None
+    if final.route is Route.AGENT_LOOP:
+        # Active narrow scope: ambiguous SAFE-workflow recommendation
+        # only — the guards and the tool boundary remain authoritative.
+        return _AGENT_SENTINEL
+    return JSONResponse(content={
+        "id": f"msg_{datetime.datetime.now().timestamp()}",
+        "role": "assistant",
+        "content": final.clarification,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "citations": [],
+    })
+
+
+
+async def _classify_and_apply(message, routed, routing, corr_id):
+    """Phase D (Spec 001): the SINGLE authorized classifier call site.
+
+    Builds the minimal privacy-safe request (the current normalized
+    truncated message + categorical presence hints + prompt identity +
+    trace correlation; NEVER history, tool results, domain payloads,
+    resource IDs, tenant/principal/session/KB identity, confirmation
+    data, or transport selection), calls the dedicated Core endpoint
+    adapter, strictly re-validates the untrusted C2 response, and
+    applies the accepted deterministic policy (pipeline.apply_
+    classification).  On ANY failure the deterministic routed result
+    stands unchanged (fail_mode=clarify); no failure may invoke
+    another model, provider, endpoint, region, the reranker, RAG, or
+    the agent loop.  Shadow keeps the deterministic route; active
+    applies only the accepted narrow prerequisites.
+    """
+    from retriva_gateway.core.routing.classifier import (
+        CoreEndpointClassifier,
+        IntentClassificationError,
+        build_classification_request,
+        classifier_config_from_settings,
+        validate_classification,
+    )
+    from retriva_gateway.core.routing.pipeline import (
+        apply_classification,
+        classification_context_hints,
+    )
+    config = classifier_config_from_settings()
+    hints = classification_context_hints(
+        routing.registry, routing.key)
+    request_payload = build_classification_request(
+        message,
+        max_input_chars=config.max_input_chars,
+        ambiguity_class="WORKFLOW_ADJACENT",
+        workflow_family_hint=hints["workflow_family_hint"],
+        workflow_context_present=hints[
+            "workflow_context_present"],
+        pending_confirmation_present=hints[
+            "pending_confirmation_present"],
+        correlation_id=corr_id)
+    classifier = CoreEndpointClassifier(
+        timeout_seconds=float(
+            settings.AGENT_INTENT_CLASSIFIER_HTTP_TIMEOUT_SECONDS))
+    try:
+        payload = await classifier.classify(request_payload)
+        classification = validate_classification(payload)
+    except IntentClassificationError as exc:
+        # Deterministic degradation: the routed (clarifying) result
+        # stands; content-free log only (never the payload, the
+        # message, or provider detail).
+        logger.info(
+            f"[{corr_id}] intent_classification failed "
+            f"category={exc.category.value}")
+        return routed
+    except Exception:  # noqa: BLE001 — fail closed, no detail
+        logger.info(
+            f"[{corr_id}] intent_classification failed "
+            f"category=classifier_unavailable")
+        return routed
+    logger.info(
+        f"[{corr_id}] intent_classification ok "
+        f"intent={classification.intent.value} "
+        f"confidence={classification.confidence:.2f} "
+        f"shadow={settings.AGENT_INTENT_ROUTER_MODE == 'shadow'}")
+    return apply_classification(
+        routed, classification,
+        mode=settings.AGENT_INTENT_ROUTER_MODE, config=config)
 
 
 async def _agent_chat(request: ChatRequest, corr_id: str, *,
@@ -259,6 +450,17 @@ async def chat(request: ChatRequest):
     # (generic family-neutral 503 body) and may return a typed
     # clarification instead of entering the loop.
     agent_result = _run_agent_mode(request, corr_id)
+    if isinstance(agent_result, _ClassifierEligible):
+        # Phase D: the SINGLE authorized classifier call site (async —
+        # this function is async; _run_agent_mode stays synchronous).
+        agent_result = await _resolve_classification(
+            agent_result, corr_id)
+        if agent_result is None:
+            # Active narrow scope resolved to RAG: fall through to the
+            # plain knowledge pipeline below.
+            pass
+        else:
+            return agent_result
     if agent_result is _AGENT_SENTINEL:
         return await _agent_chat(
             request, corr_id,

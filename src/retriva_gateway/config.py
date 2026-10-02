@@ -112,6 +112,34 @@ class Settings(BaseSettings):
     # value fails startup validation (never silently coerced).
     AGENT_INTENT_ROUTER_MODE: Literal["off", "shadow", "active"] = "off"
 
+    # --- Gateway classifier policy (Spec 001 Phase D; C7).  Process-
+    # global, startup-validated; never varying by tenant/principal/
+    # user/session/KB/message/metadata/classifier or model output.
+    # The classifier is UNTRUSTED advisory input; mode off never
+    # invokes it; streaming never invokes it (Phase E owns streaming
+    # behavior).  The transport (provider/model/endpoint/region/
+    # credentials) is Core's deployment-global configuration — the
+    # Gateway never selects it per request. ---
+    AGENT_INTENT_CLASSIFIER_ENABLED: bool = False
+    # Minimum accepted confidence for any active-mode recommendation
+    # (accepted range [0.50, 1.00]).
+    AGENT_INTENT_CLASSIFIER_MIN_CONFIDENCE: float = 0.85
+    # Minimum accepted confidence for active-mode SAFE-workflow
+    # recommendations (>= MIN_CONFIDENCE; accepted range [0.50,1.00]).
+    AGENT_INTENT_CLASSIFIER_SAFE_WORKFLOW_MIN_CONFIDENCE: float = 0.90
+    # Deterministic truncation bound for the classification message.
+    AGENT_INTENT_CLASSIFIER_MAX_INPUT_CHARS: int = 2000
+    # Categorical context bound (Phase D hints: presence + family).
+    AGENT_INTENT_CLASSIFIER_MAX_CONTEXT_TURNS: int = 4
+    # Fail mode: 'clarify' is the only permitted value (Spec 001 C7).
+    AGENT_INTENT_CLASSIFIER_FAIL_MODE: Literal["clarify"] = "clarify"
+    # Dedicated internal service credential for the Core
+    # classification endpoint (never reused from another service;
+    # secret reference only).
+    AGENT_INTENT_CLASSIFIER_SERVICE_AUTH_TOKEN: str = ""
+    # Per-attempt HTTP timeout for the classification call.
+    AGENT_INTENT_CLASSIFIER_HTTP_TIMEOUT_SECONDS: float = 35.0
+
     # --- Workflow-context registry (Spec 001 Phase C; addendum D-5) ---
     # Process-global, startup-validated bounds — they cannot vary by
     # tenant, principal, session, KB, request, metadata, message,
@@ -164,6 +192,27 @@ class Settings(BaseSettings):
             raise ValueError(
                 "AGENT_CONFIRMATION_MAX_LIFETIME_SECONDS must be within "
                 "1..900 seconds")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_phase_d_classifier_policy(self) -> "Settings":
+        """Startup validation of the Phase D classifier policy settings
+        (Spec 001 C7): thresholds within [0.50, 1.00];
+        SAFE_WORKFLOW_MIN_CONFIDENCE >= MIN_CONFIDENCE.  Fails startup
+        on any violation."""
+        for name in ("AGENT_INTENT_CLASSIFIER_MIN_CONFIDENCE",
+                     "AGENT_INTENT_CLASSIFIER_SAFE_WORKFLOW_MIN_CONFIDENCE"):
+            if not 0.50 <= getattr(self, name) <= 1.00:
+                raise ValueError(f"{name} must be within [0.50, 1.00]")
+        if (self.AGENT_INTENT_CLASSIFIER_SAFE_WORKFLOW_MIN_CONFIDENCE
+                < self.AGENT_INTENT_CLASSIFIER_MIN_CONFIDENCE):
+            raise ValueError(
+                "AGENT_INTENT_CLASSIFIER_SAFE_WORKFLOW_MIN_CONFIDENCE "
+                "must be >= AGENT_INTENT_CLASSIFIER_MIN_CONFIDENCE")
+        if self.AGENT_INTENT_CLASSIFIER_HTTP_TIMEOUT_SECONDS <= 0:
+            raise ValueError(
+                "AGENT_INTENT_CLASSIFIER_HTTP_TIMEOUT_SECONDS must be "
+                "positive")
         return self
 
 settings = Settings()

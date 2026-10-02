@@ -490,6 +490,31 @@ class WorkflowContextRegistry:
         if expired:
             self._last_purge = now
 
+    def peek_context(self, key: WorkflowContextKey,
+                     ) -> Optional[WorkflowContext]:
+        """Non-mutating record access for privacy-safe categorical
+        summaries (Phase D classifier context hints).  Purge-free and
+        lock-free read of the live record; callers extract presence
+        booleans and the closed family hint ONLY (Spec 001 §Phase D
+        privacy boundary)."""
+        with self._lock:
+            record = self._contexts.get(key)
+            if record is None:
+                return None
+            # Shallow copy so the caller never mutates registry state.
+            return WorkflowContext(
+                family=record.family,
+                resource_type=record.resource_type,
+                resource_id=record.resource_id,
+                last_operation=record.last_operation,
+                observed_at=record.observed_at,
+                status_class_hint=record.status_class_hint,
+                allowed_next_hints=record.allowed_next_hints,
+                pending_confirmation=record.pending_confirmation,
+                created_at=record.created_at,
+                expires_at=record.expires_at,
+                record_version=record.record_version)
+
     # -- ordinary context (routing hints only) ----------------------------
 
     def observe_command(self, key: WorkflowContextKey, family: str,
