@@ -1082,6 +1082,55 @@ taxonomy. Raw provider errors, prompts, message content, credentials,
 secret-bearing base URLs, signed requests, and stack traces are never
 exposed to clients or logs (constitution §33).
 
+## Classifier bypass reason codes (closed vocabulary)
+
+`classifier_bypass_total{reason}` records, for each routing turn in which the
+classifier is NOT invoked, exactly one closed `reason` drawn from the bounded,
+content-free vocabulary below. **This subsection is the unique normative
+source for the vocabulary.** architecture.md §10 restates it and MUST NOT be
+treated as an independent definition. Unknown reasons are rejected fail-closed
+by the metrics API so no message, intent, resource, tenant, principal, session,
+KB, correlation, or provider content can ever enter a label.
+
+- `streaming` — the streaming gate resolved to a neutral streamed clarification
+  (workflow-adjacent ambiguity); the classifier is structurally bypassed.
+- `deterministic_terminal` — the deterministic route ended without classifier
+  eligibility (a clear/command/ambiguous outcome outside the eligibility
+  window).
+- `multi_intent` — a multi-intent message was clarified; nothing was executed.
+- `confirmation_path` — a bare affirmative claimed exactly one eligible pending
+  confirmation (Phase C); no new consequential authority was created.
+- `guard_terminal` — an explicit consequential command with a resolved valid
+  resource passed the guard and entered the agent loop; deterministic, never
+  classifier-driven.
+- `classifier_disabled` — the advisory classifier was disabled by configuration;
+  deterministic routing is authoritative.
+- `consequential_candidate` — a recognized consequential operation whose required
+  resource binding is missing, generic, unresolved, incomplete, or invalid.
+  Required behavior:
+
+  - deterministic clarification (never the classifier);
+  - classifier eligibility is prohibited;
+  - the guard fails closed deterministically;
+  - no agent-loop admission;
+  - no tool execution;
+  - no `WorkflowContext` write;
+  - no `PendingConfirmation` creation or claim;
+  - no authority;
+  - no consequential threshold path;
+  - streaming emits a typed HTTP 409 with `workflow_stream_unsupported` when the
+    deterministic workflow family is sufficiently known, otherwise a neutral
+    streamed clarification;
+  - telemetry records only the content-free
+    `classifier_bypass_total{reason="consequential_candidate"}` counter.
+
+`mode_off`, `classifier_unavailable`, and `not_eligible` are intentionally NOT
+members of this runtime vocabulary: mode `off` does not use Phase E
+instrumentation (and is therefore not a bypass reason); classifier
+unavailability is recorded through `classifier_failure_total`, not the bypass
+counter; and the actual highest-precedence exclusion reason is recorded instead
+of a generic `not_eligible`.
+
 ## Governing invariant
 
 The following invariant is normative for this pack and for ADR-0002:

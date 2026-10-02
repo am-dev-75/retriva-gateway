@@ -203,11 +203,21 @@ documentation gate only):
       workflow-adjacent ambiguous → neutral streamed clarification,
       non-adjacent → unchanged SSE; mode off = legacy exactly.
 - [ ] Tests: cases 49-54, 55-60, streaming compatibility, metrics
-      content-free assertions; TR22-TR28; TR29-TR39; TR40-TR41, TR45-TR48,
-      TR50; TR51-TR58; TR75-TR80; TR85-TR87 (mode gating: shadow activates
-      the fixes without classifier route influence; active adds only the
-      narrowed influence; rollback to `off` restores legacy behavior
-      exactly).
+  content-free assertions; TR22-TR28; TR29-TR39; TR40-TR41, TR45-TR48,
+  TR50; TR51-TR58; TR75-TR80; TR85-TR87 (mode gating: shadow activates
+  the fixes without classifier route influence; active adds only the
+  narrowed influence; rollback to `off` restores legacy behavior
+  exactly).
+- [x] Gate E consequential-candidate correction (**TR108**): `consequential_candidate`
+  reason governed in spec.md §Classifier bypass reason codes (unique normative
+  source). Focused proof modules: deterministic-engine tests
+  (`tests/test_routing_deterministic.py`, `tests/test_routing_classifier.py`),
+  classifier-call spies (`tests/test_routing_classifier.py`), streaming tests
+  (`tests/test_routing_streaming.py`), metrics tests
+  (`tests/test_routing_metrics.py`), and complete-suite preservation evidence
+  (`tests/test_routing_policy.py`, `tests/test_routing_compat.py`, canonical
+  Gateway suite). Proves classifier isolation, zero regression, and content-free
+  bypass telemetry. (Completed in the Gate E correction.)
 
 ## Phase F — evaluation + shadow acceptance
 

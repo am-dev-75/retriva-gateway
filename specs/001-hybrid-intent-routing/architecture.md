@@ -499,10 +499,14 @@ Thread-safe counters + latency ring (bounded), no new dependency:
 `regional_policy_rejection_total`. Labels are low-cardinality and
 content-free (no message, tenant, user, session, resource, file, raw
 error, unbounded confidence). The `classifier_bypass_total{reason}` reason is
-drawn from the closed bypass-reason vocabulary (E-D2); `consequential_candidate`
-denotes a recognized consequential operation whose required resource binding is
-unmet and which routes to deterministic clarification with classifier
-eligibility prohibited.
+drawn from the closed bypass-reason vocabulary defined in spec.md
+§Classifier bypass reason codes (this is a restatement only — the
+specification is the unique normative source). Retained values:
+`streaming`, `deterministic_terminal`, `multi_intent`, `confirmation_path`,
+`guard_terminal`, `consequential_candidate`, `classifier_disabled`.
+`consequential_candidate` denotes a recognized consequential operation whose
+required resource binding is unmet and which routes to deterministic
+clarification with classifier eligibility prohibited.
 
 Shadow-mode records follow the spec §Shadow-mode privacy allowlist exactly:
 schema version, prompt version, provider/config fingerprint (no secrets),

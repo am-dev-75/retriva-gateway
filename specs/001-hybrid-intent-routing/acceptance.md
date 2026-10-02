@@ -443,7 +443,14 @@ below renumbers or amends TR1-TR94.
   streamed clarification; it carries no Gateway authority and no
   confirmation behavior; telemetry records only the content-free
   `classifier_bypass_total{reason="consequential_candidate"}` counter (no
-  message, resource, or identifier content).
+  message, resource, or identifier content). Normative source: spec.md
+  §Classifier bypass reason codes (unique). Proof modules: deterministic-engine
+  tests (`tests/test_routing_deterministic.py`, `tests/test_routing_classifier.py`),
+  classifier-call spies (`tests/test_routing_classifier.py`), streaming tests
+  (`tests/test_routing_streaming.py`), metrics tests (`tests/test_routing_metrics.py`),
+  complete-suite preservation evidence (`tests/test_routing_policy.py`,
+  `tests/test_routing_compat.py`, canonical Gateway suite at `a5026ea` vs
+  corrected HEAD).
 
 ## Evaluation gates (Phase F, safety-first)
 

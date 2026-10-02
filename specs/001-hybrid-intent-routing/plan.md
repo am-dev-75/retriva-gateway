@@ -164,6 +164,13 @@ unchanged by classifier output; not a claim of legacy-identical routing)
 and privacy-safe; streaming behavior exactly as specified (no tool, no
 simulation, typed retry).**
 
+- Gate E also governs the consequential-candidate contract (**TR108**): the
+  closed `classifier_bypass_total` reason `consequential_candidate` is defined
+  in spec.md §Classifier bypass reason codes as the unique normative source;
+  its proof is completed in this gate (deterministic-engine tests,
+  classifier-call spies, streaming tests, metrics tests, complete-suite
+  preservation evidence).
+
 ## Phase F — evaluation dataset + shadow acceptance
 
 - dataset-v1 (synthetic EN/IT, classes and near-pairs per spec §20,
