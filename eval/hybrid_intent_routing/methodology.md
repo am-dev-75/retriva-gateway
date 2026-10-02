@@ -21,7 +21,8 @@ Governs only `retriva-gateway`; `retriva-core`, `retriva-crm-assistant`, and
 ```
 eval/hybrid_intent_routing/
   dataset-schema-v1.json     # closed gold-label schema (single source of truth)
-  dataset-v1.jsonl           # 113 synthetic EN/IT records (build_dataset.py)
+  dataset-v1.jsonl           # 109 synthetic EN/IT records (en=56 / it=53; build_dataset.py)
+  dataset-v1.1.jsonl         # versioned gold-label correction of 5 conclusively invalid labels (F-R4)
   build_dataset.py           # explicit, synthetic case authoring + gold derivation
   validate_dataset.py        # schema + cross-field + privacy + leakage checks
   run_evaluation.py          # offline harness; no network; safety-invariant asserts
@@ -49,6 +50,39 @@ gold, and fails Gate F if any is non-zero:
 - unexpected network calls
 - real provider calls
 - persistent data writes
+
+## Framing vetoes — metalinguistic command quoting (F-R2c)
+
+`R-QUOTED` (architecture §2) is the accepted framing veto: content inside
+quoted spans / code fences never triggers workflow rules. The same veto extends
+to **metalinguistic command-quoting**: an explicit instruction to *quote / cite /
+repeat / transcribe / write down* "this command" presents the subsequent
+content as a non-executable example, never an execution order. It maps to the
+accepted R-QUOTED framing-veto requirements (owner decisions F-D4 / F-R2c); no
+new TR is required. The closed anchor set is:
+
+- EN: `quote this command`, `cite this command`, `repeat this command`,
+  `transcribe this command`, `write down this command`
+- IT: `cita questo comando`, `citando questo comando`, `ripeti questo comando`,
+  `trascrivi questo comando`, `scrivi questo comando`
+
+The rule fires only when the anchor explicitly identifies subsequent content as
+a command to quote/cite/repeat/transcribe/write; it does **not** fire on every
+colon and does **not** disable genuine direct commands. Required behavior:
+deterministic informational handling, no agent-loop admission, no tool
+execution, no classifier authority over a consequential action.
+
+## Metric-artifact reconciliation (F-R6)
+
+Canonical observed metrics are **generated** by `run_evaluation.py` into
+`reports/evaluation_report.json`. Thresholds are **pre-registered** in
+`gate-f-thresholds-v1.json` (owner decision F-R7) and contain no observed
+values. The former `expected-metrics.json` was a manually maintained draft
+(commit `8aee1f4`) whose quality numbers disagreed with the manually maintained
+closure report (commit `85a2844`); it is renamed to `phase_f_metrics_draft.json`
+for provenance and is superseded by the generated report. `dataset-v1.jsonl` is
+preserved byte-for-byte; `dataset-v1.1.jsonl` carries the five conclusively
+invalid gold-label corrections (see `CHANGELOG.md`).
 
 ## Offline / provider-neutral discipline
 
@@ -91,7 +125,9 @@ excluded `generated_utc` timestamp.
 
 ## Result
 
-Gate F is **not** passed: the harness surfaces genuine accepted-engine gaps
-(veto-bypass executions for IT hypothetical and quoted commands; one IT
-multi-intent execution). These are recorded as owner-decision items; the
-routing source is unchanged. Verdict: **BLOCKED: GATE F CRITERIA NOT MET**.
+Phase F evaluation is implemented (dataset-v1 / dataset-v1.1, harness, tests).
+A bounded safety remediation (Phase F-R, owner authorization 2026-10-02) corrected
+PHASEF-DEFECT-1 (policy clarification typing), the IT hypothetical-anchor gap,
+straight single-quote masking, the metalinguistic quotation-framing rule, and
+contextual Italian clitic multi-intent, and versioned five gold labels. The
+corrected, authoritative result and verdict are in `reports/phase_f_closure_report.md`.
