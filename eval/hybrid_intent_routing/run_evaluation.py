@@ -58,7 +58,190 @@ from retriva_gateway.core.routing.taxonomy import Intent, IntentClassification, 
 CONFIG = IntentClassifierConfig(min_confidence=INFORMATIONAL_THRESHOLD,
                                  safe_workflow_min_confidence=SAFE_WORKFLOW_THRESHOLD)
 
-EVALUATOR_VERSION = "phase-f-harness-1"
+EVALUATOR_VERSION = "phase-f-harness-2"
+
+# --- F-M explicit quality-metric computation (owner decision F-Q7) ----------
+# The consequential set is the accepted closed taxonomy guard set (guards.py).
+CONSEQUENTIAL_INTENT_VALUES = {i.value for i in CONSEQUENTIAL_INTENTS}
+
+# Safe-workflow intents = workflow/operation intents that are NOT consequential
+# and NOT the purely-informational / ambiguous / unsupported / clarification
+# intents.  Derived from the accepted taxonomy (taxonomy.Intent).
+_INFORMATIVE_NONWORKFLOW = {
+    "RAG_QUESTION", "WORKFLOW_DOCUMENTATION", "STATUS_EXPLANATION",
+    "CAPABILITY_QUESTION", "AMBIGUOUS", "UNSUPPORTED", "CLARIFICATION_REQUIRED",
+}
+SAFE_WORKFLOW_INTENT_VALUES = (
+    {i.value for i in Intent} - CONSEQUENTIAL_INTENT_VALUES - _INFORMATIVE_NONWORKFLOW
+)
+
+_CONSEQUENTIAL_FAMILIES = {"consequential_workflow", "consequential_candidate"}
+_CONSEQUENTIAL_TAGS = {"consequential", "consequential_candidate"}
+
+
+def _out_is_consequential_prediction(out: dict) -> bool:
+    """A predicted executable consequential operation: AGENT_LOOP + consequential intent."""
+    return (out.get("route") == "AGENT_LOOP"
+            and out.get("intent") in CONSEQUENTIAL_INTENT_VALUES)
+
+
+def _gold_is_consequential(rec: dict) -> bool:
+    """Gold case whose underlying operation class is consequential."""
+    if rec.get("expected_deterministic_intent") in CONSEQUENTIAL_INTENT_VALUES:
+        return True
+    if rec.get("case_family") in _CONSEQUENTIAL_FAMILIES:
+        return True
+    if set(rec.get("safety_tags") or []) & _CONSEQUENTIAL_TAGS:
+        return True
+    return False
+
+
+def _gold_expects_execution(rec: dict) -> bool:
+    """Gold case that should execute: AGENT_LOOP + consequential intent + guard pass."""
+    return (rec.get("expected_route_active") == "AGENT_LOOP"
+            and rec.get("expected_deterministic_intent") in CONSEQUENTIAL_INTENT_VALUES
+            and rec.get("expected_guard_result") == "pass")
+
+
+def _gold_is_safe_workflow(rec: dict) -> bool:
+    return rec.get("expected_deterministic_intent") in SAFE_WORKFLOW_INTENT_VALUES
+
+
+def _predicted_clarification(out: dict) -> bool:
+    return out.get("route") == "CLARIFY"
+
+
+def _gold_clarification(rec: dict) -> bool:
+    return rec.get("expected_route_active") == "CLARIFY"
+
+
+def _ratio(num: int, den: int):
+    if den == 0:
+        return None  # never reported as 1.0 when there is no support
+    return round(num / den, 4)
+
+
+def _metric(num: int, den: int) -> dict:
+    return {
+        "numerator": num,
+        "denominator": den,
+        "observed": _ratio(num, den),
+        "applicable": den > 0,
+    }
+
+
+def _classify_streaming(text: str):
+    """Exercise the real accepted streaming-policy classification path."""
+    try:
+        sd, _fam, _ = classify_streaming_message(text)
+        return sd.value if hasattr(sd, "value") else str(sd)
+    except Exception:
+        return "not_applicable"
+
+
+def aggregate_closed_metrics(pairs):
+    """Compute the seven F-M closed quality metrics from (rec, out) pairs.
+
+    ``pairs`` is the list of (gold_record, engine_output) tuples produced by
+    ``evaluate``.  The function is pure and deterministic so it can be unit
+    tested without invoking the engine.
+    """
+    cons_pred_total = cons_pred_pos = 0
+    cons_gold_total = cons_gold_correct = 0
+    safe_wf_gold_total = safe_wf_gold_correct = 0
+    clar_pred_total = clar_pred_correct = 0
+    clar_gold_total = clar_gold_correct = 0
+    stream_total = stream_correct = 0
+    shadow_total = shadow_correct = 0
+
+    for rec, out in pairs:
+        # Consequential-class precision
+        if _out_is_consequential_prediction(out):
+            cons_pred_total += 1
+            if _gold_expects_execution(rec):
+                cons_pred_pos += 1
+        # Consequential-class recall
+        if _gold_is_consequential(rec):
+            cons_gold_total += 1
+            if out.get("route") == rec.get("expected_route_active"):
+                cons_gold_correct += 1
+        # Safe-workflow recall
+        if _gold_is_safe_workflow(rec):
+            safe_wf_gold_total += 1
+            if out.get("route") == rec.get("expected_route_active"):
+                safe_wf_gold_correct += 1
+        # Clarification precision
+        if _predicted_clarification(out):
+            clar_pred_total += 1
+            if _gold_clarification(rec):
+                clar_pred_correct += 1
+        # Clarification recall
+        if _gold_clarification(rec):
+            clar_gold_total += 1
+            if _predicted_clarification(out):
+                clar_gold_correct += 1
+        # Streaming-policy accuracy (applicable only where gold defines a behavior)
+        if rec.get("expected_streaming_behavior", "not_applicable") != "not_applicable":
+            stream_total += 1
+            if out.get("stream_beh") == rec.get("expected_streaming_behavior"):
+                stream_correct += 1
+        # Shadow route neutrality (applicable where a classifier rec is exercised)
+        if out.get("elig"):
+            shadow_total += 1
+            if out.get("shadow_route") == out.get("route"):
+                shadow_correct += 1
+
+    return {
+        "consequential_class_precision": _metric(cons_pred_pos, cons_pred_total),
+        "consequential_class_recall": _metric(cons_gold_correct, cons_gold_total),
+        "safe_workflow_recall": _metric(safe_wf_gold_correct, safe_wf_gold_total),
+        "clarification_class_precision": _metric(clar_pred_correct, clar_pred_total),
+        "clarification_class_recall": _metric(clar_gold_correct, clar_gold_total),
+        "streaming_policy_accuracy": _metric(stream_correct, stream_total),
+        "shadow_route_neutrality": _metric(shadow_correct, shadow_total),
+    }
+
+
+def load_thresholds(path):
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _eval_one_threshold(name, op, required, observed, num, den):
+    applicable = observed is not None
+    passed = None
+    if applicable:
+        if op == ">=":
+            passed = observed >= required
+        elif op == "=":
+            passed = abs(observed - required) < 1e-9
+        else:
+            passed = False
+    return {
+        "threshold": name,
+        "comparator": op,
+        "required": required,
+        "observed": observed,
+        "numerator": num,
+        "denominator": den,
+        "applicable": applicable,
+        "pass": bool(passed) if passed is not None else None,
+    }
+
+
+def evaluate_thresholds(thresholds, observed_map, numden_map):
+    results = []
+    for name, spec in thresholds.items():
+        nd = numden_map.get(name, (None, None))
+        results.append(_eval_one_threshold(
+            name, spec.get("operator"), spec.get("value"),
+            observed_map.get(name), nd[0], nd[1]))
+    return results
 
 PYTHON_VERSION = sys.version.split()[0]
 
@@ -127,16 +310,16 @@ def _recompute(rec: dict):
         if kind == "claimed":
             route_non_streaming(text, routing=routing)
         routed = route_non_streaming(text, routing=routing)
-        stream_beh = "not_applicable"
     elif family == "streaming":
         routed = route_non_streaming(text)
-        sd, _fam, _ = classify_streaming_message(text)
-        stream_beh = sd
     else:
         routed = route_non_streaming(text)
-        stream_beh = "not_applicable"
 
     d = routed.decision
+    # Exercise the real accepted streaming-policy classification path for every
+    # record.  Only records whose gold defines a behavior are scored by the
+    # streaming-policy accuracy metric.
+    stream_beh = _classify_streaming(text)
     elig = eligible_for_classification(routed)
     cc = is_consequential_candidate(routed)
     bp = classifier_bypass_reason(routed)
@@ -162,12 +345,22 @@ def _recompute(rec: dict):
         active_route = d.route.value
         active_invoked = False
 
-    # shadow neutrality: route must equal deterministic route
+    # Shadow route neutrality: capture the ACTUAL shadow route.  When the
+    # classifier recommendation is exercised (eligible + fixture), apply_shadow is
+    # invoked with the recommendation; otherwise with no classification.  The
+    # comparison in aggregate_closed_metrics uses real evaluator outputs only.
     shadow_route = d.route.value
     try:
-        apply_shadow(routed)
+        if elig and fixture_intent and fixture_conf is not None:
+            sh_clf = IntentClassification(
+                schema_version="1", topic=d.topic, intent=Intent[fixture_intent],
+                mode=d.mode, explicitness=d.explicitness, confidence=fixture_conf)
+            sr = apply_shadow(routed, sh_clf)
+        else:
+            sr = apply_shadow(routed)
+        shadow_route = sr.route.value if hasattr(sr, "route") else sr.decision.route.value
     except Exception:
-        pass
+        shadow_route = d.route.value
 
     return {
         "route": d.route.value,
@@ -214,6 +407,7 @@ class Metrics:
     # safety zeros
     safety: dict = field(default_factory=lambda: defaultdict(int))
     findings: list = field(default_factory=list)
+    quality_metrics: dict = field(default_factory=dict)
 
 
 def _record_safety(m: Metrics, rec: dict, out: dict):
@@ -273,9 +467,11 @@ def evaluate(records):
     m = Metrics()
     shadow_ring = shadow_diagnostics_ring()
     shadow_ring.summary()  # touch to ensure module loaded
+    pairs = []
 
     for rec in records:
         out = _recompute(rec)
+        pairs.append((rec, out))
         m.total += 1
         m.lang_counts[rec["language"]] += 1
         if out["route"] == rec["expected_route_shadow"]:
@@ -310,6 +506,9 @@ def evaluate(records):
     for grp, langs in m.near_pair_routes.items():
         if "en" in langs and "it" in langs and langs["en"] != langs["it"]:
             m.near_pair_divergence.append((grp, langs["en"], langs["it"]))
+
+    # F-M: explicit closed quality metrics (owner decision F-Q7)
+    m.quality_metrics = aggregate_closed_metrics(pairs)
 
     return m
 
@@ -390,6 +589,8 @@ def main():
     digest = hashlib.sha256(Path(args.dataset).read_bytes()).hexdigest()[:16]
 
     m = evaluate(records)
+    quality_metrics = getattr(m, "quality_metrics", {})
+    thresholds_data = load_thresholds(here / "gate-f-thresholds-v1.json")
 
     provider_neutral = provider_neutral_check(records)
     no_leak = content_leakage_check()
@@ -458,6 +659,36 @@ def main():
                                 if _active_defect_seen else []),
         "findings": m.findings,
     }
+
+    # F-M: explicit threshold evaluation against the unchanged pre-registered file.
+    threshold_eval = []
+    if thresholds_data:
+        _obs = {
+            "overall_route_accuracy": min(report["route_accuracy_shadow"],
+                                          report["route_accuracy_active"]),
+            "english_route_accuracy": report["english_route_accuracy"],
+            "italian_route_accuracy": report["italian_route_accuracy"],
+            "intent_accuracy": report["intent_accuracy"],
+            "interaction_mode_accuracy": report["interaction_mode_accuracy"],
+            "explicitness_accuracy": report["explicitness_accuracy"],
+            "near_pair_consistency": 1.0 if report["near_pair_consistency_ok"] else 0.0,
+            "every_accepted_safety_metric": 0.0 if not safety_blocked else 1.0,
+        }
+        for _k in ("consequential_class_precision", "consequential_class_recall",
+                   "safe_workflow_recall", "clarification_class_precision",
+                   "clarification_class_recall", "streaming_policy_accuracy",
+                   "shadow_route_neutrality"):
+            _obs[_k] = quality_metrics.get(_k, {}).get("observed")
+        _nd = {_k: (quality_metrics.get(_k, {}).get("numerator"),
+                     quality_metrics.get(_k, {}).get("denominator"))
+               for _k in ("consequential_class_precision", "consequential_class_recall",
+                          "safe_workflow_recall", "clarification_class_precision",
+                          "clarification_class_recall", "streaming_policy_accuracy",
+                          "shadow_route_neutrality")}
+        threshold_eval = evaluate_thresholds(
+            thresholds_data.get("thresholds", {}), _obs, _nd)
+    report["quality_metrics"] = quality_metrics
+    report["gate_f_threshold_evaluation"] = threshold_eval
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     # exclude volatile timestamp from canonical aggregate to allow byte-identity

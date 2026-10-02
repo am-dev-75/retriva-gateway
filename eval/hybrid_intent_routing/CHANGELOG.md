@@ -279,3 +279,49 @@ Per-record detail (required fields):
 - Full Gateway suite: 664 passed, 3 accepted baseline failures
   (test_kbs_list_translates_core_response_to_webui_shape, test_speech_placeholder,
   test_assertions); zero new failures; the same three accepted failing node IDs.
+
+## 9. Phase F-M — Explicit quality-metric computation and Gate F re-verification
+
+Owner authorization: Phase F-M (F-Q6 / F-Q7), 2026-10-02. Branch `phase_f_evaluation`,
+starting HEAD `f9210ab`. Gate F remains closed; Phase G remains unauthorized.
+
+### 9.1 Owner decisions
+- **F-Q6**: `stream_adj_it` dataset-v1.2 correction ratified as
+  `NECESSARY_COLLATERAL_GOLD_ALIGNMENT` (same synthetic text as `awa_it_1`; additionally
+  evaluates the streaming surface). Accepted behavior: deterministic intent `AMBIGUOUS`;
+  mode `UNKNOWN`; explicitness `AMBIGUOUS`; off/shadow `RAG`; active `AGENT_LOOP` under the
+  accepted safe-workflow fixture/threshold; classifier eligibility `true`; recommendation
+  `ACP_REVIEW`; confidence `0.92`; streaming `rag_passthrough`; no tool/registry/confirmation.
+  No `dataset-v1.3` required; `dataset-v1.2` not modified further.
+- **F-Q7**: explicit computation of the seven quality metrics required; class/policy
+  metrics are no longer accepted "by construction".
+
+### 9.2 Evaluator changes (`run_evaluation.py` only)
+- `EVALUATOR_VERSION` bumped `phase-f-harness-1` → `phase-f-harness-2`.
+- Added `aggregate_closed_metrics` and pure predicates; the report gains `quality_metrics`
+  (7 metrics, each numerator/denominator/observed/applicable) and
+  `gate_f_threshold_evaluation` (per-threshold name/comparator/required/observed/
+  numerator/denominator/applicable/pass), loaded exclusively from the unchanged
+  `gate-f-thresholds-v1.json`.
+- Consequential set = `guards.CONSEQUENTIAL_INTENTS`; safe-workflow set = taxonomy
+  workflow intents minus consequential minus informational/ambiguous.
+- The real `classify_streaming_message` path is exercised for every record; `shadow_route`
+  now captures the actual `apply_shadow` route (with the classifier recommendation when
+  eligible). Zero-support → applicability `not_applicable`, observed `null` (never 1.0).
+
+### 9.3 Results on `dataset-v1.2`
+- All 12 safety-zero metrics = 0; provider-neutral; content-leakage-free.
+- Seven explicit metrics (all applicable, observed 1.0): consequential precision 16/16,
+  consequential recall 44/44, safe-workflow recall 6/6, clarification precision 42/42,
+  clarification recall 42/42, streaming-policy accuracy 11/11, shadow route neutrality 19/19.
+- All 15 pre-registered thresholds PASS (incl. the seven now explicitly computed).
+- Report byte-identical across two runs (excluding `generated_utc`).
+
+### 9.4 Verification
+- `validate_dataset.py` PASSES on v1, v1.1, v1.2.
+- v1 (`ca5c68bd…`), v1.1 (`daea1045…`), v1.2 (`1a0e1b3e…`) digests unchanged.
+- `dataset-v1.2` differs from v1.1 in exactly the 7 ratified records; no
+  text/partition/safety-tag/near-pair-group change.
+- Full Gateway suite: 700 collected / 697 passed / 3 failed / 0 skipped; the 3 failures
+  are exactly the accepted baselines; zero new failures.
+- `git diff --check` clean; working tree contains only the authorized artifacts.

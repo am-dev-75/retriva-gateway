@@ -1,11 +1,11 @@
 {
-  "evaluator_version": "phase-f-harness-1",
-  "generated_utc": "2026-10-02T18:04:45.226761+00:00",
+  "evaluator_version": "phase-f-harness-2",
+  "generated_utc": "2026-10-02T22:03:39.162223+00:00",
   "dataset_version": "1",
-  "dataset_file": "dataset-v1.2.jsonl",
+  "dataset_file": "eval/hybrid_intent_routing/dataset-v1.2.jsonl",
   "dataset_digest": "1a0e1b3e2f297cb3",
   "schema_version": "1",
-  "gateway_commit": "b52e0c4023c98e46cbc322d277dfdfcfe7860847",
+  "gateway_commit": "f9210ab134cdbbaf2bb83d68be4849b6ab56cfbb",
   "python_version": "3.12.3",
   "command": "python eval/hybrid_intent_routing/run_evaluation.py",
   "deterministic_seed": "n/a (deterministic engine)",
@@ -149,5 +149,201 @@
   },
   "safety_blocked": {},
   "discovered_defects": [],
-  "findings": []
+  "findings": [],
+  "quality_metrics": {
+    "consequential_class_precision": {
+      "numerator": 16,
+      "denominator": 16,
+      "observed": 1.0,
+      "applicable": true
+    },
+    "consequential_class_recall": {
+      "numerator": 44,
+      "denominator": 44,
+      "observed": 1.0,
+      "applicable": true
+    },
+    "safe_workflow_recall": {
+      "numerator": 6,
+      "denominator": 6,
+      "observed": 1.0,
+      "applicable": true
+    },
+    "clarification_class_precision": {
+      "numerator": 42,
+      "denominator": 42,
+      "observed": 1.0,
+      "applicable": true
+    },
+    "clarification_class_recall": {
+      "numerator": 42,
+      "denominator": 42,
+      "observed": 1.0,
+      "applicable": true
+    },
+    "streaming_policy_accuracy": {
+      "numerator": 11,
+      "denominator": 11,
+      "observed": 1.0,
+      "applicable": true
+    },
+    "shadow_route_neutrality": {
+      "numerator": 19,
+      "denominator": 19,
+      "observed": 1.0,
+      "applicable": true
+    }
+  },
+  "gate_f_threshold_evaluation": [
+    {
+      "threshold": "overall_route_accuracy",
+      "comparator": ">=",
+      "required": 0.99,
+      "observed": 1.0,
+      "numerator": null,
+      "denominator": null,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "english_route_accuracy",
+      "comparator": ">=",
+      "required": 0.99,
+      "observed": 1.0,
+      "numerator": null,
+      "denominator": null,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "italian_route_accuracy",
+      "comparator": ">=",
+      "required": 0.99,
+      "observed": 1.0,
+      "numerator": null,
+      "denominator": null,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "intent_accuracy",
+      "comparator": "=",
+      "required": 1.0,
+      "observed": 1.0,
+      "numerator": null,
+      "denominator": null,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "interaction_mode_accuracy",
+      "comparator": ">=",
+      "required": 0.99,
+      "observed": 1.0,
+      "numerator": null,
+      "denominator": null,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "explicitness_accuracy",
+      "comparator": ">=",
+      "required": 0.99,
+      "observed": 1.0,
+      "numerator": null,
+      "denominator": null,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "consequential_class_precision",
+      "comparator": "=",
+      "required": 1.0,
+      "observed": 1.0,
+      "numerator": 16,
+      "denominator": 16,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "consequential_class_recall",
+      "comparator": ">=",
+      "required": 0.99,
+      "observed": 1.0,
+      "numerator": 44,
+      "denominator": 44,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "safe_workflow_recall",
+      "comparator": ">=",
+      "required": 0.99,
+      "observed": 1.0,
+      "numerator": 6,
+      "denominator": 6,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "clarification_class_precision",
+      "comparator": ">=",
+      "required": 0.99,
+      "observed": 1.0,
+      "numerator": 42,
+      "denominator": 42,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "clarification_class_recall",
+      "comparator": ">=",
+      "required": 0.99,
+      "observed": 1.0,
+      "numerator": 42,
+      "denominator": 42,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "streaming_policy_accuracy",
+      "comparator": "=",
+      "required": 1.0,
+      "observed": 1.0,
+      "numerator": 11,
+      "denominator": 11,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "shadow_route_neutrality",
+      "comparator": "=",
+      "required": 1.0,
+      "observed": 1.0,
+      "numerator": 19,
+      "denominator": 19,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "near_pair_consistency",
+      "comparator": "=",
+      "required": 1.0,
+      "observed": 1.0,
+      "numerator": null,
+      "denominator": null,
+      "applicable": true,
+      "pass": true
+    },
+    {
+      "threshold": "every_accepted_safety_metric",
+      "comparator": "=",
+      "required": 0,
+      "observed": 0.0,
+      "numerator": null,
+      "denominator": null,
+      "applicable": true,
+      "pass": true
+    }
+  ]
 }

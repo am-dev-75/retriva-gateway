@@ -759,3 +759,348 @@ def test_fq_dataset_v1_2_gold_alignment():
         assert out["mode"] == rec["expected_interaction_mode"], rec["case_id"]
         assert out["explicitness"] == rec["expected_explicitness"], rec["case_id"]
         assert out["elig"] == rec["expected_classifier_eligibility"], rec["case_id"]
+
+
+# ===========================================================================
+# Phase F-M — Explicit quality-metric computation (owner decisions F-Q6/F-Q7)
+# ===========================================================================
+# These tests exercise the seven closed quality metrics and the threshold
+# evaluation directly (pure functions) and via the full v1.2 harness run.
+# They do NOT modify production code, datasets, or thresholds.
+
+def _pair(rec, out):
+    return (rec, out)
+
+
+def _agg(pairs):
+    return reval.aggregate_closed_metrics(pairs)
+
+
+def _rec(**kw):
+    base = {
+        "case_id": "x", "language": "en", "synthetic_text": "x", "synthetic_only": True,
+        "case_family": "misc", "expected_deterministic_intent": "AMBIGUOUS",
+        "expected_interaction_mode": "UNKNOWN", "expected_explicitness": "AMBIGUOUS",
+        "expected_route_off": "RAG", "expected_route_shadow": "RAG", "expected_route_active": "RAG",
+        "expected_classifier_eligibility": False, "expected_classifier_recommendation": None,
+        "expected_confidence": None, "expected_guard_result": "not_applicable",
+        "expected_streaming_behavior": "not_applicable", "expected_classifier_call_count": 0,
+        "expected_agent_loop_admission": False, "expected_tool_execution": False,
+        "expected_registry_mutation": False, "expected_confirmation_claim": "not_applicable",
+        "expected_bypass_reason": "deterministic_terminal", "safety_tags": [],
+        "near_pair_group": "x", "adjudication_status": "gold_accepted", "rationale_code": "X",
+        "partition": "test", "schema_version": "1",
+    }
+    base.update(kw)
+    return base
+
+
+def _out(**kw):
+    base = {"route": "RAG", "intent": "AMBIGUOUS", "mode": "UNKNOWN", "explicitness": "AMBIGUOUS",
+            "elig": False, "cc": False, "bp": "", "claim": False, "stream_beh": "not_applicable",
+            "active_route": "RAG", "active_invoked": False, "shadow_route": "RAG"}
+    base.update(kw)
+    return base
+
+
+# ---- Group 1: consequential precision --------------------------------------
+def test_fm_cons_precision_true_positive():
+    rec = _rec(expected_deterministic_intent="COMPANY_IMPORT_COMMIT", expected_route_active="AGENT_LOOP",
+               expected_guard_result="pass", case_family="consequential_workflow",
+               safety_tags=["consequential"])
+    out = _out(route="AGENT_LOOP", intent="COMPANY_IMPORT_COMMIT")
+    m = _agg([_pair(rec, out)])["consequential_class_precision"]
+    assert m["numerator"] == 1 and m["denominator"] == 1 and m["observed"] == 1.0
+
+
+def test_fm_cons_precision_false_positive():
+    # engine executed consequential, but gold wants fail-closed clarification
+    rec = _rec(expected_deterministic_intent="CLARIFICATION_REQUIRED", expected_route_active="CLARIFY",
+               expected_bypass_reason="consequential_candidate", case_family="consequential_candidate",
+               safety_tags=["consequential_candidate"])
+    out = _out(route="AGENT_LOOP", intent="COMPANY_IMPORT_COMMIT")
+    m = _agg([_pair(rec, out)])["consequential_class_precision"]
+    assert m["denominator"] == 1 and m["numerator"] == 0 and m["observed"] == 0.0
+
+
+def test_fm_cons_precision_no_predicted():
+    rec = _rec(expected_deterministic_intent="COMPANY_IMPORT_COMMIT", expected_route_active="AGENT_LOOP",
+               expected_guard_result="pass")
+    out = _out(route="CLARIFY", intent="CLARIFICATION_REQUIRED")
+    m = _agg([_pair(rec, out)])["consequential_class_precision"]
+    assert m["denominator"] == 0 and m["applicable"] is False and m["observed"] is None
+
+
+def test_fm_cons_precision_candidate_that_clarifies():
+    # a consequential candidate that correctly clarifies is NOT a prediction
+    rec = _rec(expected_deterministic_intent="CLARIFICATION_REQUIRED", expected_route_active="CLARIFY",
+               expected_bypass_reason="consequential_candidate", case_family="consequential_candidate",
+               safety_tags=["consequential_candidate"])
+    out = _out(route="CLARIFY", intent="CLARIFICATION_REQUIRED")
+    agg = _agg([_pair(rec, out)])
+    assert agg["consequential_class_precision"]["denominator"] == 0  # excluded from precision
+    assert agg["consequential_class_recall"]["denominator"] == 1    # included in recall
+    assert agg["consequential_class_recall"]["observed"] == 1.0
+
+
+# ---- Group 2: consequential recall ----------------------------------------
+def test_fm_cons_recall_recognized():
+    rec = _rec(expected_deterministic_intent="COMPANY_IMPORT_COMMIT", expected_route_active="AGENT_LOOP",
+               expected_guard_result="pass", case_family="consequential_workflow",
+               safety_tags=["consequential"])
+    out = _out(route="AGENT_LOOP", intent="COMPANY_IMPORT_COMMIT")
+    m = _agg([_pair(rec, out)])["consequential_class_recall"]
+    assert m["numerator"] == 1 and m["denominator"] == 1
+
+
+def test_fm_cons_recall_missed():
+    rec = _rec(expected_deterministic_intent="COMPANY_IMPORT_COMMIT", expected_route_active="AGENT_LOOP",
+               expected_guard_result="pass", case_family="consequential_workflow",
+               safety_tags=["consequential"])
+    out = _out(route="CLARIFY", intent="CLARIFICATION_REQUIRED")
+    m = _agg([_pair(rec, out)])["consequential_class_recall"]
+    assert m["denominator"] == 1 and m["numerator"] == 0 and m["observed"] == 0.0
+
+
+def test_fm_cons_recall_unresolved_candidate():
+    rec = _rec(expected_deterministic_intent="CLARIFICATION_REQUIRED", expected_route_active="CLARIFY",
+               expected_bypass_reason="consequential_candidate", case_family="consequential_candidate",
+               safety_tags=["consequential_candidate"])
+    out = _out(route="CLARIFY", intent="CLARIFICATION_REQUIRED")
+    m = _agg([_pair(rec, out)])["consequential_class_recall"]
+    assert m["numerator"] == 1 and m["denominator"] == 1
+
+
+def test_fm_cons_recall_no_support():
+    rec = _rec(expected_deterministic_intent="AMBIGUOUS", expected_route_active="RAG", case_family="misc")
+    out = _out(route="RAG", intent="AMBIGUOUS")
+    m = _agg([_pair(rec, out)])["consequential_class_recall"]
+    assert m["denominator"] == 0 and m["applicable"] is False and m["observed"] is None
+
+
+# ---- Group 3: safe-workflow recall ----------------------------------------
+def test_fm_sw_recall_admitted():
+    rec = _rec(expected_deterministic_intent="ACP_COHORT_PROPOSAL", expected_route_active="AGENT_LOOP")
+    out = _out(route="AGENT_LOOP", intent="ACP_COHORT_PROPOSAL")
+    m = _agg([_pair(rec, out)])["safe_workflow_recall"]
+    assert m["numerator"] == 1 and m["denominator"] == 1
+
+
+def test_fm_sw_recall_clarified():
+    rec = _rec(expected_deterministic_intent="ACP_COHORT_PROPOSAL", expected_route_active="CLARIFY")
+    out = _out(route="CLARIFY", intent="CLARIFICATION_REQUIRED")
+    m = _agg([_pair(rec, out)])["safe_workflow_recall"]
+    assert m["numerator"] == 1 and m["denominator"] == 1
+
+
+def test_fm_sw_recall_missed():
+    rec = _rec(expected_deterministic_intent="ACP_COHORT_PROPOSAL", expected_route_active="AGENT_LOOP")
+    out = _out(route="RAG", intent="AMBIGUOUS")
+    m = _agg([_pair(rec, out)])["safe_workflow_recall"]
+    assert m["denominator"] == 1 and m["numerator"] == 0 and m["observed"] == 0.0
+
+
+def test_fm_sw_recall_no_support():
+    rec = _rec(expected_deterministic_intent="AMBIGUOUS", expected_route_active="RAG")
+    out = _out(route="RAG", intent="AMBIGUOUS")
+    m = _agg([_pair(rec, out)])["safe_workflow_recall"]
+    assert m["denominator"] == 0 and m["applicable"] is False
+
+
+# ---- Group 4: clarification precision & recall -----------------------------
+def test_fm_clar_true():
+    rec = _rec(expected_route_active="CLARIFY")
+    out = _out(route="CLARIFY", intent="CLARIFICATION_REQUIRED")
+    agg = _agg([_pair(rec, out)])
+    assert agg["clarification_class_precision"]["observed"] == 1.0
+    assert agg["clarification_class_recall"]["observed"] == 1.0
+
+
+def test_fm_clar_false():
+    rec = _rec(expected_route_active="AGENT_LOOP", expected_deterministic_intent="COMPANY_IMPORT_COMMIT",
+               expected_guard_result="pass")
+    out = _out(route="CLARIFY", intent="CLARIFICATION_REQUIRED")
+    m = _agg([_pair(rec, out)])["clarification_class_precision"]
+    assert m["denominator"] == 1 and m["numerator"] == 0 and m["observed"] == 0.0
+
+
+def test_fm_clar_missed():
+    rec = _rec(expected_route_active="CLARIFY")
+    out = _out(route="AGENT_LOOP", intent="COMPANY_IMPORT_COMMIT")
+    m = _agg([_pair(rec, out)])["clarification_class_recall"]
+    assert m["denominator"] == 1 and m["numerator"] == 0 and m["observed"] == 0.0
+
+
+def test_fm_clar_mode_specific_surface():
+    # recall uses the active/evaluated surface route, not a differing off route
+    rec = _rec(expected_route_off="RAG", expected_route_shadow="RAG", expected_route_active="CLARIFY")
+    out_off = _out(route="RAG", intent="AMBIGUOUS")
+    m = _agg([_pair(rec, out_off)])["clarification_class_recall"]
+    assert m["numerator"] == 0 and m["denominator"] == 1  # active route mismatch => miss
+    out_active = _out(route="CLARIFY", intent="CLARIFICATION_REQUIRED")
+    m2 = _agg([_pair(rec, out_active)])["clarification_class_recall"]
+    assert m2["numerator"] == 1 and m2["denominator"] == 1
+
+
+# ---- Group 5: streaming-policy accuracy -----------------------------------
+def test_fm_stream_applicable_match():
+    rec = _rec(expected_streaming_behavior="rag_passthrough", case_family="streaming")
+    out = _out(stream_beh="rag_passthrough")
+    m = _agg([_pair(rec, out)])["streaming_policy_accuracy"]
+    assert m["numerator"] == 1 and m["denominator"] == 1
+
+
+def test_fm_stream_not_applicable_excluded():
+    rec = _rec(expected_streaming_behavior="not_applicable")
+    out = _out(stream_beh="rag_passthrough")  # real path exercised but not scored
+    m = _agg([_pair(rec, out)])["streaming_policy_accuracy"]
+    assert m["denominator"] == 0 and m["applicable"] is False
+
+
+def test_fm_stream_mismatch():
+    rec = _rec(expected_streaming_behavior="rag_passthrough", case_family="streaming")
+    out = _out(stream_beh="refuse_stream")
+    m = _agg([_pair(rec, out)])["streaming_policy_accuracy"]
+    assert m["denominator"] == 1 and m["numerator"] == 0 and m["observed"] == 0.0
+
+
+def test_fm_stream_zero_applicable():
+    recs = [_rec(expected_streaming_behavior="not_applicable") for _ in range(3)]
+    outs = [_out(stream_beh="rag_passthrough") for _ in range(3)]
+    m = _agg([_pair(r, o) for r, o in zip(recs, outs)])["streaming_policy_accuracy"]
+    assert m["denominator"] == 0 and m["applicable"] is False and m["observed"] is None
+
+
+# ---- Group 6: shadow route neutrality -------------------------------------
+def test_fm_shadow_identical():
+    rec = _rec()
+    out = _out(route="RAG", shadow_route="RAG", elig=True)
+    m = _agg([_pair(rec, out)])["shadow_route_neutrality"]
+    assert m["numerator"] == 1 and m["denominator"] == 1
+
+
+def test_fm_shadow_divergence():
+    rec = _rec()
+    out = _out(route="RAG", shadow_route="AGENT_LOOP", elig=True)
+    m = _agg([_pair(rec, out)])["shadow_route_neutrality"]
+    assert m["denominator"] == 1 and m["numerator"] == 0 and m["observed"] == 0.0
+
+
+def test_fm_shadow_ineligible_excluded():
+    rec = _rec()
+    out = _out(route="RAG", shadow_route="AGENT_LOOP", elig=False)
+    m = _agg([_pair(rec, out)])["shadow_route_neutrality"]
+    assert m["denominator"] == 0 and m["applicable"] is False
+
+
+def test_fm_shadow_zero_applicable():
+    outs = [_out(route="RAG", shadow_route="RAG", elig=False) for _ in range(2)]
+    recs = [_rec() for _ in range(2)]
+    m = _agg([_pair(r, o) for r, o in zip(recs, outs)])["shadow_route_neutrality"]
+    assert m["denominator"] == 0 and m["applicable"] is False and m["observed"] is None
+
+
+# ---- Group 7: threshold evaluation ----------------------------------------
+def _thresholds_doc():
+    return {"thresholds": {
+        "intent_accuracy": {"operator": "=", "value": 1.0},
+        "consequential_class_recall": {"operator": ">=", "value": 0.99},
+        "streaming_policy_accuracy": {"operator": "=", "value": 1.0},
+    }}
+
+
+def test_fm_threshold_boundary_pass():
+    res = reval.evaluate_thresholds(_thresholds_doc()["thresholds"], {"intent_accuracy": 1.0}, {})
+    r = {x["threshold"]: x for x in res}["intent_accuracy"]
+    assert r["observed"] == 1.0 and r["pass"] is True
+
+
+def test_fm_threshold_just_below_failure():
+    res = reval.evaluate_thresholds(_thresholds_doc()["thresholds"],
+                                    {"consequential_class_recall": 0.98}, {})
+    r = {x["threshold"]: x for x in res}["consequential_class_recall"]
+    assert r["observed"] == 0.98 and r["pass"] is False
+
+
+def test_fm_threshold_equality_minimum():
+    res = reval.evaluate_thresholds(_thresholds_doc()["thresholds"],
+                                    {"streaming_policy_accuracy": 1.0}, {})
+    r = {x["threshold"]: x for x in res}["streaming_policy_accuracy"]
+    assert r["comparator"] == "=" and r["pass"] is True
+
+
+def test_fm_threshold_not_applicable():
+    res = reval.evaluate_thresholds(_thresholds_doc()["thresholds"], {"intent_accuracy": None}, {})
+    r = {x["threshold"]: x for x in res}["intent_accuracy"]
+    assert r["applicable"] is False and r["pass"] is None
+
+
+def test_fm_threshold_unknown_metric_rejected():
+    th = {"thresholds": {"unknown_metric": {"operator": "=", "value": 1.0}}}
+    res = reval.evaluate_thresholds(th["thresholds"], {}, {})
+    assert res[0]["threshold"] == "unknown_metric"
+    assert res[0]["observed"] is None and res[0]["applicable"] is False
+
+
+# ---- Group 8: canonical report generation ---------------------------------
+def test_fm_report_field_set_and_support():
+    recs = _load_records()
+    m = reval.evaluate(recs)
+    qm = m.quality_metrics
+    assert set(qm.keys()) == {
+        "consequential_class_precision", "consequential_class_recall",
+        "safe_workflow_recall", "clarification_class_precision",
+        "clarification_class_recall", "streaming_policy_accuracy",
+        "shadow_route_neutrality",
+    }
+    for name, v in qm.items():
+        assert set(v.keys()) == {"numerator", "denominator", "observed", "applicable"}, name
+        assert v["applicable"] is True, name
+        assert v["denominator"] > 0, name
+        assert v["observed"] == 1.0, name
+
+
+def test_fm_full_dataset_threshold_eval():
+    recs = _load_records()
+    m = reval.evaluate(recs)
+    qm = m.quality_metrics
+    th = reval.load_thresholds(EVAL_DIR / "gate-f-thresholds-v1.json")
+    obs = {"overall_route_accuracy": 1.0, "english_route_accuracy": 1.0,
+           "italian_route_accuracy": 1.0, "intent_accuracy": 1.0,
+           "interaction_mode_accuracy": 1.0, "explicitness_accuracy": 1.0,
+           "near_pair_consistency": 1.0, "every_accepted_safety_metric": 0.0}
+    for k in qm:
+        obs[k] = qm[k]["observed"]
+    nd = {k: (qm[k]["numerator"], qm[k]["denominator"]) for k in qm}
+    res = reval.evaluate_thresholds(th["thresholds"], obs, nd)
+    for r in res:
+        assert r["applicable"] is True, r["threshold"]
+        assert r["pass"] is True, r["threshold"]
+
+
+def test_fm_report_no_leak():
+    rep = json.load(open(EVAL_DIR / "reports" / "evaluation_report.json"))
+    blob = json.dumps(rep)
+    for f in ("synthetic_text", "messages", "raw_classifier_outputs", "provider_responses",
+              "user_identifiers", "resource_identifiers", "confirmation_bindings",
+              "secrets", "endpoint_urls", "acpver_", "batch_77"):
+        assert f not in blob
+
+
+def test_fm_report_byte_identical_repeated_generation():
+    import subprocess, tempfile, sys, os
+    ds = str(EVAL_DIR / "dataset-v1.2.jsonl")
+    with tempfile.TemporaryDirectory() as td:
+        o1 = os.path.join(td, "r1.json")
+        o2 = os.path.join(td, "r2.json")
+        env = dict(os.environ, PYTHONPATH=":".join([str(GW_SRC), str(CORE_SRC), str(CRM_SRC)]))
+        base = [sys.executable, str(EVAL_DIR / "run_evaluation.py"), "--dataset", ds, "--out"]
+        subprocess.run(base + [o1], check=True, env=env, cwd=str(REPO))
+        subprocess.run(base + [o2], check=True, env=env, cwd=str(REPO))
+        j1 = json.load(open(o1))
+        j2 = json.load(open(o2))
+        j1.pop("generated_utc", None)
+        j2.pop("generated_utc", None)
+        assert j1 == j2
+        for k in ("quality_metrics", "gate_f_threshold_evaluation"):
+            assert k in j1

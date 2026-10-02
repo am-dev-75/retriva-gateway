@@ -131,3 +131,26 @@ PHASEF-DEFECT-1 (policy clarification typing), the IT hypothetical-anchor gap,
 straight single-quote masking, the metalinguistic quotation-framing rule, and
 contextual Italian clitic multi-intent, and versioned five gold labels. The
 corrected, authoritative result and verdict are in `reports/phase_f_closure_report.md`.
+
+## Quality metrics (Phase F-M / F-Q7) — explicit computation
+
+Owner decision F-Q7 requires the seven class/policy metrics to be **computed**, not
+asserted by construction. `run_evaluation.py` implements them in
+`aggregate_closed_metrics` and persists them in the report's `quality_metrics`
+section (each with `numerator`, `denominator`, `observed`, `applicable`). A
+threshold evaluation block (`gate_f_threshold_evaluation`) re-checks every
+pre-registered threshold in `gate-f-thresholds-v1.json` and records `threshold`,
+`comparator`, `required`, `observed`, `numerator`, `denominator`, `applicable`, `pass`.
+Zero-support → `applicable = not_applicable`, `observed = null` (never 1.0), assessed
+per the Gate F coverage requirement.
+
+- **consequential_class_precision** = true consequential predictions / all consequential predictions.
+  Prediction = engine `AGENT_LOOP` with a `guards.CONSEQUENTIAL_INTENTS` intent. True positive = prediction AND gold expects execution (gold `expected_route_active = AGENT_LOOP`, `expected_deterministic_intent` consequential, `expected_guard_result = pass`). A consequential candidate that correctly clarifies is **not** a prediction (no unsafe execution rewarded).
+- **consequential_class_recall** = correctly recognized consequential gold cases / all consequential gold cases.
+  Gold consequential = gold intent in `CONSEQUENTIAL_INTENTS`, OR `case_family` ∈ {consequential_workflow, consequential_candidate}, OR `safety_tags` ∩ {consequential, consequential_candidate}. Correct recognition = engine route equals the gold's safe final route (executable or fail-closed).
+- **safe_workflow_recall** = correctly recognized safe-workflow gold cases / all safe-workflow gold cases.
+  Safe-workflow intents = workflow/operation intents minus consequential minus informational/ambiguous/unsupported/clarification. Correct = engine route equals gold route (no unsafe route change required).
+- **clarification_class_precision** = correct final clarification outcomes / all predicted final clarification outcomes. Prediction = engine route `CLARIFY`.
+- **clarification_class_recall** = correct final clarification outcomes / all gold final clarification outcomes. Gold clarification = `expected_route_active = CLARIFY`. The scored route is used; correctness is not inferred from intent alone when the expected route differs by mode.
+- **streaming_policy_accuracy** = actual streaming behavior == expected / all applicable streaming records. Applicable only where `expected_streaming_behavior != not_applicable`. The real `classify_streaming_message` path is exercised for every record and compared to the closed gold behavior (no textual SSE comparison).
+- **shadow_route_neutrality** = actual shadow route == corresponding deterministic route / all applicable shadow-classifier records. Applicable where a classifier recommendation is exercised (classifier-eligible). The actual `apply_shadow` route (with the classifier recommendation when eligible) is compared to the deterministic route.
