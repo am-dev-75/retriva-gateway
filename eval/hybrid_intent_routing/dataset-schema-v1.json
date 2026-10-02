@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://retriva.dev/schemas/hybrid-intent-routing/dataset-schema-v1.json",
+  "title": "Hybrid Intent Routing Evaluation Dataset Record (schema_version 1)",
+  "description": "Closed gold-label schema for the synthetic EN/IT Phase F evaluation dataset. extra fields are forbidden; enums are closed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_id",
+    "language",
+    "synthetic_text",
+    "case_family",
+    "expected_deterministic_intent",
+    "expected_interaction_mode",
+    "expected_explicitness",
+    "expected_route_off",
+    "expected_route_shadow",
+    "expected_route_active",
+    "expected_classifier_eligibility",
+    "expected_guard_result",
+    "expected_streaming_behavior",
+    "expected_classifier_call_count",
+    "expected_agent_loop_admission",
+    "expected_tool_execution",
+    "expected_registry_mutation",
+    "expected_confirmation_claim",
+    "expected_bypass_reason",
+    "safety_tags",
+    "adjudication_status",
+    "rationale_code"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1",
+      "description": "Closed dataset schema version."
+    },
+    "case_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_\\-]{1,64}$",
+      "description": "Globally unique, stable, synthetic; no user info or real-data hashes."
+    },
+    "language": {
+      "type": "string",
+      "enum": ["en", "it"]
+    },
+    "synthetic_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400,
+      "description": "Explicitly authored synthetic message. No real content."
+    },
+    "synthetic_only": {
+      "type": "boolean",
+      "description": "Must be true on every record (provenance declaration)."
+    },
+    "case_family": {
+      "type": "string",
+      "enum": [
+        "informational_question",
+        "safe_workflow",
+        "consequential_workflow",
+        "consequential_candidate",
+        "negation",
+        "hypothetical",
+        "quotation",
+        "code_framing",
+        "prompt_writing",
+        "multi_intent",
+        "follow_up_reference",
+        "bare_affirmative",
+        "confirmation_path",
+        "ambiguous_workflow_adjacent",
+        "ambiguous_non_adjacent",
+        "unsupported_operation",
+        "streaming",
+        "prompt_injection"
+      ]
+    },
+    "expected_deterministic_intent": {
+      "type": "string",
+      "enum": [
+        "RAG_QUESTION", "WORKFLOW_DOCUMENTATION", "STATUS_EXPLANATION",
+        "CAPABILITY_QUESTION", "ACP_COHORT_PROPOSAL", "ACP_COHORT_REVIEW",
+        "ACP_COHORT_APPROVAL", "ACP_GENERATION", "ACP_REVIEW", "ACP_APPROVAL",
+        "ACP_ACTIVATION", "ACP_SUPERSESSION", "ACP_ROLLBACK",
+        "ACP_EVIDENCE_ENRICHMENT", "ACP_EVIDENCE_ENRICHMENT_STATUS",
+        "ACP_EVIDENCE_ACCEPTANCE", "QUALIFICATION_REQUEST", "QUALIFICATION_STATUS",
+        "QUALIFICATION_REVIEW", "QUALIFICATION_APPROVAL", "COMPANY_IMPORT_ANALYSIS",
+        "COMPANY_IMPORT_REVIEW", "COMPANY_IMPORT_APPROVAL", "COMPANY_IMPORT_COMMIT",
+        "COMPANY_IMPORT_STATUS", "CAMPAIGN_CREATE", "CAMPAIGN_AUDIENCE_ANALYSIS",
+        "CAMPAIGN_AUDIENCE_REVIEW", "CAMPAIGN_AUDIENCE_APPROVAL",
+        "CAMPAIGN_AUDIENCE_COMMIT", "CAMPAIGN_HISTORY_IMPORT",
+        "CAMPAIGN_MARK_ADDRESSED", "CAMPAIGN_OUTCOME_UPDATE", "CAMPAIGN_STATUS",
+        "AMBIGUOUS", "UNSUPPORTED", "CLARIFICATION_REQUIRED"
+      ]
+    },
+    "expected_interaction_mode": {
+      "type": "string",
+      "enum": ["INFORMATIONAL", "ANALYSIS", "REVIEW", "MUTATION", "DESTRUCTIVE_MUTATION", "UNKNOWN"]
+    },
+    "expected_explicitness": {
+      "type": "string",
+      "enum": ["EXPLICIT", "IMPLICIT", "AMBIGUOUS", "NEGATED", "HYPOTHETICAL", "QUOTED_EXAMPLE"]
+    },
+    "expected_route_off": {
+      "type": "string",
+      "enum": ["AGENT_LOOP", "RAG", "CLARIFY", "REFUSE_STREAM", "LEGACY_RAG"]
+    },
+    "expected_route_shadow": {
+      "type": "string",
+      "enum": ["AGENT_LOOP", "RAG", "CLARIFY", "REFUSE_STREAM"]
+    },
+    "expected_route_active": {
+      "type": "string",
+      "enum": ["AGENT_LOOP", "RAG", "CLARIFY", "REFUSE_STREAM"]
+    },
+    "expected_classifier_eligibility": {
+      "type": "boolean",
+      "description": "True only for accepted deterministic ambiguity (workflow-adjacent or non-adjacent)."
+    },
+    "expected_classifier_recommendation": {
+      "type": ["string", "null"],
+      "enum": [
+        "RAG_QUESTION", "WORKFLOW_DOCUMENTATION", "STATUS_EXPLANATION",
+        "CAPABILITY_QUESTION", "ACP_COHORT_PROPOSAL", "ACP_COHORT_REVIEW",
+        "ACP_COHORT_APPROVAL", "ACP_GENERATION", "ACP_REVIEW", "ACP_APPROVAL",
+        "ACP_ACTIVATION", "ACP_SUPERSESSION", "ACP_ROLLBACK",
+        "ACP_EVIDENCE_ENRICHMENT", "ACP_EVIDENCE_ENRICHMENT_STATUS",
+        "ACP_EVIDENCE_ACCEPTANCE", "QUALIFICATION_REQUEST", "QUALIFICATION_STATUS",
+        "QUALIFICATION_REVIEW", "QUALIFICATION_APPROVAL", "COMPANY_IMPORT_ANALYSIS",
+        "COMPANY_IMPORT_REVIEW", "COMPANY_IMPORT_APPROVAL", "COMPANY_IMPORT_COMMIT",
+        "COMPANY_IMPORT_STATUS", "CAMPAIGN_CREATE", "CAMPAIGN_AUDIENCE_ANALYSIS",
+        "CAMPAIGN_AUDIENCE_REVIEW", "CAMPAIGN_AUDIENCE_APPROVAL",
+        "CAMPAIGN_AUDIENCE_COMMIT", "CAMPAIGN_HISTORY_IMPORT",
+        "CAMPAIGN_MARK_ADDRESSED", "CAMPAIGN_OUTCOME_UPDATE", "CAMPAIGN_STATUS",
+        "AMBIGUOUS", "UNSUPPORTED", "CLARIFICATION_REQUIRED", null
+      ],
+      "description": "Fake-classifier recommendation fixture for eligible cases only."
+    },
+    "expected_confidence": {
+      "type": ["number", "null"],
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Fake-classifier confidence fixture for eligible cases only."
+    },
+    "expected_guard_result": {
+      "type": "string",
+      "enum": ["pass", "fail_closed", "not_applicable"]
+    },
+    "expected_streaming_behavior": {
+      "type": "string",
+      "enum": ["rag_passthrough", "refuse_stream", "stream_clarify", "not_applicable"]
+    },
+    "expected_classifier_call_count": {
+      "type": "integer",
+      "enum": [0, 1],
+      "description": "1 only when the accepted pipeline would invoke the classifier for this turn."
+    },
+    "expected_agent_loop_admission": {"type": "boolean"},
+    "expected_tool_execution": {"type": "boolean"},
+    "expected_registry_mutation": {"type": "boolean"},
+    "expected_confirmation_claim": {
+      "type": "string",
+      "enum": ["claimed", "not_claimed", "not_applicable"]
+    },
+    "expected_bypass_reason": {
+      "type": "string",
+      "enum": [
+        "streaming", "deterministic_terminal", "multi_intent",
+        "confirmation_path", "guard_terminal", "consequential_candidate",
+        "classifier_disabled", "none"
+      ]
+    },
+    "safety_tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "consequential", "consequential_candidate", "multi_intent",
+          "bare_affirmative", "confirmation", "injection", "negation",
+          "hypothetical", "quotation", "code_framing", "prompt_writing",
+          "streaming", "unsupported", "ambiguous_eligible", "cross_tenant",
+          "cross_principal", "cross_session", "cross_kb"
+        ]
+      },
+      "minItems": 0
+    },
+    "near_pair_group": {
+      "type": ["string", "null"],
+      "description": "Groups paired examples so partitions never split a pair."
+    },
+    "adjudication_status": {
+      "type": "string",
+      "enum": [
+        "reviewer_a_label", "reviewer_b_label", "agreed",
+        "gold_accepted", "owner_escalated", "needs_owner_decision"
+      ]
+    },
+    "rationale_code": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{1,40}$",
+      "description": "Closed rationale code, e.g. D1_NEGATION, E_D1_CC, MULTI_INTENT_B."
+    },
+    "partition": {
+      "type": "string",
+      "enum": ["development", "test", "needs_owner_decision"],
+      "description": "Leakage-controlled partition. 'test' drives Gate F."
+    }
+  }
+}
