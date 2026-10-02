@@ -148,3 +148,134 @@ changing these deferred groups, **Gate F remains blocked** (F-R5).
 - `tests/eval/test_phase_f.py`, `tests/test_routing_policy.py` (regression)
 - `eval/hybrid_intent_routing/reports/evaluation_report.json`,
   `reports/phase_f_closure_report.md` (evidence)
+
+## 8. Phase F-Q — Italian parity & final gold-label reconciliation
+
+Owner authorization: bounded Phase F final remediation (Phase F-Q), 2026-10-02.
+Branch `phase_f_evaluation`. Carried forward from Gate E tip `3266507` → Phase
+F-R chain → `19f784b`. Gate F remains **closed**; Phase G remains unauthorized.
+
+### 8.1 Scope
+
+Authorized corrections (F-Q1..F-Q5):
+
+1. One dataset-only gold-label correction for `mi_it_2` (F-Q1).
+2. Narrow Italian parser corrections in `deterministic.py` for five adjudicated
+   near-pair groups: `safe_prop`, `cons_commit`, `cc_1`, `neg2`, `awa` (F-Q2).
+3. Aligned Italian gold-label corrections for `safe_it_3`, `cons_it_2`,
+   `cc_it_1`, `neg_it_2`, `awa_it_1` (F-Q3).
+4. `dataset-v1.2.jsonl` created, derived from `dataset-v1.1.jsonl` (F-Q3).
+5. Focused regression tests added (F-Q).
+6. Offline deterministic evaluation re-run; final Gate F evidence + closure report.
+
+`dataset-v1.jsonl` and `dataset-v1.1.jsonl` are preserved **byte-for-byte**
+(digests unchanged). `dataset-v1.2.jsonl` is additive, schema_version 1.
+
+### 8.2 Runtime corrections (file: `src/.../routing/deterministic.py` only)
+
+- **F-Q2-A (safe_prop)**: `ACP_COHORT_PROPOSAL` verbs extended with
+  `propo(?:n|r)\w*` so Italian "proponi"/"proporre" (cohort context) route to
+  `ACP_COHORT_PROPOSAL` (AGENT_LOOP / ANALYSIS / EXPLICIT). Unrelated uses
+  without cohort/coorte context remain non-adjacent (no family noun, non-
+  consequential → not matched).
+- **F-Q2-B (cons_commit)**: `COMPANY_IMPORT_COMMIT` verbs extended with the
+  closed phrase `esegui\s+il\s+commit` so "Esegui il commit del batch
+  batch_77" (valid opaque id batch_77) routes to `COMPANY_IMPORT_COMMIT`
+  (AGENT_LOOP / MUTATION / EXPLICIT, guard PASS). "Esegui il commit del batch"
+  (no resource) is a consequential candidate → CLARIFY (guard fail-closed). The
+  phrase is narrow: it does not fire on "esegui il rollback" or unrelated
+  "commit".
+- **F-Q2-C (cc_1)**: covered by the F-Q2-B phrase; no-resource form resolves to
+  `CLARIFICATION_REQUIRED` with reason `CONSEQUENTIAL_CANDIDATE` → CLARIFY
+  (fail closed), never RAG solely because the resource is absent.
+- **F-Q2-D (neg2)**: the F-Q2-A verb extension makes "proporre" a recognized
+  workflow verb, so the existing `_NEGATION_RE` (which already includes
+  `propos\w*`) now matches "Non proporre una coorte." → negation → RAG /
+  RAG_QUESTION / NEGATED. High classifier confidence cannot override the veto.
+- **F-Q2-E (awa)**: `workflow_adjacent`'s command-match path no longer treats
+  Italian articles "lo/la/li/le" as object pronouns (new `_COMMAND_PRONOUNS`
+  excludes them; they remain in `_PRONOUNS` for the unrelated workflow-adjacency
+  signal). "Revisiona la proposta." therefore resolves as non-adjacent
+  ambiguity → RAG / AMBIGUOUS / UNKNOWN / AMBIGUOUS, classifier-eligible — the
+  accepted English-mirroring behavior.
+
+### 8.3 Dataset gold-label corrections (F-Q3, parent = dataset-v1.1)
+
+`dataset-v1.jsonl` digest `ca5c68bd3b8f85f5eb79769beeac1aeda3fd5c40cda37877e690b44397b426c1`
+(unchanged). `dataset-v1.1.jsonl` digest
+`daea1045eaf9316270fbc0c2a78a4f289a9eba0017c32a75cfd9f277cd8c8e6d` (unchanged).
+`dataset-v1.2.jsonl` digest
+`1a0e1b3e2f297cb32492cbdf491b185026d59595f2b1411f4aabdba35cefe396` (new).
+Exactly seven records differ from v1.1 (six authorized + one same-text
+collateral, see §8.4).
+
+| Change ID | Case | Before (route / intent / explicitness) | After (route / intent / explicitness) |
+|---|---|---|---|
+| PHASEFQ-GOLD-mi_it_2 | mi_it_2 | CLARIFY / COMPANY_IMPORT_ANALYSIS / EXPLICIT | CLARIFY / CLARIFICATION_REQUIRED / AMBIGUOUS |
+| PHASEFQ-GOLD-safe_it_3 | safe_it_3 | CLARIFY / CLARIFICATION_REQUIRED / AMBIGUOUS | AGENT_LOOP / ACP_COHORT_PROPOSAL / ANALYSIS / EXPLICIT |
+| PHASEFQ-GOLD-cons_it_2 | cons_it_2 | RAG / AMBIGUOUS / AMBIGUOUS | AGENT_LOOP / COMPANY_IMPORT_COMMIT / MUTATION / EXPLICIT (guard pass) |
+| PHASEFQ-GOLD-cc_it_1 | cc_it_1 | RAG / AMBIGUOUS / AMBIGUOUS | CLARIFY / CLARIFICATION_REQUIRED / EXPLICIT (guard fail_closed) |
+| PHASEFQ-GOLD-neg_it_2 | neg_it_2 | CLARIFY / CLARIFICATION_REQUIRED / AMBIGUOUS | RAG / RAG_QUESTION / NEGATED |
+| PHASEFQ-GOLD-awa_it_1 | awa_it_1 | CLARIFY / CLARIFICATION_REQUIRED / AMBIGUOUS | RAG / AMBIGUOUS / AMBIGUOUS (eligible) |
+| PHASEFQ-GOLD-stream_adj_it | stream_adj_it | CLARIFY / CLARIFICATION_REQUIRED / AMBIGUOUS | RAG / AMBIGUOUS / AMBIGUOUS (eligible; streaming rag_passthrough) |
+
+`stream_adj_it` shares the exact surface text "Revisiona la proposta." with
+`awa_it_1`; correcting `awa_it_1` deterministically corrects `stream_adj_it` (the
+engine keys on text). Its gold is updated to remain dataset-consistent (the same
+text may not carry two incompatible gold labels). This is a same-text collateral,
+not an unrelated-record edit: no other record's gold was altered.
+
+Per-record detail (required fields):
+
+- **mi_it_2** — prev: `expected_deterministic_intent=COMPANY_IMPORT_ANALYSIS`,
+  `expected_interaction_mode=ANALYSIS`, `expected_explicitness=EXPLICIT`.
+  new: `CLARIFICATION_REQUIRED`, `UNKNOWN`, `AMBIGUOUS`. reason: final routing
+  intent is CLARIFICATION_REQUIRED under Multi-intent Policy B (terminal); the
+  detected operation COMPANY_IMPORT_ANALYSIS is intermediate. normative: F-Q1;
+  parent v1.1; old digest `daea1045…`; new `1a0e1b3e…`.
+- **safe_it_3** — prev: CLARIFY / CLARIFICATION_REQUIRED / UNKNOWN / AMBIGUOUS.
+  new: AGENT_LOOP / ACP_COHORT_PROPOSAL / ANALYSIS / EXPLICIT, agent_loop=true,
+  tool_exec=true, guard=not_applicable, bypass=deterministic_terminal.
+  normative: F-Q2-A; parent v1.1; old `daea1045…`; new `1a0e1b3e…`.
+- **cons_it_2** — prev: RAG / AMBIGUOUS / UNKNOWN / AMBIGUOUS, guard=
+  not_applicable. new: AGENT_LOOP / COMPANY_IMPORT_COMMIT / MUTATION / EXPLICIT,
+  guard=pass, bypass=guard_terminal, agent_loop=true, tool_exec=true.
+  normative: F-Q2-B; parent v1.1; old `daea1045…`; new `1a0e1b3e…`.
+- **cc_it_1** — prev: RAG / AMBIGUOUS / UNKNOWN / AMBIGUOUS, guard=
+  not_applicable. new: CLARIFY / CLARIFICATION_REQUIRED / UNKNOWN / EXPLICIT,
+  guard=fail_closed, bypass=consequential_candidate, agent_loop=false,
+  tool_exec=false. normative: F-Q2-C; parent v1.1; old `daea1045…`; new
+  `1a0e1b3e…`.
+- **neg_it_2** — prev: CLARIFY / CLARIFICATION_REQUIRED / UNKNOWN / AMBIGUOUS.
+  new: RAG / RAG_QUESTION / UNKNOWN / NEGATED, agent_loop=false, tool_exec=false.
+  normative: F-Q2-D; parent v1.1; old `daea1045…`; new `1a0e1b3e…`.
+- **awa_it_1** — prev: CLARIFY / CLARIFICATION_REQUIRED / UNKNOWN / AMBIGUOUS.
+  new: RAG / AMBIGUOUS / UNKNOWN / AMBIGUOUS (eligibility true, call 1,
+  recommendation ACP_REVIEW, confidence 0.92, route_active AGENT_LOOP unchanged).
+  normative: F-Q2-E; parent v1.1; old `daea1045…`; new `1a0e1b3e…`.
+- **stream_adj_it** — prev: CLARIFY / CLARIFICATION_REQUIRED / UNKNOWN /
+  AMBIGUOUS, eligibility false, call 0, recommendation None, streaming
+  stream_clarify. new: RAG / AMBIGUOUS / UNKNOWN / AMBIGUOUS, eligibility true,
+  call 1, recommendation ACP_REVIEW, confidence 0.92, streaming rag_passthrough
+  (same-text collateral of awa_it_1). normative: F-Q2-E + dataset consistency;
+  parent v1.1; old `daea1045…`; new `1a0e1b3e…`.
+
+### 8.4 Verification
+
+- `validate_dataset.py` PASSES on v1, v1.1, and v1.2 (schema v1, synthetic-only,
+  leakage-controlled, fully covered).
+- v1 and v1.1 digests unchanged.
+- Exactly seven records differ between v1.1 and v1.2 (the six authorized + one
+  same-text collateral). No other record changed.
+- Engine output changed for exactly six records (the five IT near-pair members +
+  `stream_adj_it`); all 14 pre-existing eligibility divergences in v1.1 gold are
+  untouched (blast radius verified by before/after byte comparison).
+- `run_evaluation.py` on `dataset-v1.2.jsonl`: route_accuracy_shadow=1.0,
+  route_accuracy_active=1.0, intent_accuracy=1.0, interaction_mode_accuracy=1.0,
+  explicitness_accuracy=1.0, english_route_accuracy=1.0, italian_route_accuracy=
+  1.0, near_pair_divergences=[] (`near_pair_consistency_ok=True`),
+  all `safety_zeros`=0, provider_neutral=True, content_leakage_free=True.
+  Report is byte-identical across two runs (excluding `generated_utc`).
+- Full Gateway suite: 664 passed, 3 accepted baseline failures
+  (test_kbs_list_translates_core_response_to_webui_shape, test_speech_placeholder,
+  test_assertions); zero new failures; the same three accepted failing node IDs.
