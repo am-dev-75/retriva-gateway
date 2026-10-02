@@ -289,6 +289,21 @@ _PRONOUNS = {
     "ne", "quello", "quella", "quelli", "quelle", "tutti", "tutte",
 }
 
+# Phase F-Q (owner decision F-Q2-E): Italian articles "lo/la/li/le" are
+# homographs of detached object pronouns, but in correct Italian a standalone
+# " la " between words is the definite article, never a pronoun (grammatical
+# pronouns elide — "l'attiva" — or encliticize — "attivala").  Treating the
+# article as a pronoun in the *command-match* path made non-consequential
+# Italian verbs (e.g. "revisiona la proposta") spuriously match as weak
+# command matches, flipping an accepted safe-workflow ambiguity from the
+# English-mirroring RAG (NON_ADJACENT_AMBIGUITY) to a CLARIFY
+# (WORKFLOW_ADJACENT).  The article tokens stay in _PRONOUNS for the
+# workflow-adjacency signal (used by unrelated cases), but are excluded from
+# the command-match pronoun trigger so Italian articles no longer fabricate a
+# weak operation match.  Genuine pronouns ("it", "ne", "quello",
+# enclitic/elided forms) are unaffected.
+_COMMAND_PRONOUNS = _PRONOUNS - {"lo", "la", "li", "le"}
+
 # Generic resource words (NOT family nouns and NOT identifier prefixes):
 # they let weak references like "activate the newest approved version"
 # register an intent for detection while remaining unroutable without a
@@ -341,8 +356,8 @@ OPERATIONS: Tuple[OperationSpec, ...] = (
     # --- ACP family ---
     OperationSpec(
         Topic.ACP, Intent.ACP_COHORT_PROPOSAL,
-        (r"propos\w*", r"extrapolat\w*", r"deriv\w*", r"rebuild",
-         r"ricostituisc\w*", r"ricrea\w*"), False),
+        (r"propos\w*", r"propo(?:n|r)\w*", r"extrapolat\w*", r"deriv\w*",
+         r"rebuild", r"ricostituisc\w*", r"ricrea\w*"), False),
     OperationSpec(
         Topic.ACP, Intent.ACP_GENERATION,
         (r"generat\w*", r"genera\b", r"crea\w*", r"creat\w*"), False),
@@ -437,7 +452,7 @@ OPERATIONS: Tuple[OperationSpec, ...] = (
         (r"approv\w*",), True),
     OperationSpec(
         Topic.COMPANY_IMPORT, Intent.COMPANY_IMPORT_COMMIT,
-        (r"commit\w*", r"conferm\w*"), True),
+        (r"commit\w*", r"conferm\w*", r"esegui\s+il\s+commit"), True),
     OperationSpec(
         Topic.COMPANY_IMPORT, None,
         (r"reject\w*", r"rifiuta\w*", r"discard\w*", r"scarta\w*"), True,
@@ -939,7 +954,7 @@ class DeterministicEngine:
                 spec.family in all_family_nouns
                 and spec.family not in clause.family_nouns
             )
-            pronoun_here = bool(words & _PRONOUNS)
+            pronoun_here = bool(words & _COMMAND_PRONOUNS)
             generic_here = bool(_GENERIC_RESOURCE.search(clause.text))
             strong = bool(noun_here or id_here)
             # E-D1: a consequential operation verb is recognized even when
