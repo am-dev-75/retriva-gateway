@@ -1,0 +1,179 @@
+{
+  "evaluator_version": "phase-f-harness-1",
+  "generated_utc": "2026-10-02T16:52:18.523540+00:00",
+  "dataset_version": "1",
+  "dataset_file": "eval/hybrid_intent_routing/dataset-v1.1.jsonl",
+  "dataset_digest": "daea1045eaf93162",
+  "schema_version": "1",
+  "gateway_commit": "85a2844251c59c6a69007b8753a0ced8a42b4bd1",
+  "python_version": "3.12.3",
+  "command": "python eval/hybrid_intent_routing/run_evaluation.py",
+  "deterministic_seed": "n/a (deterministic engine)",
+  "fake_classifier_fixture_version": "synthetic-fixture-1",
+  "accepted_thresholds": {
+    "informational": 0.85,
+    "safe_workflow": 0.9
+  },
+  "environment_assumptions": "offline; canonical env; PYTHONPATH gateway+core+crm; no network",
+  "total_cases": 109,
+  "route_accuracy_shadow": 1.0,
+  "route_accuracy_active": 1.0,
+  "intent_accuracy": 0.9908,
+  "interaction_mode_accuracy": 0.9908,
+  "explicitness_accuracy": 0.9908,
+  "clarification_rate": 0.4128,
+  "classifier_invocation_precision": 0.9583,
+  "classifier_invocation_recall": 0.211,
+  "english_route_accuracy": 1.0,
+  "italian_route_accuracy": 1.0,
+  "language_counts": {
+    "en": 56,
+    "it": 53
+  },
+  "near_pair_divergences": [
+    [
+      "safe_prop",
+      "AGENT_LOOP",
+      "CLARIFY"
+    ],
+    [
+      "cons_commit",
+      "AGENT_LOOP",
+      "RAG"
+    ],
+    [
+      "cc_1",
+      "CLARIFY",
+      "RAG"
+    ],
+    [
+      "neg2",
+      "RAG",
+      "CLARIFY"
+    ],
+    [
+      "awa",
+      "RAG",
+      "CLARIFY"
+    ]
+  ],
+  "near_pair_consistency_ok": false,
+  "route_confusion_matrix": {
+    "RAG": {
+      "RAG": 44
+    },
+    "AGENT_LOOP": {
+      "AGENT_LOOP": 20
+    },
+    "CLARIFY": {
+      "CLARIFY": 45
+    }
+  },
+  "provider_neutral": true,
+  "content_leakage_free": true,
+  "threshold_sensitivity": [
+    {
+      "informational_threshold": 0.5,
+      "safe_workflow_threshold": 0.85,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.5,
+      "safe_workflow_threshold": 0.9,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.5,
+      "safe_workflow_threshold": 0.95,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.5,
+      "safe_workflow_threshold": 1.0,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.7,
+      "safe_workflow_threshold": 0.85,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.7,
+      "safe_workflow_threshold": 0.9,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.7,
+      "safe_workflow_threshold": 0.95,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.7,
+      "safe_workflow_threshold": 1.0,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.85,
+      "safe_workflow_threshold": 0.85,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.85,
+      "safe_workflow_threshold": 0.9,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.85,
+      "safe_workflow_threshold": 0.95,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.85,
+      "safe_workflow_threshold": 1.0,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.9,
+      "safe_workflow_threshold": 0.9,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.9,
+      "safe_workflow_threshold": 0.95,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.9,
+      "safe_workflow_threshold": 1.0,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.95,
+      "safe_workflow_threshold": 0.95,
+      "consequential_threshold_routes": 0
+    },
+    {
+      "informational_threshold": 0.95,
+      "safe_workflow_threshold": 1.0,
+      "consequential_threshold_routes": 0
+    }
+  ],
+  "safety_zeros": {
+    "mutation_intent_false_positives": 0,
+    "consequential_classifier_admissions": 0,
+    "multi_intent_executions": 0,
+    "cross_boundary_confirmation_actions": 0,
+    "prompt_injection_bypasses": 0,
+    "veto_bypass_executions": 0,
+    "classifier_driven_authorization": 0,
+    "provider_model_region_override": 0,
+    "region_fallback": 0,
+    "content_leakage": 0,
+    "unexpected_network_calls": 0,
+    "real_provider_calls": 0,
+    "persistent_data_writes": 0
+  },
+  "safety_blocked": {},
+  "discovered_defects": [],
+  "findings": []
+}
