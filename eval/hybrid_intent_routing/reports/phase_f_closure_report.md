@@ -1,107 +1,95 @@
-# Phase F — Corrected Closure Report (Phase F-R bounded safety remediation)
+# Phase F — Final Closure Report (Phase F-Q Italian parity & gold-label reconciliation)
 
 - **Spec / program:** Hybrid Intent Routing (Spec 001 / ADR-0002)
-- **Owner authorization:** bounded Phase F remediation (Phase F-R), 2026-10-02
+- **Owner authorization:** bounded Phase F final remediation (Phase F-Q), 2026-10-02
 - **Baseline (accepted Gates B–E):** `3266507`
-- **Analyzed HEAD before remediation:** `85a2844251c59c6a69007b8753a0ced8a42b4bd1` (branch `phase_f_evaluation`)
-- **Gate F status:** **BLOCKED: GATE F CRITERIA NOT MET** (see §31). Safety-zero metrics are now all zero (MET); however the pre-registered quality threshold `near_pair_consistency = 1.00` is not met (five deferred groups), and the exact `intent_accuracy = 1.00` is not met (one residual gold-label inconsistency on `mi_it_2`). Phase G remains unauthorized.
+- **Phase F-R chain:** `1885456` → `47eb22d` → `b96d393` → `8aee1f4` → `91102d3` → `85a2844` → `19f784b`
+- **Analyzed HEAD before remediation:** `19f784b` (branch `phase_f_evaluation`)
+- **Gate F status:** **READY FOR GATE F ACCEPTANCE** (see §29). All non-negotiable safety-zero metrics = 0 (MET); every pre-registered quality threshold is MET, including `intent_accuracy = 1.00` and `near_pair_consistency = 1.00`. Gate F remains closed pending the explicit owner acceptance decision; Phase G remains unauthorized.
 
 ---
 
 ## 1. Starting and ending commits
 
-- **Starting commit:** `85a2844` (prior Phase F closure report — Gate F not passed).
-- **Ending commit:** the corrected-closure-report commit below (C5).
-- The six previously accepted Phase F commits (`1885456`, `47eb22d`, `b96d393`, `8aee1f4`, `91102d3`, `85a2844`) are untouched.
+- **Starting commit:** `19f784b` (post Phase F-R corrected closure report).
+- **Ending commit:** the closure-report commit below (F-Q commit 4).
+- Four Phase F-R commits (`85a2844` … `1885456`) and the five Phase F-R remediation commits (`91102d3` … `19f784b`) are untouched.
 
 ## 2. Exact files changed
 
-Runtime (authorized scope):
-- `src/retriva_gateway/core/routing/deterministic.py` (F-R1 rule plumbing not changed; F-R2a/b/c, F-R3)
-- `src/retriva_gateway/core/routing/policy.py` (F-R1)
+Runtime (authorized scope — `deterministic.py` only):
+- `src/retriva_gateway/core/routing/deterministic.py` (F-Q2-A/B/C/D/E)
 
-Phase F artifacts:
-- `eval/hybrid_intent_routing/dataset-v1.1.jsonl` (F-R4; `dataset-v1.jsonl` preserved)
-- `eval/hybrid_intent_routing/gate-f-thresholds-v1.json` (F-R7)
-- `eval/hybrid_intent_routing/methodology.md`, `README.md` (F-R2c normative note, F-R6)
-- `eval/hybrid_intent_routing/phase_f_metrics_draft.json` (renamed from `expected-metrics.json`, F-R6)
-- `eval/hybrid_intent_routing/CHANGELOG.md` (F-R4/F-R5/F-R6)
-- `tests/eval/test_phase_f.py`, `tests/test_routing_policy.py`, `tests/test_routing_deterministic.py` (regression; F-R1/F-R2/F-R3 + affected priority tests)
-- `eval/hybrid_intent_routing/reports/evaluation_report.json` (generated, F-R6)
+Evaluation / tests:
+- `tests/eval/test_phase_f.py` (F-Q focused regression tests; `_load_records()` repointed at `dataset-v1.2.jsonl`)
+- `eval/hybrid_intent_routing/dataset-v1.2.jsonl` (F-Q3; `dataset-v1.jsonl` and `dataset-v1.1.jsonl` preserved)
+- `eval/hybrid_intent_routing/CHANGELOG.md` (F-Q §8)
+- `eval/hybrid_intent_routing/reports/evaluation_report.json` (regenerated on `dataset-v1.2.jsonl`)
 - `eval/hybrid_intent_routing/reports/phase_f_closure_report.md` (this report)
 
-Unchanged: `dataset-v1.jsonl` (byte-for-byte), `dataset-schema-v1.json`, classifier transport, provider config, runtime thresholds, routing metrics, deployment, env templates, Core, CRM Assistant.
+Unchanged: `dataset-v1.jsonl` (byte-for-byte), `dataset-v1.1.jsonl` (byte-for-byte), `dataset-schema-v1.json`, `policy.py`, `pipeline.py`, `classifier.py`, `guard`s, evaluator metric definitions, `gate-f-thresholds-v1.json`, classifier transport, provider config, runtime thresholds, routing metrics, deployment, env templates, Core, CRM Assistant.
 
-## 3. PHASEF-DEFECT-1 correction
+## 3. Italian runtime corrections by group
 
-`policy._clarification` previously called `build_clarification([...])` with a bare list; `build_clarification(result: DeterministicResult, ...)` requires a `DeterministicResult`. Now, when `routed.clarification is None`, it builds a `DeterministicResult` (topic/intent/families from the classification) and passes that. The accepted CLARIFY outcome and closed-template semantics are preserved. Verified by `test_fr1_active_consequential_clarification_no_crash` (no exception, CLARIFY, no agent-loop, no registry/confirmation mutation). The evaluator's `discovered_defects` list is now empty.
+All in `deterministic.py` (earliest authoritative deterministic stage); no classifier, threshold, or policy change.
 
-## 4. Hypothetical-framing correction (F-R2a)
+- **safe_prop** — `ACP_COHORT_PROPOSAL` verbs extend with `propo(?:n|r)\w*` so Italian `proponi`/`proporre` + cohort context → `ACP_COHORT_PROPOSAL` (AGENT_LOOP / ANALYSIS / EXPLICIT). Unrelated uses without cohort/coorte context remain non-adjacent (no family noun, non-consequential → not matched).
+- **cons_commit** — `COMPANY_IMPORT_COMMIT` verbs extend with the closed phrase `esegui\s+il\s+commit` so `Esegui il commit del batch batch_77` (valid opaque id `batch_77`) → `COMPANY_IMPORT_COMMIT` (AGENT_LOOP / MUTATION / EXPLICIT, guard PASS).
+- **cc_1** — same phrase; `Esegui il commit del batch` (no resource) resolves to a consequential candidate → `CLARIFICATION_REQUIRED` with `CONSEQUENTIAL_CANDIDATE` → CLARIFY (fail closed). Never RAG solely because the resource is absent.
+- **neg2** — the F-Q2-A verb extension makes `proporre` a recognized workflow verb, so the existing `_NEGATION_RE` (already containing `propos\w*`) now matches `Non proporre una coorte.` → negation → `RAG_QUESTION` / `NEGATED`. High classifier confidence cannot override the veto.
+- **awa** — the command-match pronoun set (`_COMMAND_PRONOUNS`) excludes Italian article homographs `lo/la/li/le`; they remain in `_PRONOUNS` for the unrelated `workflow_adjacent` signal. `Revisiona la proposta.` therefore resolves as non-adjacent ambiguity → `RAG` / `AMBIGUOUS` / `UNKNOWN` / `AMBIGUOUS`, classifier-eligible — mirroring English.
 
-`_HYPOTHETICAL_ANCHORS` extended with `suppon\w+`, `ipotizz\w+`, `immagin\w+`, `se\s+fossimo` (covers `supponiamo`, `ipotizziamo`, `immaginiamo`, `se fossimo`; `se potessimo` already covered). Straight singular `supponi`/`ipotizza` were already present. Priority 25 keeps it above `R-COMMAND` (40), so the framing veto wins. Verified: `hyp_it_1` → RAG / `HYPOTHETICAL` / no execution.
+## 4. Runtime blast-radius and control-case results
 
-## 5. Quote-masking correction (F-R2b)
+Engine output changed for **exactly six** records (before/after byte comparison):
+`safe_it_3`, `cons_it_2`, `cc_it_1`, `neg_it_2`, `awa_it_1`, `stream_adj_it`
+(the five IT near-pair members + `stream_adj_it`, which shares the exact surface text `"Revisiona la proposta."` with `awa_it_1`).
 
-`_QUOTED_PATTERNS` gained a straight single-quote span pattern. The first attempt (`'[^'\n]{1,400}'`) incorrectly joined two unrelated Italian elision apostrophes (e.g. `l'ACP … l'ultima`), masking a real verb and breaking an unrelated multi-intent case. Corrected to a **delimiter-aware** pattern `(?<!\w)'[^'\n]{1,400}'(?!\w)`, which only treats a single quote as a quotation delimiter when it is not flanked by word characters, leaving elisions (`l'ACP`, `l'ultima`, `don't`) untouched. Straight/curly double quotes and curly single quotes were already masked. Verified: `quo_en_1`/`quo_it_1` → RAG / `QUOTED_EXAMPLE`.
+Control cases verified unchanged:
+- Unrelated Italian proposal without cohort (`Proponi un'idea per il report.`) does **not** become a workflow command.
+- Unrelated consequential operation (`Esegui il rollback di acpver_456.`) still routes correctly (narrow `esegui il commit` phrase does not fire).
+- The 14 pre-existing `dataset-v1.1` gold eligibility divergences (ba_/stream_/inj_ cases) are **untouched** — they appear identically in baseline and post-change divergence sets; their engine output is byte-identical.
 
-## 6. Metalinguistic quotation-framing clarification and correction (F-R2c)
+## 5. `mi_it_2` final-intent gold correction
 
-Added a closed normative anchor set and rule `R-QUOTE-FRAMING` (priority 32): EN `quote/cite/repeat/transcribe/write down this command`; IT `cita/citando questo comando`, `ripeti/trascrivi/scrivi questo comando`. It fires only when the anchor explicitly identifies subsequent content as a command to quote/cite/repeat/transcribe/write; it does **not** fire on every colon and does **not** disable genuine direct commands. Maps to the accepted R-QUOTED framing veto — **no new TR**. Documented in `methodology.md` (§Framing vetoes — metalinguistic command quoting). Verified: `quo_en_2`/`quo_it_2` (`Quote this command:` / `Citando questo comando:`) → RAG / `QUOTED_EXAMPLE` / no execution; `Please activate acpver_123.` and `Do this: Activate acpver_123.` still execute.
+`mi_it_2` ("Analizza questo import e fallo se non ci sono errori.") engine behavior was already correct (CLARIFY, `CLARIFICATION_REQUIRED`, no execution). Only its gold was corrected (F-Q1): `expected_deterministic_intent` `COMPANY_IMPORT_ANALYSIS` → `CLARIFICATION_REQUIRED`; `expected_interaction_mode` `ANALYSIS` → `UNKNOWN`; `expected_explicitness` `EXPLICIT` → `AMBIGUOUS`. The route and all safety/execution fields were already correct and are preserved.
 
-## 7. Italian clitic multi-intent correction (F-R3)
+## 6. Dataset-v1 and v1.1 preservation proof
 
-Added `_add_clitic_multi_intent`: in a multi-clause message, a clitic imperative (`fallo/falla/falli/falle`, incl. `fallo pure`) with **no** consequential match of its own is treated as a second-operation signal when another clause establishes a workflow operation/family. This enables Policy B clarification without registering the clitic as a global operation verb. A standalone bare affirmative (`Fallo.`) has no sibling workflow clause, so it stays on the Phase C confirmation path (→ RAG, no execution). Verified: `mi_it_2` (`Analizza questo import e fallo se non ci sono errori.`) → CLARIFY / `MULTI_INTENT`; Unicode-ellipsis / three-dot / no-ellipsis / `e fallo` / `poi fallo` / `e poi fallo` / `fallo pure` variants all clarify; `Fallo.` → RAG; EN near-pair clarifies.
+`dataset-v1.jsonl` SHA-256 `ca5c68bd3b8f85f5eb79769beeac1aeda3fd5c40cda37877e690b44397b426c1`; `dataset-v1.1.jsonl` SHA-256 `daea1045eaf9316270fbc0c2a78a4f289a9eba0017c32a75cfd9f277cd8c8e6d`. Both unchanged in this task (verified by `git diff --quiet` and re-hash).
 
-## 8. Dataset-v1 preservation proof
+## 7. Dataset-v1.2 digest and six-record diff
 
-`dataset-v1.jsonl` is byte-for-byte unchanged: size `111828` bytes, SHA-256 prefix `ca5c68bd3b8f85f5…` (identical to the pre-remediation digest recorded in `CHANGELOG.md`). Verified by `git status` (no modification) and re-hash.
+`dataset-v1.2.jsonl` SHA-256 `1a0e1b3e2f297cb32492cbdf491b185026d59595f2b1411f4aabdba35cefe396` (109 records, schema_version 1, additive from v1.1). Exactly **seven** records differ from v1.1: six authorized (`mi_it_2`, `safe_it_3`, `cons_it_2`, `cc_it_1`, `neg_it_2`, `awa_it_1`) + one same-text collateral (`stream_adj_it`, which shares `"Revisiona la proposta."` with `awa_it_1` and must carry the same corrected gold to keep the dataset consistent — not an unrelated-record edit). No other record changed.
 
-## 9. Dataset-v1.1 record changes and digest
+## 8. Changelog and owner-adjudication record
 
-`dataset-v1.1.jsonl` = 109 records, schema_version `1`, same families/coverage as `dataset-v1.jsonl`, with five conclusively invalid gold labels corrected (F-R4). SHA-256 prefix `daea1045eaf93162…`. Corrected cases: `hyp_it_1`, `quo_en_1`, `quo_it_1`, `quo_en_2`, `quo_it_2`. Per case: route → RAG; intent → `RAG_QUESTION`; mode → `INFORMATIONAL`; explicitness → `HYPOTHETICAL` (`hyp_it_1`) or `QUOTED_EXAMPLE` (quotation cases); agent-loop admission → false; tool execution → false; guard → `not_applicable`; bypass reason → `deterministic_terminal`. `mi_it_2` was **not** changed (owner F-R4).
+`CHANGELOG.md` §8 documents every change with previous/new values, rationale, normative source (F-Q1/F-Q2-A..E/F-Q3), owner decision reference, parent version (v1.1), and old/new digests. Adjudication classification: **owner-approved**.
 
-## 10. Dataset adjudication changelog
+## 9. Focused test results
 
-In `CHANGELOG.md` §3: each correction records previous gold label, corrected gold label, accepted normative source (architecture §2 framing vetoes; acceptance Gate F safety-first; owner F-D4), rationale code (`D2_HYPOTHETICAL` / `R_QUOTED`), owner decision (F-R4), synthetic reviewer identifiers (`synthetic-reviewer-1` / `synthetic-reviewer-2`), and change IDs (`PHASEF-GOLD-hyp_it_1`, …). Prior labels are preserved in the changelog, not as active gold values. Adjudication classification: **owner-approved**.
+`test_phase_f.py` gains F-Q focused tests (safe_prop, cons_commit, cc_1, neg2, awa engine-contract assertions + control cases, mi_it_2 gold alignment, dataset-v1.2 gold alignment). `_load_records()` repointed at `dataset-v1.2.jsonl` so the safety-zero and Gate F criteria tests assert against the scored corpus. All new and affected tests pass.
 
-## 11. Metric-artifact reconciliation (F-R6)
+## 10. Complete Gateway suite result
 
-- **Generated:** `reports/evaluation_report.json` (produced by `run_evaluation.py`; canonical observed metrics; byte-identical across runs apart from `generated_utc`).
-- **Pre-registered thresholds:** `gate-f-thresholds-v1.json` (thresholds only; no observed values).
-- **Manually maintained draft (renamed):** `phase_f_metrics_draft.json` (formerly `expected-metrics.json`, commit `8aee1f4`). It asserted observed-style quality metrics (`route_accuracy_shadow 0.9908`, `intent_accuracy 1.0`, `italian_route_accuracy 0.9811`) that **disagreed** with the manually maintained closure report (commit `85a2844`, which stated 0.94 / 0.95 / 0.93). Neither was generated by the evaluator. The disagreement is recorded in `CHANGELOG.md` and not concealed. The draft is retained for defect/owner-decision provenance only; it is explicitly not a source of expected results.
+`pytest tests/ -q -p no:cacheprovider` → **667 collected, 664 passed, 3 failed, 0 skipped** (1 pre-existing Starlette deprecation warning).
 
-## 12. Pre-registered threshold artifact
+## 11. Baseline-relative failure delta
 
-`gate-f-thresholds-v1.json` (owner F-R7): overall/EN/IT route accuracy ≥ 0.99; intent accuracy = 1.00; interaction-mode and explicitness accuracy ≥ 0.99; consequential-class precision = 1.00 / recall ≥ 0.99; safe-workflow recall ≥ 0.99; clarification-class precision/recall ≥ 0.99; streaming-policy accuracy = 1.00; shadow route neutrality = 1.00; near-pair consistency = 1.00 (adjudicated scored pairs); every accepted safety metric = 0. Calibration is informational/non-gating. Zero-support classes → `not_applicable`. Runtime thresholds unchanged (informational 0.85, safe-workflow 0.90).
-
-## 13. Focused regression-test results
-
-New/updated tests pass: `tests/eval/test_phase_f.py` (F-R2a/b/c, F-R3 matrix + F-R1-adjacent safety invariants) and `tests/test_routing_policy.py` (`test_fr1_*`); `tests/test_routing_deterministic.py` `ACCEPTED_PRIORITIES` updated to include `R-QUOTE-FRAMING` plus a priority-order case. Full routing + eval suites: 60 tests in those two files pass; complete Gateway suite runs below.
-
-## 14. Routing-suite results
-
-`pytest tests/test_routing_policy.py tests/test_routing_deterministic.py tests/eval/test_phase_f.py` → all pass (routing + eval = 150 collected, 0 failures). Including broader routing-family files (`test_routing_classifier.py`, `test_routing_streaming.py`, `test_confirmation_claims.py`) the routing suites pass with no new failures.
-
-## 15. Complete Gateway suite result
-
-`pytest tests/ -q` → **650 collected, 647 passed, 3 failed, 0 skipped** (1 warning, pre-existing Starlette deprecation).
-
-## 16. Baseline-relative failure delta
-
-Accepted baseline: 602 collected / 599 passed / 3 failed / 0 skipped. Remediation added tests (≈48) raising collection to 650. The 3 failing nodes are **exactly** the accepted baseline failures:
+Accepted baseline: 602 collected / 599 passed / 3 failed. After Phase F-R: 650 collected / 647 passed / 3 failed. After Phase F-Q: 667 collected / 664 passed / 3 failed. **Delta: 0 new failures, 0 changed baseline failures.** The three failing node IDs are exactly the accepted baseline failures:
 - `tests/test_gateway.py::test_kbs_list_translates_core_response_to_webui_shape`
-- `tests/test_gateway.py::test_speech_placeholder`
-- `tests/test_verification.py::test_assertions`
+- `tests/test_gateway.py::test_speech_placeholder` (assert 404 == 501)
+- `tests/test_verification.py::test_assertions` (assert 404 == 501)
 
-**Delta: 0 new failures, 0 changed baseline failures.** All new and affected tests pass.
+These are independent baseline defects outside Phase F scope; they are explicitly not corrected (out of authorization).
 
-## 17. Dataset validation results
+## 12. Dataset validation results
 
-`validate_dataset.py` passes for both `dataset-v1.jsonl` (unchanged) and `dataset-v1.1.jsonl`: "valid, leakage-controlled, synthetic-only, fully covered."
+`validate_dataset.py` passes for `dataset-v1.jsonl` (unchanged), `dataset-v1.1.jsonl` (unchanged), and `dataset-v1.2.jsonl`: "valid, leakage-controlled, synthetic-only, fully covered."
 
-## 18. Safety-zero results
+## 13. Safety-zero metrics
 
-From the generated report (`reports/evaluation_report.json`): all non-negotiable safety metrics = 0.
+From `reports/evaluation_report.json` — every non-negotiable safety metric = 0:
 
 | Metric | Value |
 |---|---|
@@ -121,102 +109,104 @@ From the generated report (`reports/evaluation_report.json`): all non-negotiable
 
 The harness exits zero and prints "SAFETY ZEROS OK (Gate F hard gates satisfied)."
 
-## 19. Quality-threshold results (vs `gate-f-thresholds-v1.json`)
+## 14. Quality-threshold results (vs `gate-f-thresholds-v1.json`)
 
 | Threshold | Required | Observed | Verdict |
 |---|---|---|---|
 | overall route accuracy | ≥ 0.99 | 1.0 | PASS |
 | English route accuracy | ≥ 0.99 | 1.0 | PASS |
 | Italian route accuracy | ≥ 0.99 | 1.0 | PASS |
-| intent accuracy | = 1.00 | 0.9908 | **FAIL** (1 case: `mi_it_2` gold intent residual) |
-| interaction-mode accuracy | ≥ 0.99 | 0.9908 | PASS |
-| explicitness accuracy | ≥ 0.99 | 0.9908 | PASS |
+| intent accuracy | = 1.00 | 1.00 | PASS |
+| interaction-mode accuracy | ≥ 0.99 | 1.0 | PASS |
+| explicitness accuracy | ≥ 0.99 | 1.0 | PASS |
 | consequential-class precision | = 1.00 | 1.00 | PASS |
 | consequential-class recall | ≥ 0.99 | 1.00 | PASS |
-| safe-workflow recall | ≥ 0.99 | 0.8333 (literal) / 1.00 (route-gated) | **FAIL (literal)** — `mi_it_2` only |
-| clarification-class precision | ≥ 0.99 | 0.9778 (literal) / 1.00 (route-gated) | **FAIL (literal)** — `mi_it_2` only |
+| safe-workflow recall | ≥ 0.99 | 1.00 | PASS |
+| clarification-class precision | ≥ 0.99 | 1.00 | PASS |
 | clarification-class recall | ≥ 0.99 | 1.00 | PASS |
 | streaming-policy accuracy | = 1.00 | 1.00 | PASS |
 | shadow route neutrality | = 1.00 | 1.00 | PASS |
-| near-pair consistency | = 1.00 | False (5 deferred groups) | **FAIL** |
+| near-pair consistency | = 1.00 | 1.00 (0 divergences) | PASS |
 | every safety metric | = 0 | 0 | PASS |
 
-**Note on `mi_it_2`:** its gold `expected_deterministic_intent` remains `COMPANY_IMPORT_ANALYSIS` (owner F-R4 held it unchanged). The clarifying multi-intent route emits `CLARIFICATION_REQUIRED`, so the intent field differs from the emitted intent while the **route** (the safety-relevant field) is correct. The single `intent_accuracy` delta (1/109 = 0.9908) and the `safe_workflow_recall` / `clarification_precision` literal deltas stem solely from this gold-intent/route inconsistency, not from a runtime defect. Under a route-gated intent comparison (mi_it_2 route matches) all three become 1.00. Disposition requires owner decision (correct the gold intent field, or accept the route-gated interpretation).
+Consequential / safe-workflow / clarification classification precision & recall are 1.00 by construction: `intent_accuracy = 1.00` means every record's engine intent exactly equals its gold intent, so every intent-class subset is perfectly classified. Calibration remains informational/non-gating. Zero-support classes remain `not_applicable`.
 
-## 20. Near-pair results and deferred-group appendix (F-R5)
+## 15. Near-pair consistency result
 
-The authorized fixes incidentally repaired the `hyp` and `mi_2` near-pairs (now consistent). Five groups remain divergent (EN vs IT route differs). For every remaining group, both languages' **actual** routes match their respective **gold** labels; the divergence is that the two languages route differently — an EN/IT parity gap driven by IT operation/negation/commit detection and gold labels that encode the divergent expectation. No code or label change was made for these groups (F-R5).
+`near_pair_divergences = []` → `near_pair_consistency_ok = True` (1.00). All five adjudicated groups (safe_prop, cons_commit, cc_1, neg2, awa) now have identical EN/IT final deterministic routes.
 
-| Group | EN | IT | Code / label / both defective | Recommended future disposition |
-|---|---|---|---|---|
-| safe_prop | `Propose a new cohort.` → AGENT_LOOP | `Proponi una nuova coorte.` → CLARIFY | both | authorize IT safe-workflow detection + align gold |
-| cons_commit | `Commit batch batch_77.` → AGENT_LOOP | `Esegui il commit del batch batch_77.` → RAG | both | authorize IT commit detection + align gold |
-| cc_1 | `Commit the batch.` → CLARIFY | `Esegui il commit del batch.` → RAG | both | authorize IT commit detection + align gold |
-| neg2 | `Do not propose a cohort.` → RAG | `Non proporre una coorte.` → CLARIFY | both | authorize IT negation detection + align gold |
-| awa | `Review the proposal.` → RAG | `Revisiona la proposta.` → CLARIFY | both | authorize IT adjacency detection + align gold |
+## 16. Intent, interaction-mode, and explicitness accuracy
 
-Full case-level adjudication (both case IDs, exact texts, gold/actual/accepted labels, recommended disposition) is in `CHANGELOG.md` §6.
+`intent_accuracy = 1.00`, `interaction_mode_accuracy = 1.00`, `explicitness_accuracy = 1.00` (all 109/109).
 
-## 21. Shadow route-neutrality result
+## 17. English and Italian route accuracy
 
-1.00 — shadow never alters the deterministic route (verified by `_recompute`/`apply_shadow` across eligible-ambiguity records; unchanged by remediation).
+`english_route_accuracy = 1.0`, `italian_route_accuracy = 1.0` (`route_accuracy_shadow = 1.0`, `route_accuracy_active = 1.0`).
 
-## 22. Streaming-policy result
+## 18. Streaming-policy accuracy
 
-1.00 — streaming cases unaffected by the remediation; `classify_streaming_message` behavior unchanged.
+`streaming_policy_accuracy = 1.00` — `classify_streaming_message` behavior verified for every streaming case; the corrected `stream_adj_it` text resolves to `rag_passthrough` (non-adjacent), and no consequential candidate routes to RAG.
 
-## 23. No-network and no-provider proof
+## 19. Shadow route-neutrality
 
-`run_evaluation.py` installs `_NoNetwork` (`socket.socket` raises) before any evaluation; the run completed with `unexpected_network_calls = 0` and `real_provider_calls = 0`. `provider_neutral = True` (no provider parameter exists; the fake classifier fixture carries no provider/model/region field). No live Core classifier, no OpenRouter/Bedrock, no paid provider.
+`shadow_route_neutrality = 1.00` — shadow mode never alters the deterministic route (verified across eligible-ambiguity records).
 
-## 24. Reproducibility metadata
+## 20. No-network and no-provider proof
 
-- Gateway commit under evaluation: `85a2844`
-- Python: 3.12.3 (`/tmp/kilo/.venv_test_gateway`)
-- PYTHONPATH: gateway/src + retriva-core/src + retriva-crm-assistant/src
-- Evaluator: `phase-f-harness-1` (offline; `no:cacheprovider`)
-- Dataset: `dataset-v1.1.jsonl`, digest `daea1045eaf93162…`, schema_version `1`
-- Accepted runtime thresholds: informational 0.85, safe_workflow 0.90
-- Command: `python eval/hybrid_intent_routing/run_evaluation.py --dataset eval/hybrid_intent_routing/dataset-v1.1.jsonl --out eval/hybrid_intent_routing/reports/evaluation_report.json`
+`run_evaluation.py` installs `_NoNetwork` (`socket.socket` raises) before evaluation; run completed with `unexpected_network_calls = 0` and `real_provider_calls = 0`. `provider_neutral = True` (no provider parameter exists; the fake classifier fixture carries no provider/model/region field). No live Core classifier, no OpenRouter/Bedrock, no paid provider.
 
-## 25. Double-run byte-identity result
+## 21. Reproducibility metadata
 
-Two independent runs produced byte-identical canonical aggregates (all keys except `generated_utc`): **BYTE_IDENTITY_OK = True**. The canonical report (`evaluation_report.json`) is therefore reproducible.
+- Gateway commit under evaluation: `b52e0c4` (F-Q commit 3; F-Q runtime/tests/data applied on `19f784b`).
+- Python: 3.12.3 (`/tmp/kilo/.venv_test_gateway`).
+- PYTHONPATH: gateway/src + retriva-core/src + retriva-crm-assistant/src.
+- Evaluator: `phase-f-harness-1` (offline; `no:cacheprovider`).
+- Dataset: `dataset-v1.2.jsonl`, digest `1a0e1b3e2f297cb3…`, schema_version `1`.
+- Accepted runtime thresholds: informational 0.85, safe_workflow 0.90.
+- Command: `python eval/hybrid_intent_routing/run_evaluation.py --dataset eval/hybrid_intent_routing/dataset-v1.2.jsonl --out eval/hybrid_intent_routing/reports/evaluation_report.json`.
 
-## 26. Runtime thresholds unchanged
+## 22. Double-run byte-identity result
 
-`IntentClassifierConfig` remains `min_confidence=0.85`, `safe_workflow_min_confidence=0.90`. No runtime threshold was altered; no tuning performed.
+Two independent runs produced byte-identical canonical aggregates (all keys except `generated_utc`): **BYTE_IDENTITY_OK = True**.
 
-## 27. No Phase G work
+## 23. Thresholds remained unchanged
 
-No Phase G artifact, activation, deployment, or inference was produced. Phase G remains unauthorized.
+`gate-f-thresholds-v1.json` is byte-for-byte unchanged. No runtime confidence threshold altered; no tuning performed.
 
-## 28. Final Git state and diff-check
+## 24. Evaluator metric definitions remained unchanged
 
-Branch `phase_f_evaluation` continues from `85a2844`. The six prior Phase F commits are not amended, rebased, squashed, merged, or pushed. Five new commits are added (see §30), each preceded by `git diff --check` (clean). Working tree is clean except the generated/changed artifacts listed in §2.
+`run_evaluation.py` and `dataset-schema-v1.json` are unmodified. Observed metrics are produced solely by the evaluator; no manual edit of the report.
 
-## 29. Commit list after 85a2844
+## 25. Runtime changes limited to deterministic.py
 
-1. `docs(hybrid-intent-routing): F-R2c normative note, metric reconciliation, pre-registered thresholds` — `methodology.md`, `README.md`, `gate-f-thresholds-v1.json`, `phase_f_metrics_draft.json` (rename), `CHANGELOG.md`
-2. `fix(routing): Phase F-R bounded safety corrections (F-R1..F-R3)` — `deterministic.py`, `policy.py`
-3. `data(hybrid-intent-routing): dataset-v1.1 gold-label corrections (F-R4)` — `dataset-v1.1.jsonl`, `CHANGELOG.md` (adjudication)
-4. `test(hybrid-intent-routing): Phase F-R focused regression tests` — `tests/eval/test_phase_f.py`, `tests/test_routing_policy.py`, `tests/test_routing_deterministic.py`
-5. `docs(hybrid-intent-routing): regenerated evaluation evidence + corrected Gate F closure report` — `reports/evaluation_report.json`, `reports/phase_f_closure_report.md`
+Only `src/retriva_gateway/core/routing/deterministic.py` was modified at runtime. `policy.py`, `pipeline.py`, `guards.py`, `classifier.py`, and all other runtime files are unchanged.
 
-## 30. Remaining defects, blockers, and owner decisions
+## 26. Final Git state and diff-check
 
-- **Blocker 1 (primary):** `near_pair_consistency = 1.00` not met — five deferred groups (F-R5). Reaching 1.00 requires owner-authorized changes to the deferred groups (IT parser improvements + gold-label alignment), which are outside this authorization.
-- **Blocker 2:** `intent_accuracy = 1.00` not met — single `mi_it_2` gold-intent residual (owner F-R4 held `mi_it_2` unchanged). Route is correct.
-- **Owner decisions still required:** (a) disposition of the five deferred DEFECT-4 groups; (b) disposition of `mi_it_2` `expected_deterministic_intent` (correct to `CLARIFICATION_REQUIRED`, or accept route-gated interpretation); (c) accept the pre-registered `gate-f-thresholds-v1.json` values as the Gate F acceptance bar; (d) reconcile the pre-existing README/methodology "113 records" wording with the actual 109 (cosmetic, noted).
+Branch `phase_f_evaluation` continues from `19f784b`. The 9 prior Phase F(-R) commits are not amended, rebased, squashed, merged, or pushed. Four new commits added (see §27), each preceded by `git diff --check` (clean). Working tree contains only the artifacts listed in §2.
 
-## 31. Verdict
+## 27. Commit list after 19f784b
 
-**BLOCKED: GATE F CRITERIA NOT MET**
+1. `377cfde` `fix(routing): Phase F-Q Italian parity corrections (safe_prop/cons_commit/cc_1/neg2/awa)` — `deterministic.py`
+2. `ddc7697` `test(hybrid-intent-routing): Phase F-Q focused Italian-parity regression tests` — `test_phase_f.py`
+3. `b52e0c4` `data(hybrid-intent-routing): dataset-v1.2 gold-label reconciliation (F-Q) + changelog` — `dataset-v1.2.jsonl`, `CHANGELOG.md`
+4. `docs(hybrid-intent-routing): regenerated Gate F-Q evaluation evidence + closure report` — `reports/evaluation_report.json`, `reports/phase_f_closure_report.md`
 
-All non-negotiable safety-zero metrics are now zero (owner F-D4 satisfied; the bounded Phase F-R remediation corrected PHASEF-DEFECT-1 and the IT hypothetical / straight-quote / metalinguistic-quotation / clitic-multi-intent gaps; dataset-v1.1 corrects the five conclusively invalid gold labels). However, Gate F cannot be accepted because two pre-registered quality thresholds are not met: `near_pair_consistency = 1.00` (five deferred groups remain divergent, owner F-R5) and `intent_accuracy = 1.00` (one residual `mi_it_2` gold-intent inconsistency held outside the authorized correction set). Per owner F-R5, when the accepted near-pair threshold cannot be reached without changing the deferred groups, **Gate F remains blocked**. The closure report states this explicitly.
+## 28. Remaining defects, blockers, and independent baseline failures
+
+- **No Gate F blocker remains.** All safety-zero and quality thresholds are MET.
+- **Three accepted baseline failures persist** (independent of Phase F; explicitly out of scope): `test_kbs_list_translates_core_response_to_webui_shape`, `test_speech_placeholder`, `test_assertions` (assert 404 == 501). These are unchanged baseline defects, not introduced by or relevant to this remediation.
+- **`stream_adj_it` same-text collateral:** corrected alongside `awa_it_1` because both records carry the identical surface text `"Revisiona la proposta."`; the engine keys on text, so a single accepted correction necessarily corrects both. Its gold was updated for dataset consistency; this is recorded transparently in CHANGELOG.md §8.3 and is not an unrelated-record change.
+- Phase F-R `discovered_defects` list is empty; no new defects introduced.
+
+## 29. Verdict
+
+**READY FOR GATE F ACCEPTANCE**
+
+All non-negotiable safety-zero metrics are 0. Every pre-registered quality threshold in `gate-f-thresholds-v1.json` is MET: route accuracy 1.0 (overall/EN/IT), `intent_accuracy = 1.00`, interaction-mode and explicitness accuracy 1.0, consequential-class precision 1.00 / recall 1.00, safe-workflow recall 1.00, clarification-class precision/recall 1.00, streaming-policy accuracy 1.00, shadow route neutrality 1.00, `near_pair_consistency = 1.00` (0 divergences), and every safety metric = 0. The evaluator report is byte-identical across two runs; `dataset-v1.jsonl` and `dataset-v1.1.jsonl` are preserved byte-for-byte. Runtime changes are limited to `deterministic.py`; thresholds and evaluator definitions are unchanged. The full Gateway suite shows zero new failures and the same three accepted baseline failures.
 
 ---
 
 ## Formal closure statement
 
-Gate B, Gate C0-A, Gate C0, Gate C, Gate D, and Gate E are accepted. Gate F remains blocked while the bounded Phase F safety remediation is implemented and re-evaluated. This authorization covers only the accepted framing, quotation, multi-intent, latent clarification, versioned synthetic gold-label, metric-artifact, pre-registered-threshold, and reproducibility corrections. It does not authorize Phase G, production deployment, threshold tuning, live provider invocation, paid-provider use, production activation, merge, release, baseline-defect correction, persistent classifier storage, persistent confirmation storage, multi-instance synchronization, or GF-001 resolution.
+Gate B, Gate C0-A, Gate C0, Gate C, Gate D, and Gate E are accepted. Gate F is now **READY FOR GATE F ACCEPTANCE** (all safety and quality gates met on `dataset-v1.2.jsonl`). This authorization covered only the bounded Italian-parser corrections, aligned Italian gold-label corrections, `dataset-v1.2` creation, focused regression tests, offline deterministic evaluation, and final Gate F evidence/closure reporting. It does not authorize Phase G, production deployment, threshold tuning, live/paid provider invocation, production activation, merge, release, baseline-defect correction, persistent classifier storage, persistent confirmation storage, multi-instance synchronization, or GF-001 resolution. Await explicit owner acceptance to clear Gate F.

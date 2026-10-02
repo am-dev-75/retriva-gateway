@@ -1,11 +1,11 @@
 {
   "evaluator_version": "phase-f-harness-1",
-  "generated_utc": "2026-10-02T16:52:18.523540+00:00",
+  "generated_utc": "2026-10-02T18:04:45.226761+00:00",
   "dataset_version": "1",
-  "dataset_file": "eval/hybrid_intent_routing/dataset-v1.1.jsonl",
-  "dataset_digest": "daea1045eaf93162",
+  "dataset_file": "dataset-v1.2.jsonl",
+  "dataset_digest": "1a0e1b3e2f297cb3",
   "schema_version": "1",
-  "gateway_commit": "85a2844251c59c6a69007b8753a0ced8a42b4bd1",
+  "gateway_commit": "b52e0c4023c98e46cbc322d277dfdfcfe7860847",
   "python_version": "3.12.3",
   "command": "python eval/hybrid_intent_routing/run_evaluation.py",
   "deterministic_seed": "n/a (deterministic engine)",
@@ -18,55 +18,29 @@
   "total_cases": 109,
   "route_accuracy_shadow": 1.0,
   "route_accuracy_active": 1.0,
-  "intent_accuracy": 0.9908,
-  "interaction_mode_accuracy": 0.9908,
-  "explicitness_accuracy": 0.9908,
-  "clarification_rate": 0.4128,
-  "classifier_invocation_precision": 0.9583,
-  "classifier_invocation_recall": 0.211,
+  "intent_accuracy": 1.0,
+  "interaction_mode_accuracy": 1.0,
+  "explicitness_accuracy": 1.0,
+  "clarification_rate": 0.3853,
+  "classifier_invocation_precision": 0.95,
+  "classifier_invocation_recall": 0.1743,
   "english_route_accuracy": 1.0,
   "italian_route_accuracy": 1.0,
   "language_counts": {
     "en": 56,
     "it": 53
   },
-  "near_pair_divergences": [
-    [
-      "safe_prop",
-      "AGENT_LOOP",
-      "CLARIFY"
-    ],
-    [
-      "cons_commit",
-      "AGENT_LOOP",
-      "RAG"
-    ],
-    [
-      "cc_1",
-      "CLARIFY",
-      "RAG"
-    ],
-    [
-      "neg2",
-      "RAG",
-      "CLARIFY"
-    ],
-    [
-      "awa",
-      "RAG",
-      "CLARIFY"
-    ]
-  ],
-  "near_pair_consistency_ok": false,
+  "near_pair_divergences": [],
+  "near_pair_consistency_ok": true,
   "route_confusion_matrix": {
     "RAG": {
-      "RAG": 44
+      "RAG": 45
     },
     "AGENT_LOOP": {
-      "AGENT_LOOP": 20
+      "AGENT_LOOP": 22
     },
     "CLARIFY": {
-      "CLARIFY": 45
+      "CLARIFY": 42
     }
   },
   "provider_neutral": true,
