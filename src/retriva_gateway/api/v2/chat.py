@@ -24,6 +24,7 @@ import json
 from retriva_gateway.core.models import ChatRequest
 from retriva_gateway.core.context import get_correlation_id
 from retriva_gateway.config import settings
+from retriva_gateway.core.routing.metrics import routing_metrics
 
 router = APIRouter(tags=["chat"])
 
@@ -70,7 +71,6 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
             StreamingDecision,
             classify_streaming_message,
         )
-        from retriva_gateway.core.routing.metrics import routing_metrics
         decision, family, engine_result = classify_streaming_message(
             request.message or "")
         if decision is StreamingDecision.REFUSE_STREAM:
@@ -84,7 +84,8 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
             # 7.3: workflow-adjacent ambiguity — neutral streamed
             # clarification (no classifier call, no retrieval, no
             # tools); the classifier is structurally bypassed here.
-            routing_metrics().inc("classifier_bypass_total")
+            routing_metrics().inc(
+                "classifier_bypass_total", reason="streaming")
             routing_metrics().inc(
                 "routing_decision_total", route="STREAM_CLARIFY",
                 source="deterministic")
@@ -109,6 +110,7 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
     from retriva_gateway.core.context import get_principal
     from retriva_gateway.core.routing import (
         TrustedRoutingContext,
+        classifier_bypass_reason,
         eligible_for_classification,
         get_workflow_context_registry,
         route_non_streaming,
@@ -133,6 +135,20 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
             and eligible_for_classification(routed)):
         return _ClassifierEligible(
             routed=routed, message=request.message or "", key=key)
+    # The classifier is NOT invoked for this turn: the deterministic
+    # engine/guard pipeline is authoritative and the message is outside
+    # the accepted eligibility window.  Record exactly one highest-
+    # precedence closed bypass reason (E-D2).  Mode off never reaches
+    # this path (the legacy router above returns first), so the mode_off
+    # reason stays reserved for the mode-off invariant and is not emitted
+    # here.
+    if not settings.AGENT_INTENT_CLASSIFIER_ENABLED:
+        routing_metrics().inc(
+            "classifier_bypass_total", reason="classifier_disabled")
+    else:
+        routing_metrics().inc(
+            "classifier_bypass_total",
+            reason=classifier_bypass_reason(routed))
     if routed.route.value == "AGENT_LOOP":
         logger.info(
             f"[{corr_id}] Chat routing: deterministic pipeline → agent "
@@ -283,10 +299,28 @@ async def _resolve_classification(eligible, corr_id):
     from retriva_gateway.core.routing import (
         Route,
         get_workflow_context_registry,
+        is_consequential_candidate,
         routing_metrics,
     )
 
     routed = eligible.routed
+    # E-D1 final defense-in-depth assertion at the single classifier call
+    # site: no recognized consequential operation or consequential
+    # candidate may reach the classifier.  The deterministic engine and
+    # guard pipeline are authoritative; this fails closed to
+    # clarification WITHOUT invoking the classifier, never raises an
+    # unhandled error, and does not create a second call site.
+    if is_consequential_candidate(routed):
+        metrics = routing_metrics()
+        metrics.inc(
+            "classifier_bypass_total", reason="consequential_candidate")
+        return JSONResponse(content={
+            "id": f"msg_{datetime.datetime.now().timestamp()}",
+            "role": "assistant",
+            "content": routed.clarification,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "citations": [],
+        })
     config = classifier_config_from_settings()
     # Privacy-safe categorical hints from the Phase C registry
     # (presence booleans + closed family hint ONLY).

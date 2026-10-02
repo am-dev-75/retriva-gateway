@@ -45,10 +45,12 @@ from retriva_gateway.core.routing import (
     WorkflowContextRegistry,
     apply_classification,
     build_classification_request,
+    classifier_bypass_reason,
     classifier_config_from_settings,
     classification_context_hints,
     detect_language,
     eligible_for_classification,
+    is_consequential_candidate,
     route_non_streaming,
     validate_classification,
 )
@@ -77,7 +79,7 @@ ELIGIBLE = ["Handle the import.", "Process the ACP request.",
              # class (AMBIGUOUS with exactly {NO_DETERMINISTIC_MATCH,
              # NON_ADJACENT_AMBIGUITY}) is eligible alongside the
              # workflow-adjacent CLARIFICATION_REQUIRED class.
-             "Yes.", "Review the proposal.", "Commit the batch."]
+             "Yes.", "Review the proposal."]
 
 NEVER = [
     ("Activate acpver_123.", "deterministic command"),
@@ -87,6 +89,19 @@ NEVER = [
     ("Reject the import batch.", "unavailable vocabulary"),
     ("Do not approve the ACP.", "negated"),
     ("What if we approve the ACP?", "hypothetical"),
+    # Gate E correction (E-D1): a recognized consequential operation verb
+    # with a missing/generic/unresolved resource is a deterministic
+    # consequential candidate — never classifier-eligible.
+    ("Commit the batch.", "consequential without resource"),
+    ("Roll back the activation.", "consequential without resource"),
+    ("Conferma il batch.", "consequential without resource"),
+    ("Esegui il rollback dell'attivazione.", "consequential without resource"),
+    ("Activate the ACP version.", "consequential without resource"),
+    ("Approve the cohort version.", "consequential without resource"),
+    ("Supersede the ACP version.", "consequential without resource"),
+    ("Accept the enrichment evidence.", "consequential without resource"),
+    ("Attiva la versione ACP.", "consequential without resource"),
+    ("Approva la versione della coorte.", "consequential without resource"),
 ]
 
 
@@ -535,3 +550,107 @@ def test_classification_failure_degrades_deterministically(
     assert "?" in content
     # No other model was invoked (no implicit fallback — the failure
     # path returns the deterministic result only).
+
+
+# ---------------------------------------------------------------------------
+# Gate E correction (E-D1): a recognized consequential operation verb with a
+# missing/generic/unresolved resource is a deterministic consequential
+# candidate — never classifier-eligible, never a classifier call, never an
+# agent-loop admission, never a tool.  EN + IT required examples.
+# ---------------------------------------------------------------------------
+
+GATE_E_CONSEQUENTIAL = [
+    # EN
+    "Commit the batch.",
+    "Roll back the activation.",
+    "Activate the ACP version.",
+    "Approve the cohort version.",
+    "Supersede the ACP version.",
+    "Accept the enrichment evidence.",
+    # IT
+    "Conferma il batch.",
+    "Esegui il rollback dell'attivazione.",
+    "Attiva la versione ACP.",
+    "Approva la versione della coorte.",
+]
+
+
+@pytest.mark.parametrize("message", GATE_E_CONSEQUENTIAL)
+def test_gate_e_consequential_never_eligible(message):
+    routed = route_non_streaming(message)
+    # Deterministic consequential candidate -> clarification, never RAG and
+    # never the agent loop; the classifier is structurally excluded.
+    assert routed.route is Route.CLARIFY
+    assert routed.decision.classifier_invoked is False
+    assert is_consequential_candidate(routed) is True
+    assert eligible_for_classification(routed) is False
+    # The closed bypass reason is emitted, not a classifier call.
+    assert classifier_bypass_reason(routed) == "consequential_candidate"
+
+
+@pytest.mark.parametrize("message", GATE_E_CONSEQUENTIAL)
+def test_gate_e_consequential_never_invokes_classifier(message, monkeypatch):
+    from retriva_gateway.api.v2 import chat as chat_module
+    from retriva_gateway.config import settings
+    monkeypatch.setattr(settings, "AGENT_TOOLS_ENABLED", True)
+    monkeypatch.setattr(settings, "AGENT_INTENT_ROUTER_MODE", "active")
+    monkeypatch.setattr(settings, "AGENT_INTENT_CLASSIFIER_ENABLED", True)
+    # Spy on the SINGLE classifier call site: it must not be reached.
+    called = {"n": 0}
+    original = chat_module._resolve_classification
+
+    async def _spy(*args, **kwargs):
+        called["n"] += 1
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(chat_module, "_resolve_classification", _spy)
+    result = chat_module._run_agent_mode(_request(message), "corr")
+    assert called["n"] == 0
+    # Deterministically clarified, never an agent-loop admission.
+    assert result is not chat_module._AGENT_SENTINEL
+    from fastapi.responses import JSONResponse
+    assert isinstance(result, JSONResponse)
+    assert result.status_code == 200
+
+
+@pytest.mark.parametrize("message", GATE_E_CONSEQUENTIAL)
+def test_gate_e_consequential_classifier_downcall_not_reached(
+        message, monkeypatch):
+    from retriva_gateway.api.v2 import chat as chat_module
+    from retriva_gateway.config import settings
+    monkeypatch.setattr(settings, "AGENT_TOOLS_ENABLED", True)
+    monkeypatch.setattr(settings, "AGENT_INTENT_ROUTER_MODE", "active")
+    monkeypatch.setattr(settings, "AGENT_INTENT_CLASSIFIER_ENABLED", True)
+    # If the classifier downcall were ever reached it would raise — so a
+    # clean route proves it is never attempted.
+    monkeypatch.setattr(
+        "retriva_gateway.core.routing.classifier.CoreEndpointClassifier"
+        ".classify",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("classifier must not be called")))
+    result = chat_module._run_agent_mode(_request(message), "corr")
+    from fastapi.responses import JSONResponse
+    assert isinstance(result, JSONResponse)
+    assert result.status_code == 200
+
+
+def test_gate_e_valid_resource_consequential_enters_agent_loop():
+    # A consequential verb WITH an explicit opaque resource stays
+    # deterministic and classifier-free (Gate E: explicit valid resource ->
+    # agent loop), never classifier-eligible.
+    for message in ("Commit batch batch_123.", "Attiva acpver_123.",
+                    "Approva acpver_9 dell'ACP."):
+        routed = route_non_streaming(message)
+        assert routed.route is Route.AGENT_LOOP
+        assert routed.decision.classifier_invoked is False
+        assert eligible_for_classification(routed) is False
+
+
+def test_gate_e_safe_unresolved_workflow_remains_eligible():
+    # Gate E narrows only consequential-verb ambiguity; a safe unresolved
+    # workflow reference stays classifier-eligible (never a consequential
+    # candidate).
+    for message in ("Review the proposal.", "Handle the import."):
+        routed = route_non_streaming(message)
+        assert is_consequential_candidate(routed) is False
+        assert eligible_for_classification(routed) is True

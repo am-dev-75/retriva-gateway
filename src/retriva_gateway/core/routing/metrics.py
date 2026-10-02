@@ -29,7 +29,12 @@ Closed metric families (exact accepted names):
 ``explicit_intent_rejection_total{operation}``,
 ``workflow_route_total{family}``,
 ``rag_route_total``,
-``classifier_bypass_total``,
+``classifier_bypass_total{reason}`` — ``reason`` drawn from the closed
+bypass-reason vocabulary (E-D2): ``mode_off``, ``streaming``,
+``deterministic_terminal``, ``multi_intent``, ``confirmation_path``,
+``guard_terminal``, ``consequential_candidate``, ``classifier_disabled``,
+``classifier_unavailable``, ``not_eligible``; unknown reasons are
+rejected fail-closed,
 ``regional_policy_rejection_total``.
 
 Labels are closed, bounded, low-cardinality, and content-free: an
@@ -76,9 +81,28 @@ LABEL_NAMES: Dict[str, Tuple[str, ...]] = {
     "explicit_intent_rejection_total": ("operation",),
     "workflow_route_total": ("family",),
     "rag_route_total": (),
-    "classifier_bypass_total": (),
+    "classifier_bypass_total": ("reason",),
     "regional_policy_rejection_total": (),
 }
+
+#: Closed bypass-reason vocabulary for ``classifier_bypass_total`` (E-D2).
+#: Every emitted reason must be one of these; unknown values are rejected
+#: fail-closed by the metrics API.  The label carries no message content,
+#: intent names outside this closed enum, resource/tenant/principal/session/
+#: KB identifiers, correlation IDs, raw error data, or classifier/provider
+#: output.
+BYPASS_REASON_VALUES = frozenset({
+    "mode_off",
+    "streaming",
+    "deterministic_terminal",
+    "multi_intent",
+    "confirmation_path",
+    "guard_terminal",
+    "consequential_candidate",
+    "classifier_disabled",
+    "classifier_unavailable",
+    "not_eligible",
+})
 
 #: Bounded latency ring: numeric observations only, no identifiers.
 _LATENCY_RING_CAPACITY = 256
@@ -106,6 +130,15 @@ class RoutingMetrics:
             raise ValueError(
                 f"metric {metric!r} takes labels {expected}, got "
                 f"{sorted(labels)}")
+        # E-D2: the classifier_bypass_total reason must be drawn from the
+        # closed bypass-reason vocabulary — unknown reasons are rejected
+        # fail-closed (content can never leak into a label).
+        if metric == "classifier_bypass_total":
+            reason = labels.get("reason")
+            if reason not in BYPASS_REASON_VALUES:
+                raise ValueError(
+                    f"classifier_bypass_total reason {reason!r} not in "
+                    f"closed vocabulary")
         key = (metric, tuple(sorted(labels.items())))
         with self._lock:
             self._counters[key] = self._counters.get(key, 0) + 1

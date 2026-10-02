@@ -31,6 +31,7 @@ from retriva_gateway.core.routing import (
     reset_routing_metrics_for_tests,
     routing_metrics,
 )
+from retriva_gateway.core.routing.metrics import BYPASS_REASON_VALUES
 
 
 EXPECTED_METRICS = {
@@ -138,3 +139,42 @@ def test_snapshot_is_content_free():
                       "prompt", "identifier", "tenant", "principal"):
         assert forbidden not in blob
     assert "counters" in snap and "classifier_latency" in snap
+
+
+# ---------------------------------------------------------------------------
+# Gate E correction (E-D2): classifier_bypass_total carries exactly one closed
+# ``reason`` label drawn from a bounded, content-free vocabulary; unknown
+# reasons are rejected fail-closed so content can never leak into a label.
+# ---------------------------------------------------------------------------
+
+EXPECTED_BYPASS_REASONS = frozenset({
+    "mode_off", "streaming", "deterministic_terminal", "multi_intent",
+    "confirmation_path", "guard_terminal", "consequential_candidate",
+    "classifier_disabled", "classifier_unavailable", "not_eligible",
+})
+
+
+def test_classifier_bypass_reason_label_is_closed():
+    # The reason label is declared and bounded.
+    assert LABEL_NAMES["classifier_bypass_total"] == ("reason",)
+    assert BYPASS_REASON_VALUES == EXPECTED_BYPASS_REASONS
+
+
+def test_classifier_bypass_total_accepts_closed_reasons():
+    m = routing_metrics()
+    for reason in BYPASS_REASON_VALUES:
+        m.inc("classifier_bypass_total", reason=reason)
+        assert _counter(m, "classifier_bypass_total", reason=reason) >= 1
+
+
+def test_classifier_bypass_total_rejects_unknown_reason():
+    m = routing_metrics()
+    with pytest.raises(ValueError):
+        m.inc("classifier_bypass_total", reason="unknown_reason")
+
+
+def test_classifier_bypass_total_requires_reason_label():
+    # No content-free default — the label is mandatory.
+    m = routing_metrics()
+    with pytest.raises(ValueError):
+        m.inc("classifier_bypass_total")

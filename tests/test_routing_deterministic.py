@@ -297,7 +297,7 @@ def test_consequential_without_resolvable_resource_fails_closed(message):
 # ---------------------------------------------------------------------------
 
 def test_workflow_adjacent_ambiguity_clarifies():
-    routed = route_non_streaming("approve it")
+    routed = route_non_streaming("review it")
     assert routed.route == Route.CLARIFY
     assert ReasonCode.FOLLOWUP_CONTEXT in routed.decision.reason_codes
 

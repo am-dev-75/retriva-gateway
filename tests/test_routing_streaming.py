@@ -26,6 +26,7 @@ SSE).  The classifier is structurally bypassed — these tests assert that.
 from __future__ import annotations
 
 import json
+import pytest
 
 from fastapi.responses import StreamingResponse
 
@@ -57,7 +58,7 @@ def test_workflow_adjacent_ambiguity_streams_clarification():
 
 
 def test_followup_context_streams_clarification():
-    decision, _, res = classify_streaming_message("Approve it.")
+    decision, _, res = classify_streaming_message("Review it.")
     assert decision is StreamingDecision.STREAM_CLARIFY
     # The engine detected a follow-up shape (Phase C ownership upstream).
     assert "FOLLOWUP_CONTEXT" in [c.value for c in res.reason_codes]
@@ -128,3 +129,73 @@ def test_streaming_clarification_is_neutral_sse():
     assert "data: [DONE]" in text
     # No classifier call, no tool, no execution claim in the stream.
     assert "acpver" not in text and "Bearer" not in text
+
+
+# ---------------------------------------------------------------------------
+# Gate E correction (E-D1): an unresolved consequential command never streams
+# to RAG merely because its resource is absent — the deterministic engine
+# either refuses the stream (family known) or streams a neutral clarification.
+# The classifier is structurally bypassed.
+# ---------------------------------------------------------------------------
+
+GATE_E_CONSEQUENTIAL_STREAM = [
+    # EN
+    "Commit the batch.",
+    "Roll back the activation.",
+    "Activate the ACP version.",
+    "Approve the cohort version.",
+    "Supersede the ACP version.",
+    "Accept the enrichment evidence.",
+    # IT
+    "Conferma il batch.",
+    "Esegui il rollback dell'attivazione.",
+    "Attiva la versione ACP.",
+    "Approva la versione della coorte.",
+]
+
+
+def _request(message, *, stream=False, session="sess-gate-e"):
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        message=message, session_id=session, kb_ids=["default"],
+        tools_enabled=False, attachment_ids=[], metadata_filters=None,
+        filters=None, metadata_filter_mode="soft", stream=stream)
+
+
+@pytest.mark.parametrize("message", GATE_E_CONSEQUENTIAL_STREAM)
+def test_gate_e_consequential_streaming_never_streams_rag(message):
+    decision, _, res = classify_streaming_message(message)
+    # Never a RAG passthrough: a consequential command with an absent
+    # resource must not silently stream to RAG.  It is either a typed 409
+    # (family deterministically known) or a neutral clarification.
+    assert decision in (StreamingDecision.REFUSE_STREAM,
+                        StreamingDecision.STREAM_CLARIFY)
+    assert decision is not StreamingDecision.RAG_PASSTHROUGH
+    # The deterministic engine owns the outcome — the classifier is not.
+    assert "CONSEQUENTIAL_CANDIDATE" in [c.value for c in res.reason_codes] \
+        or res.intent.value in (
+            "ACP_ACTIVATION", "ACP_SUPERSESSION", "ACP_COHORT_APPROVAL",
+            "ACP_EVIDENCE_ACCEPTANCE", "COMPANY_IMPORT_COMMIT")
+
+
+@pytest.mark.parametrize("message", GATE_E_CONSEQUENTIAL_STREAM)
+def test_gate_e_consequential_streaming_never_invokes_classifier(
+        message, monkeypatch):
+    from retriva_gateway.api.v2 import chat as chat_module
+    from retriva_gateway.config import settings
+    monkeypatch.setattr(settings, "AGENT_TOOLS_ENABLED", True)
+    monkeypatch.setattr(settings, "AGENT_INTENT_ROUTER_MODE", "active")
+    monkeypatch.setattr(settings, "AGENT_INTENT_CLASSIFIER_ENABLED", True)
+    called = {"n": 0}
+    original = chat_module._resolve_classification
+
+    async def _spy(*args, **kwargs):
+        called["n"] += 1
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(chat_module, "_resolve_classification", _spy)
+    result = chat_module._run_agent_mode(
+        _request(message, stream=True), "corr")
+    assert called["n"] == 0
+    # 409 refusal or neutral SSE clarification — never an agent loop.
+    assert result is not chat_module._AGENT_SENTINEL
