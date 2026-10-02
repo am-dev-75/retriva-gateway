@@ -148,9 +148,9 @@ def test_snapshot_is_content_free():
 # ---------------------------------------------------------------------------
 
 EXPECTED_BYPASS_REASONS = frozenset({
-    "mode_off", "streaming", "deterministic_terminal", "multi_intent",
+    "streaming", "deterministic_terminal", "multi_intent",
     "confirmation_path", "guard_terminal", "consequential_candidate",
-    "classifier_disabled", "classifier_unavailable", "not_eligible",
+    "classifier_disabled",
 })
 
 
