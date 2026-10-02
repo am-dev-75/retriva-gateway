@@ -43,8 +43,12 @@ from retriva_gateway.core.routing.taxonomy import (  # noqa: E402
 
 
 def _load_records():
+    # Phase F-Q: the scored dataset is dataset-v1.2 (derived from v1.1 with the
+    # six authorized gold-label corrections + the same-text stream_adj_it
+    # collateral).  The Phase F evaluation and safety-zero reproducibility
+    # assert against the scored dataset, matching reports/evaluation_report.json.
     recs = []
-    for line in (EVAL_DIR / "dataset-v1.jsonl").read_text(encoding="utf-8").splitlines():
+    for line in (EVAL_DIR / "dataset-v1.2.jsonl").read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line:
             recs.append(json.loads(line))
@@ -576,3 +580,182 @@ def test_fr3_safe_single_intent_not_clarified():
 
 def test_fr3_english_near_pair():
     _assert_clarify("Analyze this import and commit it if there are no errors.")
+
+
+# ---------------------------------------------------------------------------
+# Phase F-Q — Italian parity & final gold-label reconciliation
+# (owner authorization 2026-10-02). Bounded Italian deterministic corrections
+# + aligned gold labels for five near-pair groups + mi_it_2. Asserts the engine
+# contract directly (route, intent, mode, explicitness, reason codes, classifier
+# eligibility, guard result, agent-loop admission, tool execution, registry /
+# confirmation mutation, bypass reason) and the v1.2 gold alignment for every
+# corrected record.
+# ---------------------------------------------------------------------------
+
+def _assert_consequential_agent_loop(text, intent, mode):
+    r = route_non_streaming(text)
+    d = r.decision
+    assert d.route is Route.AGENT_LOOP, (text, d.route)
+    assert d.intent is intent, (text, d.intent)
+    assert d.mode is mode, (text, d.mode)
+    assert d.explicitness is Explicitness.EXPLICIT, (text, d.explicitness)
+    assert eligible_for_classification(r) is False
+    assert is_consequential_candidate(r) is True
+    assert classifier_bypass_reason(r) == "guard_terminal"
+    assert r.claimed is None and r.resolved is None
+    return d
+
+
+def _assert_consequential_candidate_clarify(text, intent, explicitness):
+    r = route_non_streaming(text)
+    d = r.decision
+    assert d.route is Route.CLARIFY, (text, d.route)
+    assert d.intent is intent, (text, d.intent)
+    assert d.explicitness is explicitness, (text, d.explicitness)
+    assert ReasonCode.CONSEQUENTIAL_CANDIDATE in d.reason_codes, (text, d.reason_codes)
+    assert is_consequential_candidate(r) is True
+    assert eligible_for_classification(r) is False
+    assert classifier_bypass_reason(r) == "consequential_candidate"
+    assert d.route is not Route.AGENT_LOOP
+    assert r.claimed is None and r.resolved is None
+    return d
+
+
+def _assert_negation_rag(text):
+    r = route_non_streaming(text)
+    d = r.decision
+    assert d.route is Route.RAG, (text, d.route)
+    assert d.intent is Intent.RAG_QUESTION, (text, d.intent)
+    assert d.explicitness is Explicitness.NEGATED, (text, d.explicitness)
+    assert ReasonCode.NEGATION in d.reason_codes, (text, d.reason_codes)
+    assert eligible_for_classification(r) is False
+    assert d.route is not Route.AGENT_LOOP
+    assert r.claimed is None
+    return d
+
+
+def _assert_safe_proposal_agent_loop(text):
+    r = route_non_streaming(text)
+    d = r.decision
+    assert d.route is Route.AGENT_LOOP, (text, d.route)
+    assert d.intent is Intent.ACP_COHORT_PROPOSAL, (text, d.intent)
+    assert d.mode is InteractionMode.ANALYSIS, (text, d.mode)
+    assert d.explicitness is Explicitness.EXPLICIT, (text, d.explicitness)
+    assert eligible_for_classification(r) is False
+    assert is_consequential_candidate(r) is False
+    assert r.claimed is None and r.resolved is None
+    return d
+
+
+# F-Q2-A: safe_prop (Italian cohort proposal -> AGENT_LOOP, not CLARIFY)
+def test_fq_safe_prop_it():
+    _assert_safe_proposal_agent_loop("Proponi una nuova coorte.")
+
+def test_fq_safe_prop_en_parity():
+    _assert_safe_proposal_agent_loop("Propose a new cohort.")
+
+def test_fq_safe_prop_unrelated_it_not_command():
+    # "proponi" without cohort/coorte context must NOT become a workflow command.
+    r = route_non_streaming("Proponi un'idea per il report.")
+    d = r.decision
+    assert d.route is not Route.AGENT_LOOP
+    assert d.intent is not Intent.ACP_COHORT_PROPOSAL
+
+
+# F-Q2-B: cons_commit (Italian explicit-resource commit -> guarded AGENT_LOOP)
+def test_fq_cons_commit_it_guard_pass():
+    _assert_consequential_agent_loop(
+        "Esegui il commit del batch batch_77.",
+        Intent.COMPANY_IMPORT_COMMIT, InteractionMode.MUTATION)
+
+def test_fq_cons_commit_en_parity():
+    _assert_consequential_agent_loop(
+        "Commit batch batch_77.",
+        Intent.COMPANY_IMPORT_COMMIT, InteractionMode.MUTATION)
+
+def test_fq_cons_commit_unrelated_it_control():
+    # A different consequential operation still routes correctly (narrow fix).
+    _assert_consequential_agent_loop(
+        "Esegui il rollback di acpver_456.",
+        Intent.ACP_ROLLBACK, InteractionMode.DESTRUCTIVE_MUTATION)
+
+
+# F-Q2-C: cc_1 (Italian no-resource commit -> consequential candidate, CLARIFY)
+def test_fq_cc_it_consequential_candidate():
+    _assert_consequential_candidate_clarify(
+        "Esegui il commit del batch.",
+        Intent.CLARIFICATION_REQUIRED, Explicitness.EXPLICIT)
+
+def test_fq_cc_en_parity():
+    _assert_consequential_candidate_clarify(
+        "Commit the batch.",
+        Intent.CLARIFICATION_REQUIRED, Explicitness.EXPLICIT)
+
+def test_fq_cc_streaming_not_rag_on_missing_resource():
+    # Missing resource must NOT route to RAG; it fails closed to clarification.
+    sd, _fam, _ = reval.classify_streaming_message("Esegui il commit del batch.")
+    assert sd != "rag_passthrough"
+
+
+# F-Q2-D: neg2 (Italian negation -> RAG, no execution)
+def test_fq_neg_it_negation():
+    _assert_negation_rag("Non proporre una coorte.")
+
+def test_fq_neg_en_parity():
+    _assert_negation_rag("Do not propose a cohort.")
+
+def test_fq_neg_it_positive_control():
+    # Without negation the same proposal is a safe workflow command.
+    _assert_safe_proposal_agent_loop("Proponi una nuova coorte.")
+
+
+# F-Q2-E: awa (Italian safe-review -> RAG, AMBIGUOUS, classifier-eligible)
+def test_fq_awa_it_ambiguous_rag():
+    r = route_non_streaming("Revisiona la proposta.")
+    d = r.decision
+    assert d.route is Route.RAG, (d.route)
+    assert d.intent is Intent.AMBIGUOUS, (d.intent)
+    assert d.mode is InteractionMode.UNKNOWN
+    assert d.explicitness is Explicitness.AMBIGUOUS
+    assert eligible_for_classification(r) is True
+    assert is_consequential_candidate(r) is False
+
+def test_fq_awa_en_parity():
+    r = route_non_streaming("Review the proposal.")
+    d = r.decision
+    assert d.route is Route.RAG
+    assert d.intent is Intent.AMBIGUOUS
+    assert eligible_for_classification(r) is True
+
+def test_fq_awa_it_no_consequential_authority():
+    r = route_non_streaming("Revisiona la proposta.")
+    assert is_consequential_candidate(r) is False
+    assert eligible_for_classification(r) is True
+
+
+# F-Q1: mi_it_2 final-intent gold alignment (engine already correct)
+def test_fq_mi_it_2_final_intent_clarify():
+    r = route_non_streaming("Analizza questo import e fallo se non ci sono errori.")
+    d = r.decision
+    assert d.intent is Intent.CLARIFICATION_REQUIRED
+    assert d.route is Route.CLARIFY
+    assert eligible_for_classification(r) is False
+    assert is_consequential_candidate(r) is False
+    assert r.claimed is None and r.resolved is None
+
+
+# F-Q3: dataset-v1.2 gold aligns with the corrected engine for every record
+def test_fq_dataset_v1_2_gold_alignment():
+    recs = [json.loads(l) for l in
+            (EVAL_DIR / "dataset-v1.2.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    changed = {"mi_it_2", "safe_it_3", "cons_it_2", "cc_it_1",
+               "neg_it_2", "awa_it_1", "stream_adj_it"}
+    for rec in recs:
+        if rec["case_id"] not in changed:
+            continue
+        out = reval._recompute(rec)
+        assert out["route"] == rec["expected_route_off"], rec["case_id"]
+        assert out["intent"] == rec["expected_deterministic_intent"], rec["case_id"]
+        assert out["mode"] == rec["expected_interaction_mode"], rec["case_id"]
+        assert out["explicitness"] == rec["expected_explicitness"], rec["case_id"]
+        assert out["elig"] == rec["expected_classifier_eligibility"], rec["case_id"]
