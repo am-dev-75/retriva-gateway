@@ -97,6 +97,7 @@ RULE_PRIORITIES: Dict[str, int] = {
     "R-NEGATION": 20,
     "R-HYPOTHETIC": 25,
     "R-QUOTED": 30,
+    "R-QUOTE-FRAMING": 32,
     "R-COMMAND": 40,
     "R-QUESTION": 50,
     "R-MULTI-INTENT": 55,
@@ -166,6 +167,12 @@ _QUOTED_PATTERNS = [
     re.compile(r"`[^`\n]{1,400}`"),               # inline code spans
     re.compile(r"“[^“”\n]{1,400}”"),              # smart double quotes
     re.compile(r"\"[^\"\n]{1,400}\""),            # straight double quotes
+    # Straight single quotes: only as genuine delimiters (not elision
+    # apostrophes such as Italian "l'ACP" / "l'ultima", which are flanked by
+    # word characters). Lookarounds require the quote to be bounded by a
+    # non-word character on each side so two unrelated apostrophes are never
+    # joined into one quoted span.
+    re.compile(r"(?<!\w)'[^'\n]{1,400}'(?!\w)"),  # straight single quotes (delimited)
     re.compile(r"«[^»\n]{1,400}»"),
     re.compile(r"‘[^‘’\n]{1,400}’"),              # smart single quotes
 ]
@@ -523,12 +530,20 @@ _IMPERATIVE_MARKERS = re.compile(
     r"fallo)\b"
 )
 
+# F-R3: Italian clitic imperatives that may refer to performing/completing a
+# preceding workflow operation ("fallo" = "do it").  NOT global operation
+# verbs; recognized only as a second-operation signal inside a multi-clause
+# message (see _add_clitic_multi_intent).  A standalone bare affirmative
+# ("Fallo.") stays under the Phase C confirmation path.
+_CLITIC_IMPERATIVE = re.compile(r"\b(?:fallo|falla|falli|falle)(?:\s+pure)?\b")
+
 _HYPOTHETICAL_ANCHORS = re.compile(
     r"(?:what\s+if|suppos\w+|assuming|if\s+we\s+were\s+to|hypothetic\w+|"
     r"would\s+it\s+be\s+possible|write\s+(?:me\s+)?an?\s+(?:prompt|"
     r"example)|show\s+(?:me\s+)?an?\s+example|draft\s+(?:me\s+)?an?\s+"
     r"request|give\s+(?:me\s+)?an?\s+example|"
-    r"e\s+se|se\s+potess\w+|se\s+riusciss\w+|ipotizza|supponi|"
+    r"e\s+se|se\s+potess\w+|se\s+riusciss\w+|se\s+fossimo|ipotizz\w+|"
+    r"suppon\w+|immagin\w+|"
     r"scrivi\s+un\s+prompt|scrivimi\s+un\s+prompt|fammi\s+un\s+esempio|"
     r"mostra\s+un\s+esempio|bozza\s+(?:di\s+)?una?\s+richiesta)\b"
 )
@@ -546,6 +561,18 @@ _STATUS_QUESTION_ANCHORS = re.compile(
 
 _PROMPT_WRITING_RE = re.compile(
     r"\b(?:prompt|example|esempio|richiesta|request)\b"
+)
+
+# Metalinguistic command-quoting framing (F-R2c): an explicit instruction to
+# quote / cite / repeat / transcribe / write down "this command" makes the
+# subsequent content a non-executable example.  This is the same accepted
+# framing veto as R-QUOTED (architecture §2): the content can never become a
+# consequential candidate, enter the agent loop, or acquire classifier
+# authority.  The anchor requires the command word and does NOT fire on every
+# colon or on genuine direct commands.
+_QUOTE_FRAMING_ANCHORS = re.compile(
+    r"(?:quote|cite|repeat|transcribe|write\s+down)\s+this\s+command"
+    r"|(?:cita(?:ndo)?|ripeti|trascrivi|scrivi)\s+questo\s+comando"
 )
 
 # Follow-up shapes (Phase C registry absent; Phase B abstains -> AMBIGUOUS).
@@ -798,6 +825,7 @@ class DeterministicEngine:
             "R-NEGATION": self._rule_negation,
             "R-HYPOTHETIC": self._rule_hypothetical,
             "R-QUOTED": self._rule_quoted,
+            "R-QUOTE-FRAMING": self._rule_quote_framing,
             "R-COMMAND": self._rule_command,
             "R-QUESTION": self._rule_question,
             "R-MULTI-INTENT": self._rule_multi_intent,
@@ -833,6 +861,47 @@ class DeterministicEngine:
                 continue
             clause.command_matches = self._command_matches_in_clause(
                 clause, all_family_nouns)
+        self._add_clitic_multi_intent(clauses)
+
+    def _add_clitic_multi_intent(self, clauses: List[ClauseAnalysis]) -> None:
+        """F-R3: contextual Italian clitic multi-intent.
+
+        A clitic imperative ('fallo'/'falla'/'falli'/'falle') in a clause that
+        does NOT itself carry a consequential command match is treated as
+        evidence of a second operation when another clause of the same message
+        establishes a workflow operation or family.  This enables Policy B
+        multi-intent clarification (TR59-TR66) without registering the clitic
+        as a global operation verb.  A standalone clitic (no sibling workflow
+        clause) is left to the Phase C bare-affirmative path.
+        """
+        for clause in clauses:
+            if clause.claimed:
+                continue
+            if not _CLITIC_IMPERATIVE.search(clause.text):
+                continue
+            if any(m.consequential for m in clause.command_matches):
+                continue
+            other_families = set()
+            for other in clauses:
+                if other is clause:
+                    continue
+                other_families |= other.family_nouns
+                other_families |= {m.family for m in other.command_matches}
+            if not other_families:
+                continue
+            family = sorted(other_families, key=lambda t: t.value)[0]
+            clause.command_matches.append(CommandMatch(
+                family=family,
+                intent=None,
+                operation_key=f"{family.value}:CLITIC_EXECUTE",
+                verb="fallo",
+                consequential=True,
+                strong=False,
+                noun_based=False,
+                explicit_resource=None,
+                clause_index=clause.index,
+                reason=ReasonCode.MULTI_INTENT,
+            ))
 
     def _any_workflow_vocab(self, clause_text: str) -> bool:
         for pattern in self._family_patterns.values():
@@ -1059,6 +1128,30 @@ class DeterministicEngine:
             mode=InteractionMode.INFORMATIONAL,
             explicitness=Explicitness.QUOTED_EXAMPLE,
             reason_codes=(ReasonCode.QUOTED_EXAMPLE, ReasonCode.CODE_BLOCK),
+            families=families or (Topic.GENERAL,),
+            consequential_operations=(),
+        )
+
+    def _rule_quote_framing(self, scan: _MessageScan
+                            ) -> Optional[DeterministicResult]:
+        # F-R2c: metalinguistic command-quoting framing (accepted R-QUOTED
+        # veto, architecture §2).  "Quote this command: <cmd>" / "Citando
+        # questo comando: <cmd>" presents <cmd> as an example to quote, never
+        # an execution order.  Route informational; never the agent loop.
+        text = " ".join(c.text for c in scan.clauses)
+        if not _QUOTE_FRAMING_ANCHORS.search(text):
+            return None
+        families = tuple(sorted(
+            {t for c in scan.clauses for t in c.family_nouns},
+            key=lambda t: t.value))
+        return DeterministicResult(
+            rule="R-QUOTE-FRAMING",
+            topic=Topic.DOCUMENTATION,
+            intent=(Intent.WORKFLOW_DOCUMENTATION
+                    if families else Intent.RAG_QUESTION),
+            mode=InteractionMode.INFORMATIONAL,
+            explicitness=Explicitness.QUOTED_EXAMPLE,
+            reason_codes=(ReasonCode.QUOTED_EXAMPLE,),
             families=families or (Topic.GENERAL,),
             consequential_operations=(),
         )

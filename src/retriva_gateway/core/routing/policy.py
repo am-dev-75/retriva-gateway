@@ -401,8 +401,26 @@ def _clarification(routed, classification):
     """Clarification selection: the deterministic closed template —
     free-form classifier instructions never execute."""
     from .clarifications import build_clarification
+    from .deterministic import DeterministicResult
     from .pipeline import PhaseBChatRoute
-    routed_clarification = routed.clarification
+    reason = (ReasonCode.NON_ADJACENT_AMBIGUITY
+              if ReasonCode.NON_ADJACENT_AMBIGUITY
+              in routed.decision.reason_codes
+              else ReasonCode.WORKFLOW_ADJACENT)
+    clarification = routed.clarification
+    if clarification is None:
+        # Type-correct clarification synthesis: build_clarification requires a
+        # DeterministicResult, never a bare list (F-R1).
+        clarification = build_clarification(DeterministicResult(
+            rule="R-CLARIFICATION",
+            topic=classification.topic,
+            intent=Intent.CLARIFICATION_REQUIRED,
+            mode=InteractionMode.UNKNOWN,
+            explicitness=classification.explicitness,
+            reason_codes=(reason,),
+            families=(classification.topic,),
+            consequential_operations=(),
+        ))
     decision = RoutingDecision(
         route=Route.CLARIFY,
         source=DecisionSource.GUARD,
@@ -411,14 +429,11 @@ def _clarification(routed, classification):
         mode=InteractionMode.UNKNOWN,
         explicitness=classification.explicitness,
         confidence=classification.confidence,
-        reason_codes=(ReasonCode.WORKFLOW_ADJACENT,),
+        reason_codes=(reason,),
         classifier_invoked=True,
         shadow=False)
     return PhaseBChatRoute(
         route=Route.CLARIFY, decision=decision,
-        clarification=routed_clarification
-        or build_clarification(
-            [ReasonCode.NON_ADJACENT_AMBIGUITY
-             if ReasonCode.NON_ADJACENT_AMBIGUITY
-             in routed.decision.reason_codes
-             else ReasonCode.WORKFLOW_ADJACENT]))
+        clarification=clarification,
+        claimed=routed.claimed,
+        resolved=routed.resolved)
