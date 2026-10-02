@@ -353,10 +353,19 @@ def test_tr74_creation_paths_deterministic_only_structural():
     import inspect
     sig = inspect.signature(ctx_module.from_validated_outcome)
     assert list(sig.parameters) == ["block", "key", "now"]
-    # No classifier exists anywhere in the routing package.
-    import retriva_gateway.core.routing as routing_pkg
-    assert not hasattr(routing_pkg, "classifier")
-    assert not hasattr(routing_pkg, "Classifier")
+    # Phase D supersession (Spec 001): the advisory classifier
+    # interface now exists, but it can never create or modify
+    # confirmation state — structurally, the classifier module imports
+    # NO registry/confirmation context and exposes no state writes.
+    import retriva_gateway.core.routing.classifier as clf_module
+    assert not hasattr(clf_module, "WorkflowContextRegistry")
+    assert not hasattr(clf_module, "from_validated_outcome")
+    assert not hasattr(clf_module, "PendingConfirmation")
+    import inspect as _inspect
+    _source = _inspect.getsource(clf_module)
+    for _banned in ("attach_confirmation", "claim(", "observe_command",
+                    "from_validated_outcome"):
+        assert _banned not in _source, _banned
 
 
 # ---------------------------------------------------------------------------

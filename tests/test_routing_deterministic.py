@@ -405,14 +405,23 @@ def test_repeatability_for_identical_inputs():
 
 def test_no_model_transport_or_client_is_invoked():
     # The deterministic engine imports no transport, client, or HTTP
-    # library, and no classifier module exists in Phase B.
-    import retriva_gateway.core.routing as routing_pkg
+    # library, and performs no model invocation.  Phase D
+    # supersession: the ADVISORY classifier interface now exists in the
+    # routing package (Spec 001 Phase D; enabled=false default; invoked
+    # only for eligible ambiguity in shadow/active, never by the
+    # deterministic engine) — the engine itself remains transport-free.
     engine_module = inspect.getmodule(DeterministicEngine)
     banned = ("httpx", "requests", "socket", "boto3",
               "retriva_gateway.core.client")
     for name in banned:
         assert name not in vars(engine_module), name
-    assert not hasattr(routing_pkg, "classifier")
+    assert "classifier" not in vars(engine_module)
+    # The pipeline's no-context path (deterministic subset) performs no
+    # classification either — the call site lives only in the
+    # enabled, mode-gated chat integration.
+    from retriva_gateway.core.routing.pipeline import route_non_streaming
+    routed = route_non_streaming("Activate acpver_123.")
+    assert routed.decision.classifier_invoked is False
 
 
 def test_engine_works_with_sockets_disabled():

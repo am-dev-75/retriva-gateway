@@ -281,12 +281,20 @@ CORRECTION_CASES = [
 
 
 def test_correction_routes_never_invoke_a_classifier():
-    import retriva_gateway.core.routing as routing_pkg
-    assert not hasattr(routing_pkg, "classifier")
+    # Phase D supersession (Spec 001): the advisory classifier
+    # interface now exists in the routing package, but the Gate B
+    # correction routes NEVER invoke it — deterministic corrections are
+    # terminal deterministic outcomes; the single authorized call site
+    # applies only to eligible ambiguity (never these routes), and the
+    # no-context pipeline path below performs no classification.
     for message in CORRECTION_CASES:
         routed = route_non_streaming(message)
         assert routed.decision.classifier_invoked is False
         assert routed.decision.source.value in {"deterministic", "guard"}
+    from retriva_gateway.core.routing import eligible_for_classification
+    for message in CORRECTION_CASES:
+        assert eligible_for_classification(
+            route_non_streaming(message)) is False
 
 
 def test_correction_outcomes_are_repeatable():
