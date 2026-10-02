@@ -86,6 +86,8 @@ from .pipeline import (
     classify_streaming_message,
     classification_context_hints,
     eligible_for_classification,
+    is_consequential_candidate,
+    classifier_bypass_reason,
     route_non_streaming,
 )
 from .taxonomy import (
@@ -157,6 +159,8 @@ __all__ = [
     "from_validated_outcome",
     "get_workflow_context_registry",
     "is_bare_affirmative_message",
+    "is_consequential_candidate",
+    "classifier_bypass_reason",
     "normalize_message",
     "observe_tool_result",
     "reset_routing_metrics_for_tests",

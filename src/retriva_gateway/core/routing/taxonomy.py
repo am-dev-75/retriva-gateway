@@ -152,6 +152,11 @@ class ReasonCode(str, Enum):
     NON_ADJACENT_AMBIGUITY = "NON_ADJACENT_AMBIGUITY"
     GUARD_RESOURCE_UNRESOLVED = "GUARD_RESOURCE_UNRESOLVED"
     CONSEQUENTIAL_UNAVAILABLE = "CONSEQUENTIAL_UNAVAILABLE"
+    # E-D1 (owner decision E-D1): a recognized consequential operation
+    # verb with a missing, generic, unresolved, or invalid resource —
+    # the deterministic engine produces an equivalent typed
+    # consequential candidate (never classifier-eligible ambiguity).
+    CONSEQUENTIAL_CANDIDATE = "CONSEQUENTIAL_CANDIDATE"
 
 
 class Route(str, Enum):

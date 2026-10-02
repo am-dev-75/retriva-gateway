@@ -234,6 +234,32 @@ _NOUN_POSITION_PRECEDERS = {
     "la", "le", "gli", "un", "uno", "una", "durante", "dopo",
 }
 
+# Noun suffixes: a consequential operation verb extended by one of these is
+# a noun form (e.g. "activation"/"enrichment"/"attivazione"), not the
+# command verb.  Used to keep consequential-operation recognition from
+# mistaking a noun for a command (E-D1 relaxation guard).
+_NOUN_SUFFIX = re.compile(r"(?:ion|ment|tion|zioni|mento|zione|zioni)$")
+
+# Operation nouns that may be recognized as consequential commands even in
+# noun position (E-D1): the Italian phrasing "esegui il rollback" /
+# "esegui il ripristino" places the operation noun after an article, yet it
+# is the command.  Kept to a minimal closed set so a genuinely polysemous
+# noun like "import" is never mistaken for a command.
+_ARTICLE_TOLERANT_VERBS = frozenset({"rollback", "ripristino", "ripristina"})
+
+
+def _token_at(text: str, index: int) -> str:
+    """The whitespace-delimited token containing ``index`` (used to test
+    whether a consequential verb match is the whole verb or a noun form)."""
+    start = index
+    while start > 0 and not text[start - 1].isspace():
+        start -= 1
+    end = index
+    n = len(text)
+    while end < n and not text[end].isspace():
+        end += 1
+    return text[start:end]
+
 # Opaque resource identifiers (architecture §2 R-COMMAND explicit-resource
 # patterns; mirrors the accepted tool-boundary ID shape
 # ^[A-Za-z0-9]{2,20}_[A-Za-z0-9\-]{1,64}$ in agent/tools.py).
@@ -276,7 +302,7 @@ _FAMILY_NOUNS: Dict[Topic, List[str]] = {
         r"workbooks?", r"jobs?", r"qualifica", r"qualifiche",
     ],
     Topic.COMPANY_IMPORT: [
-        r"imports?", r"batches?", r"importazione", r"importazioni",
+        r"imports?", r"batches?\b", r"importazione", r"importazioni",
     ],
     Topic.CAMPAIGN: [
         r"campaigns?", r"audiences?", r"pubblico", r"campagna", r"campagne",
@@ -404,7 +430,7 @@ OPERATIONS: Tuple[OperationSpec, ...] = (
         (r"approv\w*",), True),
     OperationSpec(
         Topic.COMPANY_IMPORT, Intent.COMPANY_IMPORT_COMMIT,
-        (r"commit\w*",), True),
+        (r"commit\w*", r"conferm\w*"), True),
     OperationSpec(
         Topic.COMPANY_IMPORT, None,
         (r"reject\w*", r"rifiuta\w*", r"discard\w*", r"scarta\w*"), True,
@@ -639,6 +665,11 @@ class _MessageScan:
     def __init__(self, clauses: List[ClauseAnalysis], removed_quoted: str):
         self.clauses = clauses
         self.removed_quoted = removed_quoted
+        # Whether the whole normalized message is a closed bare affirmative
+        # (Phase C atomic-claim candidate).  Consequential-operation
+        # recognition must never convert a bare affirmative into a
+        # consequential candidate (E-D1).
+        self.is_bare_affirmative: bool = False
 
     @property
     def effective_matches(self) -> List[CommandMatch]:
@@ -752,6 +783,7 @@ class DeterministicEngine:
                    for i, c in enumerate(split_clauses(masked))]
         self._scan_clauses(clauses, masked)
         scan = _MessageScan(clauses=clauses, removed_quoted=removed_quoted)
+        scan.is_bare_affirmative = is_bare_affirmative_message(message)
 
         for name, rule in self._ordered_rules():
             outcome = rule(scan)
@@ -824,7 +856,8 @@ class DeterministicEngine:
                     id_family = family
                     break
         for spec, pattern in self._op_patterns:
-            verb_match = self._find_verb(clause.text, pattern)
+            verb_match = self._find_verb(
+                clause.text, pattern, spec.consequential)
             if verb_match is None:
                 continue
             family_nouns = (
@@ -840,8 +873,23 @@ class DeterministicEngine:
             pronoun_here = bool(words & _PRONOUNS)
             generic_here = bool(_GENERIC_RESOURCE.search(clause.text))
             strong = bool(noun_here or id_here)
+            # E-D1: a consequential operation verb is recognized even when
+            # its resource is unresolved, so the deterministic engine can
+            # produce a consequential candidate and fail closed to
+            # clarification.  The hyper-polysemous "import" operation noun
+            # is the one exception: as a noun it is overwhelmingly a
+            # reference ("the import", "commit import batch", "import
+            # companies"), so it is recognized only with a genuine family
+            # noun or history identifier (strong) — never weakly as a
+            # command.  Genuine import commands carry "history" /
+            # "cronologia" / a campaign identifier, so they remain strongly
+            # matched; every other consequential verb may be matched
+            # weakly when its resource is absent.
+            consequential_weak = (
+                spec.consequential
+                and spec.intent is not Intent.CAMPAIGN_HISTORY_IMPORT)
             if not (strong or pronoun_here or generic_here
-                    or family_established_elsewhere):
+                    or family_established_elsewhere or consequential_weak):
                 continue
             intent_key = (spec.intent.value if spec.intent else "N/A")
             matches.append(CommandMatch(
@@ -872,9 +920,34 @@ class DeterministicEngine:
 
     @staticmethod
     def _find_verb(clause_text: str,
-                   pattern: "re.Pattern[str]") -> Optional["re.Match[str]"]:
-        """Operation word in VERB position (not "a cohort for review")."""
+                  pattern: "re.Pattern[str]",
+                  consequential: bool = False) -> Optional["re.Match[str]"]:
+        """Operation word recognition.
+
+        The strict VERB-position check holds for every operation
+        ("a cohort for review" is a noun, not a command): a verb is only
+        recognized when it is not preceded by a noun-position marker
+        (article / preposition / possessive).  Consequential operations add
+        exactly one narrow exception — a minimal closed set of operation
+        nouns that may follow an article and still be the command (the
+        Italian "il rollback" / "il ripristino"; E-D1).  A match that is
+        merely a noun form of the verb (e.g. "activation"/"enrichment"/
+        "attivazione" — the operation verb extended by a noun suffix) is
+        rejected so the deterministic engine never mistakes a noun for a
+        command.
+        """
         for m in pattern.finditer(clause_text):
+            if consequential:
+                token = _token_at(clause_text, m.start())
+                if _NOUN_SUFFIX.search(token):
+                    continue
+                # Closed-set operation noun after an article is still the
+                # command (Italian "esegui il rollback").  Every other
+                # consequential verb keeps the strict verb-position check
+                # below so a polysemous noun ("the import", "the commit")
+                # is never mistaken for a command.
+                if token in _ARTICLE_TOLERANT_VERBS:
+                    return m
             before = clause_text[:m.start()].rstrip().split()[-1:]
             preceding = before[0].strip(" ,;:’'") if before else ""
             if preceding not in _NOUN_POSITION_PRECEDERS:
@@ -1049,6 +1122,56 @@ class DeterministicEngine:
                                           if first.consequential else ()),
                 unavailable_vocabulary=True,
             )
+        # E-D1 (owner decision E-D1): a recognized consequential operation
+        # verb with a missing, generic, unresolved, or invalid resource
+        # remains a consequential request.  It is NOT classifier-eligible
+        # non-adjacent ambiguity — the deterministic engine produces an
+        # equivalent typed consequential candidate and the pipeline's
+        # guard then fails closed to clarification.  Bare affirmatives are
+        # excluded (they are Phase C atomic-claim candidates, not
+        # consequential commands).
+        if (not scan.is_bare_affirmative
+                and not scan.is_multi_intent):
+            # An interrogative message (can Retriva / does the gateway / …)
+            # with a consequential verb is an informational question, not a
+            # command (owner decision D-2c): let the later R-QUESTION rule
+            # classify it as RAG instead of a consequential candidate.
+            question_text = " ".join(c.text for c in scan.clauses)
+            if (_QUESTION_ANCHORS.search(question_text)
+                    or _STATUS_QUESTION_ANCHORS.search(question_text)):
+                return None
+            cons_candidates = [m for m in matches if m.consequential]
+            if cons_candidates:
+                ordered = sorted(
+                    cons_candidates,
+                    key=lambda m: (m.clause_index, not m.noun_based))
+                first = ordered[0]
+                fams = tuple(sorted(
+                    {t for c in scan.clauses for t in c.family_nouns},
+                    key=lambda t: t.value)) or (Topic.GENERAL,)
+                # Typed consequential candidate (E-D1): the deterministic
+                # engine recognizes a consequential operation verb whose
+                # resource is missing, generic, unresolved, or invalid and
+                # fails closed to clarification — never classifier-eligible,
+                # never a classifier call.  The actual consequential intent
+                # is recorded in ``consequential_operations``; the route is
+                # CLARIFICATION_REQUIRED carrying CONSEQUENTIAL_CANDIDATE so
+                # the pipeline's defense-in-depth (eligible_for_classification
+                # and is_consequential_candidate) and the classifier bypass
+                # reason (classifier_bypass_reason) agree deterministically,
+                # independent of whether the verb has a C1 intent of its own.
+                return DeterministicResult(
+                    rule="R-COMMAND",
+                    topic=first.family,
+                    intent=Intent.CLARIFICATION_REQUIRED,
+                    mode=InteractionMode.UNKNOWN,
+                    explicitness=Explicitness.EXPLICIT,
+                    reason_codes=(ReasonCode.CONSEQUENTIAL_CANDIDATE,),
+                    families=fams,
+                    consequential_operations=(first.operation_key,),
+                    resource_reference=None,
+                    unavailable_vocabulary=(first.intent is None),
+                )
         return None
 
     def _rule_question(self, scan: _MessageScan

@@ -489,6 +489,15 @@ def eligible_for_classification(routed: PhaseBChatRoute) -> bool:
     hypothetical/quoted/code/prompt-writing — the explicitness veto
     carries them)."""
     decision = routed.decision
+    # Defense-in-depth (E-D1): no recognized consequential operation or
+    # consequential candidate may ever become classifier-eligible.  The
+    # deterministic engine and guard pipeline are authoritative; the
+    # classifier never routes consequential intent (the final
+    # defense-in-depth assertion at the call site mirrors this).
+    if decision.intent in _CONSEQUENTIAL_INTENTS:
+        return False
+    if ReasonCode.CONSEQUENTIAL_CANDIDATE in decision.reason_codes:
+        return False
     if (routed.claimed is not None
             or routed.resolved is not None):
         return False
@@ -504,6 +513,57 @@ def eligible_for_classification(routed: PhaseBChatRoute) -> bool:
         return reasons == {ReasonCode.NO_DETERMINISTIC_MATCH,
                            ReasonCode.WORKFLOW_ADJACENT}
     return False
+
+
+def is_consequential_candidate(routed: "PhaseBChatRoute") -> bool:
+    """Final defense-in-depth check at the single classifier call site
+    (E-D1 invariant): a recognized consequential operation or a
+    consequential candidate must never reach the classifier."""
+    decision = routed.decision
+    if decision.intent in _CONSEQUENTIAL_INTENTS:
+        return True
+    reasons = set(decision.reason_codes)
+    if ReasonCode.CONSEQUENTIAL_CANDIDATE in reasons:
+        return True
+    # A consequential operation whose explicit resource failed the guard
+    # (no opaque identifier / unresolved) clarifies deterministically and
+    # must never reach the classifier (E-D1: the guard-fail path also
+    # closes the consequential route).
+    if (decision.intent is Intent.CLARIFICATION_REQUIRED
+            and ReasonCode.GUARD_RESOURCE_UNRESOLVED in reasons
+            and decision.explicitness is Explicitness.EXPLICIT):
+        return True
+    return False
+
+
+def classifier_bypass_reason(routed: "PhaseBChatRoute") -> str:
+    """Highest-precedence closed bypass reason for a turn in which the
+    classifier is NOT invoked (E-D2).  Exactly one reason per turn."""
+    decision = routed.decision
+    reasons = set(decision.reason_codes)
+    if routed.claimed is not None:
+        return "confirmation_path"
+    if routed.resolved is not None:
+        return "guard_terminal"
+    if ReasonCode.MULTI_INTENT in reasons:
+        return "multi_intent"
+    if decision.intent in _CONSEQUENTIAL_INTENTS:
+        # Resolved consequential resource -> guard PASS (agent loop);
+        # unresolved -> consequential candidate (guard fail).  Both are
+        # deterministic, never classifier-driven.
+        if routed.route is Route.AGENT_LOOP:
+            return "guard_terminal"
+        return "consequential_candidate"
+    if ReasonCode.CONSEQUENTIAL_CANDIDATE in reasons:
+        return "consequential_candidate"
+    # A consequential operation whose explicit resource failed the guard
+    # (no opaque identifier / unresolved) closes deterministically as a
+    # consequential candidate (E-D1/E-D2).
+    if (decision.intent is Intent.CLARIFICATION_REQUIRED
+            and ReasonCode.GUARD_RESOURCE_UNRESOLVED in reasons
+            and decision.explicitness is Explicitness.EXPLICIT):
+        return "consequential_candidate"
+    return "deterministic_terminal"
 
 
 # ---------------------------------------------------------------------------
@@ -567,19 +627,28 @@ def classify_streaming_message(message: str):
         reason_codes=result.reason_codes)
     if (result.intent in _STREAM_WORKFLOW_INTENTS
             and result.explicitness is Explicitness.EXPLICIT):
-        family = (result.topic.value
-                  if result.topic.value in ("ACP", "QUALIFICATION",
-                                            "COMPANY_IMPORT",
-                                            "CAMPAIGN") else None)
-        return StreamingDecision.REFUSE_STREAM, family, result
+        # Typed 409 only when the deterministic workflow family is
+        # sufficiently known from the message itself (a recognized family
+        # noun or an explicit resource); a family merely implied by the
+        # verb is NOT sufficient (E-D1: an unresolved consequential
+        # command must not claim a family it does not actually have).
+        # Otherwise the neutral streamed clarification applies.
+        fams = {t for t in result.families
+                if t.value in ("ACP", "QUALIFICATION", "COMPANY_IMPORT",
+                               "CAMPAIGN")}
+        if fams:
+            family = sorted(fams, key=lambda t: t.value)[0].value
+            return StreamingDecision.REFUSE_STREAM, family, result
+        return StreamingDecision.STREAM_CLARIFY, None, result
     reasons = set(result.reason_codes)
     if result.intent in (Intent.AMBIGUOUS,
-                         Intent.CLARIFICATION_REQUIRED):
+                        Intent.CLARIFICATION_REQUIRED):
         adjacent = bool(reasons & {
             ReasonCode.WORKFLOW_ADJACENT, ReasonCode.MULTI_INTENT,
             ReasonCode.GUARD_RESOURCE_UNRESOLVED,
             ReasonCode.CONSEQUENTIAL_UNAVAILABLE,
-            ReasonCode.FOLLOWUP_CONTEXT})
+            ReasonCode.FOLLOWUP_CONTEXT,
+            ReasonCode.CONSEQUENTIAL_CANDIDATE})
         if adjacent:
             return StreamingDecision.STREAM_CLARIFY, None, result
     return StreamingDecision.RAG_PASSTHROUGH, None, result
