@@ -401,6 +401,7 @@ workflow-adjacent or AMBIGUOUS.
 | clear safe workflow proposal/analysis (non-destructive, guard n/a) | shadow/active | AGENT_LOOP |
 | explicit consequential + guard PASS | shadow/active | AGENT_LOOP |
 | explicit consequential + guard FAIL | shadow/active | CLARIFY (action-specific) |
+| consequential candidate (consequential verb recognized, required resource binding missing/generic/unresolved/incomplete/invalid) | shadow/active | CLARIFY (deterministic, action-specific); classifier never called; classifier eligibility prohibited |
 | MULTI-INTENT | shadow/active | CLARIFY (list detected families; execute nothing) |
 | AMBIGUOUS, non-adjacent | shadow | RAG (deterministic route) + classifier run recorded as safe metadata; recommendation never alters the route |
 | AMBIGUOUS, workflow-adjacent | shadow | CLARIFY (deterministic route) + classifier run recorded as safe metadata; recommendation never alters the route |
@@ -497,7 +498,11 @@ Thread-safe counters + latency ring (bounded), no new dependency:
 `workflow_route_total{family}`, `rag_route_total`, `classifier_bypass_total`,
 `regional_policy_rejection_total`. Labels are low-cardinality and
 content-free (no message, tenant, user, session, resource, file, raw
-error, unbounded confidence).
+error, unbounded confidence). The `classifier_bypass_total{reason}` reason is
+drawn from the closed bypass-reason vocabulary (E-D2); `consequential_candidate`
+denotes a recognized consequential operation whose required resource binding is
+unmet and which routes to deterministic clarification with classifier
+eligibility prohibited.
 
 Shadow-mode records follow the spec §Shadow-mode privacy allowlist exactly:
 schema version, prompt version, provider/config fingerprint (no secrets),

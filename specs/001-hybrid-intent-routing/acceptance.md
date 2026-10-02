@@ -430,6 +430,20 @@ below renumbers or amends TR1-TR94.
   idempotency validation at the domain boundary; the
   ConfirmationReadyOutcome is preparation evidence only, never
   mutation authority.
+- TR108 (Gate E consequential-candidate correction) a recognized
+  consequential operation whose required resource binding is missing,
+  generic, unresolved, incomplete, or invalid is a **consequential
+  candidate**: the reason code is `CONSEQUENTIAL_CANDIDATE`; it routes to
+  deterministic clarification (never the classifier); classifier
+  eligibility is prohibited; the guard behaves deterministically
+  fail-closed; agent-loop entry is prohibited unless a later explicit
+  request supplies a valid binding and passes the guard; under streaming
+  it emits a typed HTTP 409 with `workflow_stream_unsupported` when the
+  deterministic workflow family is sufficiently known, otherwise a neutral
+  streamed clarification; it carries no Gateway authority and no
+  confirmation behavior; telemetry records only the content-free
+  `classifier_bypass_total{reason="consequential_candidate"}` counter (no
+  message, resource, or identifier content).
 
 ## Evaluation gates (Phase F, safety-first)
 
