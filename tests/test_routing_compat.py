@@ -256,15 +256,31 @@ def test_shadow_active_bare_yes_falls_to_plain_rag(mode, monkeypatch):
 
 
 @pytest.mark.parametrize("mode", ["off", "shadow", "active"])
-def test_phase_b_streaming_stays_legacy_in_every_mode(mode, monkeypatch):
-    # Phase B: no new streaming behavior (Phase E will add the typed
-    # 409).  Streaming keeps the legacy passthrough everywhere.
+def test_phase_e_streaming_gate(mode, monkeypatch):
+    # Phase E streaming gate (Spec 001 C5/7b): mode off keeps the exact
+    # legacy passthrough (no gate); shadow/active use the deterministic
+    # engine ONLY — an explicit workflow command over streaming returns
+    # the typed 409 refusal, while informational streaming stays the
+    # legacy RAG passthrough (None).  The classifier is never invoked.
+    import json as _json
+
     monkeypatch.setattr(settings, "AGENT_INTENT_ROUTER_MODE", mode)
     for message in ("Activate ACP version acpver_123",
-                    "Propose a new ACP cohort",
-                    "How does ACP activation work?"):
-        assert _run_agent_mode(_request(message, stream=True),
-                               "corr") is None
+                    "Propose a new ACP cohort"):
+        result = _run_agent_mode(_request(message, stream=True), "corr")
+        if mode == "off":
+            assert result is None
+        else:
+            assert result is not None
+            assert result.status_code == 409
+            body = _json.loads(result.body)
+            assert body["detail"]["code"] == "workflow_stream_unsupported"
+            assert body["detail"]["retry"]["endpoint"] == "/api/v2/chat"
+            assert body["detail"]["retry"]["mode"] == "non_streaming"
+    # Informational streaming is never refused (legacy passthrough).
+    assert _run_agent_mode(
+        _request("How does ACP activation work?", stream=True),
+        "corr") is None
 
 
 def test_active_grants_no_classifier_influence_in_phase_b(monkeypatch):

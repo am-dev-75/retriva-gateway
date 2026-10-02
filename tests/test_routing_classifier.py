@@ -72,19 +72,21 @@ VALID_C2 = {
 # ---------------------------------------------------------------------------
 
 ELIGIBLE = ["Handle the import.", "Process the ACP request.",
-            "Deal with the campaign members."]
+             "Deal with the campaign members.",
+             # Phase E eligibility widening: the non-adjacent ambiguity
+             # class (AMBIGUOUS with exactly {NO_DETERMINISTIC_MATCH,
+             # NON_ADJACENT_AMBIGUITY}) is eligible alongside the
+             # workflow-adjacent CLARIFICATION_REQUIRED class.
+             "Yes.", "Review the proposal.", "Commit the batch."]
 
 NEVER = [
     ("Activate acpver_123.", "deterministic command"),
     ("How do I activate acpver_123?", "informational"),
     ("Approve acpver_1 and activate acpver_2.", "multi-intent"),
     ("Approve it.", "Phase C follow-up shape"),
-    ("Yes.", "bare affirmative"),
     ("Reject the import batch.", "unavailable vocabulary"),
-    ("Commit the batch.", "guard fail"),
     ("Do not approve the ACP.", "negated"),
     ("What if we approve the ACP?", "hypothetical"),
-    ("Review the proposal.", "non-adjacent ambiguity"),
 ]
 
 
@@ -476,9 +478,11 @@ def test_streaming_never_invokes_the_classifier(mode, monkeypatch):
         raise AssertionError("streaming must never classify")
 
     monkeypatch.setattr(chat_module, "_resolve_classification", spy)
-    # The streaming branch returns before routing (Phase B/E).
+    # The streaming branch uses the deterministic engine (never the
+    # classifier) and preserves legacy passthrough for informational
+    # streaming; the classifier (_resolve_classification) is never used.
     result = chat_module._run_agent_mode(
-        _request("Handle the import.", stream=True), "corr")
+        _request("How does ACP activation work?", stream=True), "corr")
     assert result is None
 
 
