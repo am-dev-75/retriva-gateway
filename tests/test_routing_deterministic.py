@@ -62,6 +62,7 @@ ACCEPTED_PRIORITIES = {
     "R-NEGATION": 20,
     "R-HYPOTHETIC": 25,
     "R-QUOTED": 30,
+    "R-QUOTE-FRAMING": 32,
     "R-COMMAND": 40,
     "R-QUESTION": 50,
     "R-MULTI-INTENT": 55,
@@ -90,6 +91,8 @@ def test_engine_evaluates_rules_in_priority_order():
     ("What if we commit the import batch batch_77?", "R-HYPOTHETIC"),
     # Quoted (30) beats command (40): the only workflow signal is quoted.
     ('"Commit the import batch batch_77"', "R-QUOTED"),
+    # Metalinguistic quotation framing (32) beats command (40).
+    ("Quote this command: Activate acpver_123.", "R-QUOTE-FRAMING"),
 ])
 def test_priority_order_is_enforced_not_source_order(message, winner):
     assert result_of(message).rule == winner

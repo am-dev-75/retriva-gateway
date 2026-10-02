@@ -41,6 +41,8 @@ from retriva_gateway.core.routing import (
     shadow_diagnostics_ring,
 )
 from retriva_gateway.core.routing.classifier import IntentClassification
+from retriva_gateway.core.routing.taxonomy import Intent
+from retriva_gateway.core.routing.classifier import IntentClassification
 from retriva_gateway.core.routing.policy import (
     CONFIDENCE_BUCKETS,
     ShadowDiagnostic,
@@ -204,6 +206,27 @@ def test_active_clarification_uses_deterministic_template():
 # ---------------------------------------------------------------------------
 # Shadow diagnostics: bounded, ephemeral, content-free
 # ---------------------------------------------------------------------------
+
+def test_fr1_active_consequential_clarification_no_crash():
+    # PHASEF-DEFECT-1: apply_active for a consequential classification with a
+    # routed decision that carries NO prebuilt clarification must not raise and
+    # must preserve the accepted CLARIFY outcome (build_clarification now
+    # receives a DeterministicResult, never a bare list).
+    routed = route_non_streaming("Activate acpver_123.")
+    assert routed.clarification is None  # precondition for the fixed branch
+    config = classifier_config_from_settings()
+    classification = _c2(intent="ACP_ACTIVATION", topic="ACP",
+                         mode="MUTATION", confidence=0.95,
+                         requires_clarification=True)
+    active = apply_active(routed, classification, config)
+    assert active.route is Route.CLARIFY
+    assert active.decision.intent is Intent.CLARIFICATION_REQUIRED
+    assert active.clarification is not None
+    # No agent-loop admission, no tool execution, no registry/confirmation
+    # mutation.
+    assert active.decision.shadow is False
+    assert routed.claimed is None
+
 
 def test_shadow_diagnostic_allowlisted_fields_only():
     routed = _routed()
