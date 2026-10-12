@@ -21,6 +21,7 @@ deprecated /icp/ proxies were removed in Phase A1a.  No live services
 are contacted.
 """
 
+import json
 from typing import List, Tuple
 from unittest.mock import AsyncMock, patch
 
@@ -91,12 +92,28 @@ def test_canonical_acp_lifecycle_routes_forward_via_catch_all(
         ("versions/acp_a/3/approve",
          {"actor_id": "webui", "decision": "APPROVED"}),
         ("versions/acp_a/3/activate", {"actor_id": "webui"}),
+        # Slice C2: governed replacement activation (no dedicated proxy).
+        ("versions/acp_a/3/supersede",
+         {"actor_id": "webui", "expected_active_version_id": "acpver_a",
+          "expected_replacement_token": "acptok_r"}),
     ):
         response = client.post(f"/api/v2/crm/acp/{path}", json=body)
         assert response.status_code == 200, path
         assert ("POST", f"/api/v2/crm/acp/{path}") in [
             (method, forwarded) for method, forwarded, _ in transport_log
         ]
+
+
+def test_supersede_passthrough_preserves_the_body(transport_log):
+    body = {"actor_id": "webui", "expected_active_version_id": "acpver_a",
+            "expected_replacement_token": "acptok_r",
+            "idempotency_key": "acpui-supersede-1"}
+    response = client.post(
+        "/api/v2/crm/acp/versions/acp_a/3/supersede", json=body)
+    assert response.status_code == 200
+    expected = json.dumps(body, separators=(",", ":")).encode()
+    assert ("POST", "/api/v2/crm/acp/versions/acp_a/3/supersede",
+            expected) in transport_log
 
 
 def test_cohort_list_forwards_to_cohort_api(transport_log):
