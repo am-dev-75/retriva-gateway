@@ -15,9 +15,10 @@
 """ACP cohort passthrough (Spec 019 Phase 2): routing precedence and
 body passthrough with a mocked CRM transport.
 
-Verifies that the new cohort routes reach the CRM cohort API while the
-legacy /acp/{kb_id} and /icp/ routes keep their exact forwarding
-behavior.  No live services are contacted.
+Verifies that the new cohort routes reach the CRM cohort API and that
+the canonical /acp/ routes forward to the Core ACP paths.  The
+deprecated /icp/ proxies were removed in Phase A1a.  No live services
+are contacted.
 """
 
 from typing import List, Tuple
@@ -95,30 +96,31 @@ def test_cohort_approve_forwards_body(transport_log):
             b'{"actor_id":"approver","comment":"ok"}') in transport_log
 
 
-def test_legacy_acp_route_forwards_to_icp_unchanged(transport_log):
-    """The legacy /acp/{kb_id} gateway route keeps forwarding to the
-    Core /icp/{kb_id} path (ADR-017 compatibility; untouched)."""
+def test_acp_route_forwards_to_core_acp(transport_log):
+    """Phase A1a: the canonical ACP route forwards to the Core ACP path."""
     response = client.get("/api/v2/crm/acp/default")
     assert response.status_code == 200
-    assert ("GET", "/api/v2/crm/icp/default", b"") in transport_log
+    assert ("GET", "/api/v2/crm/acp/default", b"") in transport_log
 
 
-def test_legacy_icp_alias_unchanged(transport_log):
-    response = client.get("/api/v2/crm/icp/default")
-    assert response.status_code == 200
-    assert ("GET", "/api/v2/crm/icp/default", b"") in transport_log
+def test_icp_proxies_removed(transport_log):
+    for method, path in (("get", "/api/v2/crm/icp/default"),
+                         ("get", "/api/v2/crm/icp/default/text"),
+                         ("post", "/api/v2/crm/icp/default/update")):
+        response = getattr(client, method)(path)
+        assert response.status_code == 404, (method, path)
 
 
-def test_legacy_text_route_unchanged(transport_log):
+def test_acp_text_route_forwards_to_core_acp(transport_log):
     response = client.get("/api/v2/crm/acp/default/text")
     assert response.status_code == 200
-    assert ("GET", "/api/v2/crm/icp/default/text", b"") in transport_log
+    assert ("GET", "/api/v2/crm/acp/default/text", b"") in transport_log
 
 
-def test_legacy_update_route_unchanged(transport_log):
+def test_acp_update_route_forwards_to_core_acp(transport_log):
     response = client.post("/api/v2/crm/acp/default/update")
     assert response.status_code == 200
-    assert ("POST", "/api/v2/crm/icp/default/update",
+    assert ("POST", "/api/v2/crm/acp/default/update",
             b"") in transport_log
 
 

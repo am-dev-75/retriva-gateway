@@ -240,12 +240,11 @@ async def crm_list_acp_versions(acp_id: Optional[str] = None,
 
 
 @router.get("/acp/{kb_id}")
-@router.get("/icp/{kb_id}", deprecated=True)  # deprecated alias of /acp/
-async def crm_get_icp(kb_id: str, collection_name: Optional[str] = None):
+async def crm_get_acp(kb_id: str, collection_name: Optional[str] = None):
     params = {"collection_name": collection_name} if collection_name else None
     try:
         resp = await core_client._request(
-            "GET", core_client.ingestion_base_url, f"/api/v2/crm/icp/{kb_id}",
+            "GET", core_client.ingestion_base_url, f"/api/v2/crm/acp/{kb_id}",
             params=params,
         )
         return resp.json()
@@ -253,14 +252,13 @@ async def crm_get_icp(kb_id: str, collection_name: Optional[str] = None):
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
 
-# --- ICP / CCO global variable text (user-editable) ---
+# --- ACP / CCO global variable text (user-editable) ---
 
 @router.get("/acp/{kb_id}/text")
-@router.get("/icp/{kb_id}/text", deprecated=True)  # deprecated alias
-async def crm_get_icp_text(kb_id: str):
+async def crm_get_acp_text(kb_id: str):
     try:
         resp = await core_client._request(
-            "GET", core_client.ingestion_base_url, f"/api/v2/crm/icp/{kb_id}/text",
+            "GET", core_client.ingestion_base_url, f"/api/v2/crm/acp/{kb_id}/text",
         )
         return resp.json()
     except httpx.HTTPStatusError as e:
@@ -268,11 +266,10 @@ async def crm_get_icp_text(kb_id: str):
 
 
 @router.put("/acp/{kb_id}/text")
-@router.put("/icp/{kb_id}/text", deprecated=True)  # deprecated alias
-async def crm_save_icp_text(kb_id: str, body: dict):
+async def crm_save_acp_text(kb_id: str, body: dict):
     try:
         resp = await core_client._request(
-            "PUT", core_client.ingestion_base_url, f"/api/v2/crm/icp/{kb_id}/text",
+            "PUT", core_client.ingestion_base_url, f"/api/v2/crm/acp/{kb_id}/text",
             json=body,
         )
         return resp.json()
@@ -281,12 +278,11 @@ async def crm_save_icp_text(kb_id: str, body: dict):
 
 
 @router.post("/acp/{kb_id}/update")
-@router.post("/icp/{kb_id}/update", deprecated=True)  # deprecated alias
-async def crm_update_icp(kb_id: str, collection_name: Optional[str] = None):
+async def crm_update_acp(kb_id: str, collection_name: Optional[str] = None):
     params = {"collection_name": collection_name} if collection_name else None
     try:
         resp = await core_client._request(
-            "POST", core_client.ingestion_base_url, f"/api/v2/crm/icp/{kb_id}/update",
+            "POST", core_client.ingestion_base_url, f"/api/v2/crm/acp/{kb_id}/update",
             params=params,
         )
         return resp.json()
