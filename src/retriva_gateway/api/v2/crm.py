@@ -239,6 +239,24 @@ async def crm_list_acp_versions(acp_id: Optional[str] = None,
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
 
+@router.get("/acp/editor-state")
+async def crm_get_acp_editor_state():
+    """Legacy-route guard (ACP authority transition Slice C): GET
+    /acp/editor-state is the canonical editor-state read the WebUI
+    consumes — a single-segment path, so the legacy /acp/{kb_id} route
+    below would capture it and answer with the bound ACP's legacy
+    payload.  The CRM extension enforces tenancy, permissions and the
+    no-legacy-fallback rule."""
+    try:
+        resp = await core_client._request(
+            "GET", core_client.ingestion_base_url,
+            "/api/v2/crm/acp/editor-state",
+        )
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
 @router.get("/acp/{kb_id}")
 async def crm_get_acp(kb_id: str, collection_name: Optional[str] = None):
     params = {"collection_name": collection_name} if collection_name else None

@@ -51,6 +51,54 @@ def transport_log(monkeypatch) -> List[Tuple[str, str, bytes]]:
     return calls
 
 
+def test_acp_editor_state_not_shadowed_by_legacy_kb_route(transport_log):
+    """ACP authority transition Slice C: GET /acp/editor-state is a
+    single-segment canonical path, so the legacy GET /acp/{kb_id} route
+    would capture it.  The explicit guard must forward it to the CRM
+    editor-state surface instead."""
+    response = client.get("/api/v2/crm/acp/editor-state")
+    assert response.status_code == 200
+    assert ("GET", "/api/v2/crm/acp/editor-state", b"") in transport_log
+
+
+def test_canonical_acp_draft_routes_forward_via_catch_all(transport_log):
+    """Slice A/B canonical draft paths flow through the ACP passthrough
+    (POST, body preserved) without a dedicated proxy."""
+    response = client.post(
+        "/api/v2/crm/acp/drafts",
+        json={"actor_id": "webui", "source_markdown": "# x",
+              "expected_active_version_id": "acpver_a"})
+    assert response.status_code == 200
+    assert ("POST", "/api/v2/crm/acp/drafts",
+            b'{"actor_id":"webui","source_markdown":"# x",'
+            b'"expected_active_version_id":"acpver_a"}') in transport_log
+
+    response = client.post(
+        "/api/v2/crm/acp/drafts/acpver_d/update",
+        json={"actor_id": "webui", "source_markdown": "# y",
+              "expected_draft_token": "acptok_t"})
+    assert response.status_code == 200
+    assert ("POST", "/api/v2/crm/acp/drafts/acpver_d/update",
+            b'{"actor_id":"webui","source_markdown":"# y",'
+            b'"expected_draft_token":"acptok_t"}') in transport_log
+
+
+def test_canonical_acp_lifecycle_routes_forward_via_catch_all(
+        transport_log):
+    for path, body in (
+        ("versions/acp_a/3/submit-review", {"actor_id": "webui"}),
+        ("versions/acp_a/3/start-review", {"actor_id": "webui"}),
+        ("versions/acp_a/3/approve",
+         {"actor_id": "webui", "decision": "APPROVED"}),
+        ("versions/acp_a/3/activate", {"actor_id": "webui"}),
+    ):
+        response = client.post(f"/api/v2/crm/acp/{path}", json=body)
+        assert response.status_code == 200, path
+        assert ("POST", f"/api/v2/crm/acp/{path}") in [
+            (method, forwarded) for method, forwarded, _ in transport_log
+        ]
+
+
 def test_cohort_list_forwards_to_cohort_api(transport_log):
     response = client.get("/api/v2/crm/acp/cohorts")
     assert response.status_code == 200
