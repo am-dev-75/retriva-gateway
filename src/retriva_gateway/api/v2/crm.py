@@ -167,8 +167,8 @@ async def crm_rebuild_portfolio(kb_id: str, collection_name: Optional[str] = Non
 
 # ---------------------------------------------------------------------------
 # ACP reference cohorts (Spec 019 Phase 2): explicit single-segment
-# proxy BEFORE the legacy /acp/{kb_id} route so the workflow list path
-# (/acp/cohorts) is never shadowed by the legacy KB route.
+# proxies for the canonical workflow paths (the legacy KB-scoped ACP
+# text proxies were removed by Slice E1 with the legacy ACP authority).
 # Multi-segment workflow paths (versions, decisions, approve, console)
 # are covered by the catch-all at the end of this module.  The CRM
 # extension enforces all tenant scoping, permissions and snapshot
@@ -257,55 +257,13 @@ async def crm_get_acp_editor_state():
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
 
-@router.get("/acp/{kb_id}")
-async def crm_get_acp(kb_id: str, collection_name: Optional[str] = None):
-    params = {"collection_name": collection_name} if collection_name else None
-    try:
-        resp = await core_client._request(
-            "GET", core_client.ingestion_base_url, f"/api/v2/crm/acp/{kb_id}",
-            params=params,
-        )
-        return resp.json()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
-
-
-# --- ACP / CCO global variable text (user-editable) ---
-
-@router.get("/acp/{kb_id}/text")
-async def crm_get_acp_text(kb_id: str):
-    try:
-        resp = await core_client._request(
-            "GET", core_client.ingestion_base_url, f"/api/v2/crm/acp/{kb_id}/text",
-        )
-        return resp.json()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
-
-
-@router.put("/acp/{kb_id}/text")
-async def crm_save_acp_text(kb_id: str, body: dict):
-    try:
-        resp = await core_client._request(
-            "PUT", core_client.ingestion_base_url, f"/api/v2/crm/acp/{kb_id}/text",
-            json=body,
-        )
-        return resp.json()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
-
-
-@router.post("/acp/{kb_id}/update")
-async def crm_update_acp(kb_id: str, collection_name: Optional[str] = None):
-    params = {"collection_name": collection_name} if collection_name else None
-    try:
-        resp = await core_client._request(
-            "POST", core_client.ingestion_base_url, f"/api/v2/crm/acp/{kb_id}/update",
-            params=params,
-        )
-        return resp.json()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+# Slice E1 (2026-10-12): the legacy KB-scoped ACP text proxies
+# (``GET /acp/{kb_id}``, ``GET|PUT /acp/{kb_id}/text``,
+# ``POST /acp/{kb_id}/update``) were removed with the legacy ACP
+# authority.  GET/POST requests to those paths now fall through to the
+# canonical catch-all and receive the backend's standard 404; PUT is a
+# plain gateway 404.  No redirect, alias or compatibility wrapper
+# exists.
 
 
 @router.get("/cco/{kb_id}/text")

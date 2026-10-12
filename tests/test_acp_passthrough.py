@@ -17,8 +17,10 @@ body passthrough with a mocked CRM transport.
 
 Verifies that the new cohort routes reach the CRM cohort API and that
 the canonical /acp/ routes forward to the Core ACP paths.  The
-deprecated /icp/ proxies were removed in Phase A1a.  No live services
-are contacted.
+deprecated /icp/ proxies were removed in Phase A1a; the legacy
+KB-scoped ACP text proxies were removed in Slice E1 (no proxy, no
+alias, no redirect — requests reach the backend's standard 404 at
+most).  No live services are contacted.
 """
 
 import json
@@ -252,3 +254,55 @@ def test_service_principal_when_configured_and_auth_disabled(
         principal_ctx.reset(token)
     assert headers["X-Retriva-User"] == "user-42"
     assert "X-Service-Principal" not in headers
+
+
+# ---------------------------------------------------------------------------
+# Slice E1: legacy ACP text proxies removed
+# ---------------------------------------------------------------------------
+
+def test_legacy_acp_text_proxies_removed_from_routes_and_openapi():
+    """Slice E1: the legacy KB-scoped ACP text proxies are removed —
+    no dedicated route, no OpenAPI entry, no alias, no redirect."""
+    paths = app.openapi()["paths"]
+    for legacy in ("/api/v2/crm/acp/{kb_id}",
+                   "/api/v2/crm/acp/{kb_id}/text",
+                   "/api/v2/crm/acp/{kb_id}/update"):
+        assert legacy not in paths, legacy
+    # The canonical surface remains.
+    assert "/api/v2/crm/acp/editor-state" in paths
+    assert "/api/v2/crm/acp/cohorts" in paths
+
+
+def test_legacy_acp_text_put_is_rejected_without_forwarding(transport_log):
+    """PUT /acp/{kb_id}/text has no handler any more: the gateway
+    answers its standard 404/405 (the path exists only for GET/POST
+    through the canonical catch-all) and forwards nothing."""
+    response = client.put("/api/v2/crm/acp/some-kb/text",
+                          json={"content": "user text"})
+    assert response.status_code in (404, 405)
+    assert not (response.headers.get("location") or "")
+    assert transport_log == []
+
+
+def test_legacy_acp_text_get_and_update_reach_backend_404(monkeypatch):
+    """GET /acp/{kb_id} (and /text, POST /update) fall through to the
+    canonical catch-all; the backend has no such route any more, so
+    the caller receives the backend's standard 404 — never a
+    compatibility answer."""
+    async def not_found(method, base_url, path, **kwargs):
+        request = httpx.Request(method, "http://core" + path)
+        response = httpx.Response(404, request=request,
+                                  json={"detail": "Not Found"})
+        raise httpx.HTTPStatusError("404", request=request,
+                                    response=response)
+
+    monkeypatch.setattr(
+        "retriva_gateway.api.v2.crm.core_client._request",
+        AsyncMock(side_effect=not_found))
+    for method, path in (
+            ("get", "/api/v2/crm/acp/some-kb"),
+            ("get", "/api/v2/crm/acp/some-kb/text"),
+            ("post", "/api/v2/crm/acp/some-kb/update")):
+        response = getattr(client, method)(path)
+        assert response.status_code == 404, (method, path)
+        assert not (response.headers.get("location") or "")
