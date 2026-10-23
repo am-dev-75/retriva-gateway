@@ -730,13 +730,14 @@ def build_crm_tools() -> List[ToolDefinition]:
         ToolDefinition(
             name="import_campaign_company_history",
             description=(
-                "Analyze an attached campaign-history workbook (XLSX, "
+                "Analyze an attached campaign-history file (CSV/XLSX, "
                 "profile CAMPAIGN_COMPANY_HISTORY_V1) and stage it for "
                 "review: campaigns, company participation, explicit "
                 "addressed confirmations and company-level outcomes. "
                 "Presence in a campaign list NEVER implies the company "
-                "was addressed. Requires review and approval before "
-                "commit."
+                "was addressed. Analysis stages only and never commits: "
+                "review, approve, and commit are separate explicit "
+                "operations."
             ),
             parameters={
                 "type": "object",
@@ -744,8 +745,16 @@ def build_crm_tools() -> List[ToolDefinition]:
                     "attachment_id": {
                         "type": "string",
                         "description": "Attachment ID of the "
-                                       "campaign-history workbook in "
-                                       "the current session.",
+                                       "campaign-history file in the "
+                                       "current session.",
+                    },
+                    "campaign_code": {
+                        "type": "string",
+                        "description": "Optional campaign code "
+                                       "argument; when supplied it "
+                                       "must agree with the file-level "
+                                       "campaign code after "
+                                       "normalization.",
                     },
                     "source_system": {
                         "type": "string",
@@ -1703,6 +1712,8 @@ async def _tool_import_campaign_company_history(
                           or "campaign_history"),
         "actor_id": f"chat:{ctx.session_id}",
     }
+    if args.get("campaign_code"):
+        payload["campaign_code"] = args["campaign_code"]
     if args.get("notes"):
         payload["notes"] = args["notes"]
     if args.get("row_limit"):
