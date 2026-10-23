@@ -163,7 +163,7 @@ def test_oversized_body_is_refused(transport, monkeypatch):
         json={"organization_id": "org_1",
               "reason_code": "MANUAL_EXCLUSION"})
     assert response.status_code == 413
-    assert response.json()["error"]["code"] == "REQUEST_TOO_LARGE"
+    assert response.json()["code"] == "REQUEST_TOO_LARGE"
     assert transport == []
 
 
@@ -177,7 +177,7 @@ def test_oversized_response_is_refused(monkeypatch):
     monkeypatch.setattr(crm_mod, "CAMPAIGN_PROXY_MAX_RESPONSE", 1024)
     response = client.get("/api/v2/crm/campaigns/exclusions")
     assert response.status_code == 502
-    assert response.json()["error"]["code"] == \
+    assert response.json()["code"] == \
         "UPSTREAM_RESPONSE_TOO_LARGE"
 
 
@@ -189,17 +189,33 @@ def test_upstream_timeout_becomes_bounded_504(monkeypatch):
         AsyncMock(side_effect=boom))
     response = client.get("/api/v2/crm/campaigns/exclusions")
     assert response.status_code == 504
-    assert response.json()["error"]["code"] == "UPSTREAM_TIMEOUT"
+    assert response.json()["code"] == "UPSTREAM_TIMEOUT"
 
 
 def test_unsafe_path_is_refused(transport):
     response = client.get(
         "/api/v2/crm/campaigns/%5C..%5Csecret")
     assert response.status_code == 400
-    assert response.json()["error"]["code"] == "INVALID_PROXY_PATH"
+    assert response.json()["code"] == "INVALID_PROXY_PATH"
     assert transport == []
 
 
 def test_proxy_sets_a_timeout_bound(transport):
     client.get("/api/v2/crm/campaigns/exclusions")
     assert transport[-1]["timeout"] == 30.0
+
+
+def test_campaign_governance_health_is_bounded():
+    response = client.get("/api/v2/crm/campaign-governance/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["campaign_proxy_registered"] is True
+    assert body["campaign_tool_count"] == 32
+    assert body["campaign_tools_ok"] is True
+    assert body["permission_vocabulary_expected"] == "final_v1"
+    assert body["interim_mapping_expected_absent"] is True
+    assert body["console_surfaces"] == "crm_served_via_campaign_proxy"
+    text = response.text
+    for forbidden in ("cust_0007", "tenant", "http://", "localhost",
+                      "password", "secret"):
+        assert forbidden not in text, forbidden

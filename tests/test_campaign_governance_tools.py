@@ -44,6 +44,7 @@ ENGINE = DeterministicEngine()
 
 CONSEQUENTIAL_TOOLS = {
     "revoke_addressed_event",
+    "review_campaign_history_row",
     "commit_campaign_history_batch",
     "amend_campaign_history",
     "approve_grace_policy",
@@ -109,6 +110,32 @@ class TestRouting:
     def test_accepted_routing_is_preserved(self, message, intent):
         assert ENGINE.classify(message).intent is intent
 
+    @pytest.mark.parametrize("message,intent", [
+        ("Show the company import batch ibth_1",
+         Intent.COMPANY_IMPORT_STATUS),
+        ("Review the company import batch ibth_1",
+         Intent.COMPANY_IMPORT_REVIEW),
+        ("Commit the company import batch ibth_1",
+         Intent.COMPANY_IMPORT_COMMIT),
+        ("Show me the campaign audience",
+         Intent.CAMPAIGN_AUDIENCE_ANALYSIS),
+        ("Approve the campaign audience run_1",
+         Intent.CAMPAIGN_AUDIENCE_APPROVAL),
+    ])
+    def test_history_vocabulary_does_not_steal_accepted_routing(
+            self, message, intent):
+        assert ENGINE.classify(message).intent is intent
+
+    @pytest.mark.parametrize("message", [
+        "Was the exclusion excl_1 activated?",
+        "Has the grace policy gpol_1 been revoked?",
+        "Which exclusion excl_1 was approved?",
+    ])
+    def test_interrogative_framing_never_routes_destructive(self, message):
+        result = ENGINE.classify(message)
+        if result.intent is not None:
+            assert result.intent not in CONSEQUENTIAL_INTENTS_FOR_TEST
+
     def test_generic_commit_batch_is_not_stolen(self):
         result = ENGINE.classify("Commit the batch.")
         assert result.intent is not Intent.CAMPAIGN_HISTORY_COMMIT
@@ -148,7 +175,6 @@ class TestRouting:
                        Intent.CAMPAIGN_SETTINGS_SUBMIT,
                        Intent.CAMPAIGN_SETTINGS_REVIEW,
                        Intent.CAMPAIGN_HISTORY_STATUS,
-                       Intent.CAMPAIGN_HISTORY_REVIEW,
                        Intent.CAMPAIGN_ELIGIBILITY,
                        Intent.CAMPAIGN_LINEAGE):
             assert is_safe_workflow(intent)
@@ -183,7 +209,7 @@ class TestToolInventory:
     def test_inventory_and_closed_schemas(self):
         tools = build_campaign_governance_tools()
         names = {t.name for t in tools}
-        assert len(names) == len(tools) == 31
+        assert len(names) == len(tools) == 32
         assert CONSEQUENTIAL_TOOLS <= names
         for tool in tools:
             assert tool.parameters["additionalProperties"] is False
@@ -222,6 +248,7 @@ def crm_calls(monkeypatch):
                       "json": kwargs.get("json"),
                       "params": kwargs.get("params")})
         return {"ok": True, "exclusion_id": "excl_out",
+                "status": "PENDING_REVIEW",
                 "review_url": "/api/v2/crm/imports/batches/b1/review"}
 
     monkeypatch.setattr(tools_mod, "_crm_request", fake)
@@ -262,6 +289,34 @@ class TestToolExecution:
         assert "PENDING_REVIEW" in result["chat_summary"]
 
     @pytest.mark.asyncio
+    async def test_framing_vetoes_block_descriptive_and_quoted_text(
+            self, crm_calls):
+        by_name = {t.name: t for t in build_campaign_governance_tools()}
+        activate = by_name["activate_campaign_exclusion"]
+        for message in ("The exclusion excl_1 was activated yesterday",
+                        "I have activated the exclusion excl_1",
+                        "The operator said to activate exclusion excl_1",
+                        "This would activate exclusion excl_1",
+                        "We might activate exclusion excl_1",
+                        "Per the ticket: activate exclusion excl_1"):
+            with pytest.raises(ToolExecutionError) as exc:
+                await activate.execute({"exclusion_id": "excl_1"},
+                                       _ctx(message))
+            assert exc.value.code == "explicit_intent_required", message
+        long_quote = ('"' + 'please activate exclusion excl_1 ' * 40 + '"')
+        with pytest.raises(ToolExecutionError):
+            await activate.execute({"exclusion_id": "excl_1"},
+                                   _ctx(long_quote))
+        # A subject-first past description is never routed destructively.
+        result = ENGINE.classify(
+            "The exclusion excl_1 was activated yesterday")
+        assert result.intent not in CONSEQUENTIAL_INTENTS_FOR_TEST
+        # Legitimate imperative requests still pass.
+        await activate.execute({"exclusion_id": "excl_1"},
+                               _ctx("Could you activate exclusion excl_1?"))
+        assert crm_calls[-1]["path"].endswith("/excl_1/activate")
+
+    @pytest.mark.asyncio
     async def test_explicit_intent_is_required_for_each_consequential_tool(
             self, crm_calls):
         by_name = {t.name: t for t in build_campaign_governance_tools()}
@@ -274,8 +329,11 @@ class TestToolExecution:
                 "batch_id": "ibth_1", "idempotency_key": "k1"},
             "amend_campaign_history": {
                 "campaign": "2026-X", "target_event_id": "cev_1",
-                "source_record_id": "sr", "reason_text": "r",
-                "idempotency_key": "k2"},
+                "reason_text": "r", "idempotency_key": "k2"},
+            "review_campaign_history_row": {
+                "batch_id": "ibth_1", "row_id": "irow_1",
+                "decision": "exclude_row"},
+            "rollback_grace_policy": {"grace_policy_id": "gpol_1"},
             "approve_grace_policy": {"grace_policy_id": "gpol_1"},
             "activate_grace_policy": {"grace_policy_id": "gpol_1"},
             "revoke_grace_policy": {"grace_policy_id": "gpol_1",
@@ -324,6 +382,23 @@ class TestToolExecution:
         assert crm_calls[-1]["path"] == \
             "/api/v2/crm/campaigns/import-batches/ibth_1/commit"
         assert crm_calls[-1]["json"]["idempotency_key"] == "k1"
+        await by_name["amend_campaign_history"].execute(
+            {"campaign": "2026-X", "target_event_id": "cev_1",
+             "reason_text": "correction", "idempotency_key": "amkey123"},
+            _ctx("Amend the historical event cev_1"))
+        assert crm_calls[-1]["json"]["correction"] == {
+            "revokes_event_id": "cev_1"}
+        await by_name["rollback_grace_policy"].execute(
+            {"grace_policy_id": "gpol_1"},
+            _ctx("Roll back the grace policy gpol_1"))
+        assert crm_calls[-1]["path"] == \
+            "/api/v2/crm/campaigns/grace-policy/gpol_1/rollback"
+        await by_name["supersede_campaign_exclusion"].execute(
+            {"exclusion_id": "excl_1", "reason_text": "replace"},
+            _ctx("Supersede exclusion excl_1"))
+        assert crm_calls[-1]["path"] == \
+            "/api/v2/crm/campaigns/exclusions/excl_1/supersede"
+        assert crm_calls[-1]["json"]["reason_text"] == "replace"
 
     @pytest.mark.asyncio
     async def test_typed_crm_errors_stay_typed(self, monkeypatch):

@@ -958,16 +958,62 @@ def build_crm_tools() -> List[ToolDefinition]:
 _INTENT_NEGATION = re.compile(
     r"\b(?:do\s+not|don['\u2019]?t|never|senza|avoid|non)\b", re.I)
 _INTENT_HYPOTHETICAL = re.compile(
-    r"\b(?:if|suppose|supposing|hypothetical|would|could|might|"
-    r"in\s+case|nel\s+caso|immagina|ipotetico)\b", re.I)
+    r"\b(?:if|suppose|supposing|hypothetical|might|would|in\s+case|"
+    r"nel\s+caso|immagina|ipotetico)\b", re.I)
 _INTENT_DOC = re.compile(
     r"\b(?:how\s+(?:do|can|to|does)|what\s+is|what's|explain|"
     r"documentation|docs?|guide|example|write\s+(?:a|me)\s+"
-    r"(?:prompt|doc|documentation|guide))\b", re.I)
+    r"(?:prompt|doc|documentation|guide)|runbook|playbook|"
+    r"according\s+to|the\s+email\s+said|the\s+following\s+text)\b",
+    re.I)
+_INTENT_QUESTION = re.compile(
+    r"^\s*(?:was|were|is|are|has|have|had|did|does|do|which|when|"
+    r"why|who|where|what)\b", re.I)
+_INTENT_PAST = re.compile(
+    r"\b(?:was|were|has|have|had|been|did)\b[^.]{0,80}"
+    r"\b(?:activated|approved|revoked|committed|expired|superseded|"
+    r"amended|corrected|proposed|reviewed|selected|excluded|matched|"
+    r"rejected|decided)\b", re.I)
+_INTENT_ATTRIBUTION = re.compile(
+    r"\b(?:said|says|wrote|writes|told|says\s+that|states|"
+    r"according\s+to|per\s+the|the\s+ticket\s+says|"
+    r"the\s+email|the\s+runbook|the\s+release\s+notes)\b", re.I)
+_POLITE_PREFIX = re.compile(
+    r"^\s*(?:could\s+you|would\s+you|can\s+you|please|"
+    r"(?:i|we)\s+would\s+like\s+to|per\s+favore)\b", re.I)
+_IMPERATIVE_HEAD = re.compile(
+    r"^\s*(?:please\s+)?(?:commit|amend|correct|conferma|corregg\w*|"
+    r"activat\w*|attiva\w*|approv\w*|revok\w*|revoca\w*|"
+    r"expir\w*|supersed\w*|roll\s?back|ripristin\w*|revert\w*|"
+    r"select|exclude|reject|decide|match|scegli|esclud\w*|"
+    r"rifiuta\w*|undo|annull\w*|propose|propon\w*|create|creat\w*|"
+    r"update|edit\w*|submit|invia\w*|sottopon\w*|review\w*)\b",
+    re.I)
 _INTENT_MULTI_STAGE = re.compile(
-    r"(?:analy[sz]e|analizza|import|stage|review)\b[^.]{0,120}"
-    r"\b(?:then|and\s+then|afterwards|dopo)\b[^.]{0,120}"
-    r"\b(?:commit|activate|approve|revoke|amend|conferma)\b", re.I)
+    r"(?:analy[sz]e|analizza|stage|stages|review|reviews)\b"
+    r"[^\n]{0,160}?"
+    r"(?:then|and\s+then|afterwards|dopo|\band\b|;|,|\.)"
+    r"[^\n]{0,80}?"
+    r"\b(?:commit|commits|activate|activates|approve|approves|"
+    r"revoke|revokes|amend|amends|conferma)\b", re.I)
+
+
+def _resource_stated(lowered: str, resource: str) -> bool:
+    if not resource:
+        return False
+    import re as _re
+    return bool(_re.search(
+        r"(?<![a-z0-9_-])" + _re.escape(resource) + r"(?![a-z0-9_-])",
+        lowered))
+
+
+def _quoted_span_contains(message: str, resource: str) -> bool:
+    import re as _re
+    for match in _re.finditer(r"[\"\u201c\u2018']([^\"\u201d\u2019']"
+                              r"{0,4000})[\"\u201d\u2019']", message):
+        if _resource_stated(match.group(1).lower(), resource.lower()):
+            return True
+    return False
 
 
 def _require_campaign_intent(ctx: ToolContext, *, action: str,
@@ -981,17 +1027,30 @@ def _require_campaign_intent(ctx: ToolContext, *, action: str,
         raise ToolExecutionError(
             "explicit_intent_required",
             f"{action} requires an explicit user request in this turn.")
+    resource_pos = lowered.find(resource) if resource else -1
+    past_match = _INTENT_PAST.search(lowered)
+    past_description = bool(
+        past_match and not _IMPERATIVE_HEAD.match(lowered))
+    hypothetical_text = _POLITE_PREFIX.sub("", lowered, count=1)
+    fully_quoted = bool(re.fullmatch(
+        r"\s*[\"\u201c\u2018'].*[\"\u201d\u2019']\s*",
+        message, re.S))
     if (not lowered or _INTENT_NEGATION.search(lowered)
-            or _INTENT_HYPOTHETICAL.search(lowered)
+            or _INTENT_HYPOTHETICAL.search(hypothetical_text)
             or _INTENT_DOC.search(lowered)
-            or re.fullmatch(r"\s*[\"\u201c\u2018'].*"
-                            r"[\"\u201d\u2019']\s*", message,
-                            re.S)):
+            or _INTENT_ATTRIBUTION.search(lowered)
+            or _INTENT_QUESTION.search(lowered)
+            or past_description
+            or fully_quoted
+            or (message.rstrip().endswith("?")
+                and not _POLITE_PREFIX.match(lowered))
+            or _quoted_span_contains(message, resource)):
         raise ToolExecutionError(
             "explicit_intent_required",
-            f"{action} requires an explicit, non-negated, non-"
-            "hypothetical user request (quoted or documentation text "
-            "never executes).")
+            f"{action} requires an explicit, imperative, non-negated, "
+            "non-hypothetical user request (questions, past-tense "
+            "descriptions, quoted text, and documentation never "
+            "execute).")
     if _INTENT_MULTI_STAGE.search(lowered):
         raise ToolExecutionError(
             "explicit_intent_required",
@@ -1008,7 +1067,7 @@ def _require_campaign_intent(ctx: ToolContext, *, action: str,
             "explicit_intent_required",
             f"{action} requires the requested object to be named "
             "explicitly (grace policy / exclusion / history import).")
-    if not resource or resource not in lowered:
+    if not _resource_stated(lowered, resource):
         raise ToolExecutionError(
             "explicit_intent_required",
             f"{action} requires the exact opaque identifier stated in "
@@ -1117,6 +1176,12 @@ async def _cg_rows(args, ctx):
 
 async def _cg_row_decision(args, ctx):
     _cg_require(args, "batch_id", "row_id", "decision")
+    _require_campaign_intent(
+        ctx, action="historical row decision",
+        verbs=(r"select", r"match", r"exclude", r"reject", r"decide",
+               r"scegli", r"esclud", r"rifiuta"),
+        nouns=(r"row", r"histor", r"import|batch"),
+        resource=args["row_id"])
     body = {"decision": args["decision"]}
     for key in ("organization_id", "addressed_date", "addressed_time",
                 "addressed_timezone", "reason_text"):
@@ -1140,11 +1205,14 @@ async def _cg_commit_import(args, ctx):
         verbs=(r"commit", r"conferma", r"confirm"),
         nouns=(r"import|histor|batch",),
         resource=args["batch_id"])
-    body = {"actor_id": f"chat:{ctx.session_id}",
-            "idempotency_key": args["idempotency_key"]}
+    body = {"idempotency_key": args["idempotency_key"],
+            "source_system": "chat_agent"}
     result = await _cg_call(
         "POST", f"/import-batches/{_cg_seg(args['batch_id'])}/commit",
         body=body)
+    url = result.get("reconciliation_url")
+    if url:
+        result["reconciliation_url"] = _public_review_url(url)
     result["chat_summary"] = (
         "Historical import committed as one idempotent transaction; "
         "campaigns schema state changed only for resolved rows.")
@@ -1153,27 +1221,28 @@ async def _cg_commit_import(args, ctx):
 
 async def _cg_receipt(args, ctx):
     _cg_require(args, "batch_id")
-    return _cg_items(await _cg_call(
+    result = _cg_items(await _cg_call(
         "GET", f"/import-batches/{_cg_seg(args['batch_id'])}/receipt"))
+    url = result.get("reconciliation_url") if isinstance(result, dict) \
+        else None
+    if url:
+        result["reconciliation_url"] = _public_review_url(url)
+    return result
 
 
 async def _cg_amend(args, ctx):
-    _cg_require(args, "campaign", "target_event_id", "source_record_id",
-                "reason_text", "idempotency_key")
+    _cg_require(args, "campaign", "target_event_id", "reason_text",
+                "idempotency_key")
     _require_campaign_intent(
         ctx, action="historical amendment",
         verbs=(r"amend", r"correct", r"revise", r"revoca", r"corregg"),
         nouns=(r"histor|amendment|event",),
         resource=args["target_event_id"])
     body = {
-        "actor_id": f"chat:{ctx.session_id}",
-        "target_event_id": args["target_event_id"],
-        "source_record_id": args["source_record_id"],
-        "reason_text": args["reason_text"],
         "idempotency_key": args["idempotency_key"],
+        "reason_text": args["reason_text"],
+        "correction": {"revokes_event_id": args["target_event_id"]},
     }
-    if isinstance(args.get("correction"), dict):
-        body["correction"] = args["correction"]
     result = await _cg_call(
         "POST", f"/{_cg_seg(args['campaign'])}/history-amendments",
         body=body)
@@ -1238,8 +1307,7 @@ def _cg_policy_action(action: str):
                 ctx, action=f"grace-policy {action}",
                 verbs={
                     "approve": (r"approv", r"approva"),
-                    "activate": (r"activat", r"attiva", r"roll\s?back",
-                                 r"ripristin"),
+                    "activate": (r"activat", r"attiva"),
                     "revoke": (r"revok", r"revoca", r"disattiva"),
                 }[action],
                 nouns=(r"grace|polic|setting",),
@@ -1264,7 +1332,7 @@ async def _cg_activate_policy(args, ctx):
     _cg_require(args, "grace_policy_id")
     _require_campaign_intent(
         ctx, action="grace-policy activation",
-        verbs=(r"activat", r"attiva", r"roll\s?back", r"ripristin"),
+        verbs=(r"activat", r"attiva"),
         nouns=(r"grace|polic|setting",),
         resource=args["grace_policy_id"])
     body = {"grace_policy_id": args["grace_policy_id"]}
@@ -1274,6 +1342,24 @@ async def _cg_activate_policy(args, ctx):
     result["chat_summary"] = (
         "Grace policy activated: audience commits now evaluate the "
         "grace period under this version.")
+    return result
+
+
+async def _cg_rollback_policy(args, ctx):
+    _cg_require(args, "grace_policy_id")
+    _require_campaign_intent(
+        ctx, action="grace-policy rollback",
+        verbs=(r"roll\s?back", r"ripristin", r"revert", r"torna"),
+        nouns=(r"grace|polic|setting",),
+        resource=args["grace_policy_id"])
+    body = {"reason_text": args.get("reason_text") or None}
+    result = await _cg_call(
+        "POST",
+        f"/grace-policy/{_cg_seg(args['grace_policy_id'])}/rollback",
+        body=body)
+    result["chat_summary"] = (
+        "Grace policy rolled back to the named prior version (explicit, "
+        "audited activation).")
     return result
 
 
@@ -1300,10 +1386,19 @@ async def _cg_propose_exclusion(args, ctx):
         if args.get(key):
             body[key] = args[key]
     result = await _cg_call("POST", "/exclusions", body=body)
-    result["chat_summary"] = (
-        "Exclusion proposed (PENDING_REVIEW). A proposal never excludes "
-        "anyone: review and approval are required, and activation is a "
-        "separate, explicit operation.")
+    status = str(result.get("status") or "").upper()
+    if status == "PENDING_REVIEW":
+        summary = ("Exclusion proposed (PENDING_REVIEW). A proposal "
+                   "never excludes anyone: review and approval are "
+                   "required, and activation is a separate, explicit "
+                   "operation.")
+    elif status == "ACTIVE":
+        summary = ("An equivalent exclusion is already ACTIVE for this "
+                   "organization and reason; no new proposal was created.")
+    else:
+        summary = (f"An equivalent exclusion already exists in status "
+                   f"{status or 'UNKNOWN'}; no new proposal was created.")
+    result["chat_summary"] = summary
     return result
 
 
@@ -1528,13 +1623,21 @@ def build_campaign_governance_tools() -> List[ToolDefinition]:
             destructive=True),
         ToolDefinition(
             name="activate_grace_policy",
-            description="Activate an approved grace policy (or roll back "
-                        "by activating a prior approved version). "
+            description="Activate an approved grace policy. "
                         "Consequential: separate explicit action.",
             parameters=_cg_schema({"grace_policy_id": str_p,
                                    "reason_text": str_p},
                                   ["grace_policy_id"]),
             execute=_cg_activate_policy,
+            destructive=True),
+        ToolDefinition(
+            name="rollback_grace_policy",
+            description="Roll back to a previously approved/superseded "
+                        "grace-policy version (explicit, audited).",
+            parameters=_cg_schema({"grace_policy_id": str_p,
+                                   "reason_text": str_p},
+                                  ["grace_policy_id"]),
+            execute=_cg_rollback_policy,
             destructive=True),
         ToolDefinition(
             name="revoke_grace_policy",
@@ -1626,7 +1729,8 @@ def build_campaign_governance_tools() -> List[ToolDefinition]:
             description="Record an explicit exclusion expiry. "
                         "Consequential: requires a reason.",
             parameters=_cg_schema({"exclusion_id": str_p,
-                                   "reason_text": str_p},
+                                   "reason_text": str_p,
+                                   "expected_status": str_p},
                                   ["exclusion_id", "reason_text"]),
             execute=_cg_exclusion_action("expire", destructive=True),
             destructive=True),

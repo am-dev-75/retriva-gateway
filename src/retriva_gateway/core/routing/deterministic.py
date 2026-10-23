@@ -534,20 +534,20 @@ OPERATIONS: Tuple[OperationSpec, ...] = (
         (r"statu\w*", r"stato", r"show", r"list", r"read", r"get\w*",
          r"mostra\w*", r"vedi\b"), False,
         family_override_nouns=(r"campaign\s+histor\w*", r"histor\w*",
-                               r"import\s+batch\w*", r"cronologia",
+                               r"historical\s+import\w*", r"cronologia",
                                r"storico"),
         requires_noun=True),
     OperationSpec(
         Topic.CAMPAIGN, Intent.CAMPAIGN_HISTORY_REVIEW,
         (r"reviews?", r"reviewing", r"rived\w*", r"revisiona\w*"), False,
         family_override_nouns=(r"campaign\s+histor\w*", r"histor\w*",
-                               r"import\s+batch\w*"),
+                               r"historical\s+import\w*"),
         requires_noun=True),
     OperationSpec(
         Topic.CAMPAIGN, Intent.CAMPAIGN_HISTORY_COMMIT,
         (r"commit\w*", r"conferma\w*"), True,
         family_override_nouns=(r"campaign\s+histor\w*", r"histor\w*",
-                               r"import\s+batch\w*"),
+                               r"historical\s+import\w*"),
         requires_noun=True),
     OperationSpec(
         Topic.CAMPAIGN, Intent.CAMPAIGN_HISTORY_AMEND,
@@ -664,6 +664,7 @@ _DESTRUCTIVE_INTENTS = {
     Intent.CAMPAIGN_EXCLUSION_REVOCATION,
     Intent.CAMPAIGN_EXCLUSION_SUPERSESSION,
     Intent.CAMPAIGN_EXCLUSION_EXPIRY,
+    Intent.CAMPAIGN_HISTORY_REVIEW,
     Intent.CAMPAIGN_HISTORY_COMMIT,
     Intent.CAMPAIGN_HISTORY_AMEND,
     Intent.CAMPAIGN_ADDRESSED_REVOCATION,
@@ -1149,6 +1150,38 @@ class DeterministicEngine:
                         noun_based=True, explicit_resource=None,
                         clause_index=clause.index,
                         reason=ReasonCode.EXPLICIT_ACTION_VERB))
+        # Interrogative or past-tense descriptions never select a
+        # destructive operation (questions describe, they do not
+        # authorise).  Safe reads/questions are unaffected.
+        import re as _re
+        clause_text = clause.text or ""
+        interrogative = bool(_re.match(
+            r"^\s*(?:was|were|is|are|has|have|had|did|does|do|which|"
+            r"when|why|who|where|what)\b", clause_text, _re.I)) or \
+            clause_text.rstrip().endswith("?")
+        import re as _re2
+        past = _re2.search(
+            r"\b(?:was|were|has|have|had|been|did)\b[^.]{0,80}"
+            r"\b(?:activated|approved|revoked|committed|expired|"
+            r"superseded|amended|corrected|proposed|reviewed|"
+            r"selected|excluded|matched|rejected|decided)\b",
+            clause_text, _re2.I)
+        attributed = bool(_re2.search(
+            r"\b(?:said|says|wrote|writes|told|states|"
+            r"according\s+to|per\s+the|the\s+ticket\s+says|"
+            r"the\s+email|the\s+runbook)\b", clause_text, _re2.I))
+        imperative_head = bool(_re2.match(
+            r"^\s*(?:please\s+)?(?:commit|amend|correct|conferma|"
+            r"corregg\w*|activat\w*|attiva\w*|approv\w*|revok\w*|"
+            r"revoca\w*|expir\w*|supersed\w*|roll\s?back|"
+            r"ripristin\w*|revert\w*|select|exclude|reject|decide|"
+            r"match|scegli|esclud\w*|rifiuta\w*|undo|annull\w*|"
+            r"propose|propon\w*|create|creat\w*|update|edit\w*|"
+            r"submit|invia\w*|sottopon\w*|review\w*)\b",
+            clause_text, _re2.I))
+        if interrogative or attributed or (past and not imperative_head):
+            matches = [m for m in matches
+                       if m.intent not in _DESTRUCTIVE_INTENTS]
         # "commit/amend the history import batch" names the import
         # artifact but expresses the commit/amendment operation: the
         # stronger lifecycle operation supersedes the import-analysis
@@ -1156,7 +1189,11 @@ class DeterministicEngine:
         stronger = {m.intent for m in matches
                     if m.intent in (Intent.CAMPAIGN_HISTORY_COMMIT,
                                     Intent.CAMPAIGN_HISTORY_AMEND)}
-        if stronger:
+        import re as _re
+        imperative_commit = bool(_re.match(
+            r"\s*(?:please\s+)?(?:commit|amend|correct|conferma|"
+            r"corregg\w*)\b", clause.text or "", _re.I))
+        if stronger and imperative_commit:
             matches = [m for m in matches
                        if m.intent is not Intent.CAMPAIGN_HISTORY_IMPORT]
         return matches

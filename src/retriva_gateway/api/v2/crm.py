@@ -29,6 +29,7 @@ from pydantic import BaseModel
 from loguru import logger
 import httpx
 
+from retriva_gateway.config import settings
 from retriva_gateway.core.client import core_client
 
 router = APIRouter(prefix="/crm", tags=["crm-assistant"])
@@ -646,11 +647,65 @@ def _gateway_error(status_code: int, code: str, message: str) -> Response:
     """Bounded, content-free Gateway transport error envelope."""
     import json as _json
     return Response(
-        content=_json.dumps({"error": {"code": code,
-                                       "message": message}}),
+        content=_json.dumps({"code": code, "message": message}),
         status_code=status_code,
         media_type="application/json",
     )
+
+
+@router.get("/campaign-governance/health")
+async def campaign_governance_health():
+    """Bounded registration/dependency status (Spec 038 Phase 5).
+
+    No tenant/user/resource ids, no origins, no config secrets, no raw
+    errors.  Read-only: never registers routes, grants, or state.
+    """
+    required = {
+        "get_campaign", "list_campaigns", "get_campaign_lineage",
+        "revoke_addressed_event", "get_campaign_history_batch",
+        "list_campaign_history_rows", "review_campaign_history_row",
+        "commit_campaign_history_batch", "get_campaign_history_receipt",
+        "amend_campaign_history", "explain_campaign_eligibility",
+        "evaluate_campaign_eligibility", "get_active_grace_policy",
+        "list_grace_policy_versions", "create_grace_policy_draft",
+        "submit_grace_policy", "review_grace_policy",
+        "approve_grace_policy", "activate_grace_policy",
+        "rollback_grace_policy", "revoke_grace_policy",
+        "list_campaign_exclusions", "get_campaign_exclusion",
+        "propose_campaign_exclusion", "review_campaign_exclusion",
+        "approve_campaign_exclusion", "activate_campaign_exclusion",
+        "revoke_campaign_exclusion", "supersede_campaign_exclusion",
+        "expire_campaign_exclusion",
+        "preview_campaign_exclusion_impact",
+        "list_competitor_proposal_signals",
+    }
+    try:
+        from retriva_gateway.agent.tools import (
+            build_campaign_governance_tools,
+        )
+        names = {t.name for t in build_campaign_governance_tools()}
+        tool_count = len(names)
+        tools_ok = required <= names
+    except Exception:
+        tool_count = 0
+        tools_ok = False
+    proxy_routes = [r for r in router.routes
+                    if getattr(r, "path", "").endswith(
+                        "/campaigns/{path:path}")]
+    # Consoles are CRM-served pages proxied by the campaigns subtree.
+    console_surfaces = "crm_served_via_campaign_proxy"
+    auth_mode = ("trusted" if settings.GATEWAY_ENABLE_AUTH
+                 else "none_attribution_only")
+    return {
+        "status": "ok" if tools_ok and proxy_routes else "degraded",
+        "campaign_proxy_registered": bool(proxy_routes),
+        "campaign_tool_count": tool_count,
+        "campaign_tools_ok": tools_ok,
+        "console_surfaces": console_surfaces,
+        "permission_vocabulary_expected": "final_v1",
+        "interim_mapping_expected_absent": True,
+        "auth_mode": auth_mode,
+    }
 
 
 @router.api_route("/campaigns/{path:path}", methods=["GET", "POST",
