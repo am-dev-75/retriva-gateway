@@ -108,6 +108,11 @@ class ToolContext:
     allowed_attachment_ids: List[str] = field(default_factory=list)
     correlation_id: str = ""
     claimed_confirmation: Optional["object"] = None
+    #: The raw user request text for this turn (trusted request content,
+    #: never model output).  Used ONLY by the deterministic
+    #: explicit-intent guard for consequential campaign-governance
+    #: tools (Spec 038 Phase 5); it is not part of any tool schema.
+    user_message: str = ""
 
 
 class ToolExecutionError(Exception):
@@ -175,6 +180,27 @@ def _validate_context_identifier(
 # CRM Assistant tools (backed by the EXISTING Gateway CRM proxy routes)
 # ---------------------------------------------------------------------------
 
+def _crm_typed_error(response) -> tuple:
+    """Extract the bounded CRM typed envelope (status, code, message).
+
+    Spec 038 Phase 5: CRM workflow failures stay typed through the tool
+    boundary — never rewritten into a generic message and never turned
+    into retrieval evidence.
+    """
+    status = int(getattr(response, "status_code", 502) or 502)
+    try:
+        payload = response.json()
+    except Exception:
+        payload = None
+    if isinstance(payload, dict):
+        code = str(payload.get("code") or "").strip()
+        message = str(payload.get("message") or "").strip()
+        if code:
+            return status, code[:96], (message or code)[:500]
+    return status, "upstream_error", \
+        f"CRM API returned {status}"
+
+
 async def _crm_request(method: str, path: str, **kwargs) -> Dict[str, Any]:
     """Call Core's ingestion API via the shared core_client (no CRM logic)."""
     import httpx
@@ -182,11 +208,11 @@ async def _crm_request(method: str, path: str, **kwargs) -> Dict[str, Any]:
         resp = await core_client._request(method, core_client.ingestion_base_url, path, **kwargs)
         return resp.json()
     except httpx.HTTPStatusError as e:
-        detail = e.response.text[:500]
+        status, code, message = _crm_typed_error(e.response)
         raise ToolExecutionError(
-            "upstream_error",
-            f"CRM API returned {e.response.status_code}: {detail}",
-            http_status=e.response.status_code,
+            code,
+            message,
+            http_status=status,
         )
 
 
@@ -905,6 +931,722 @@ def build_crm_tools() -> List[ToolDefinition]:
     # ACP/enrichment tool schemas off every agent-mode iteration.
     if settings.AGENT_ACP_TOOLS_ENABLED:
         tools.extend(build_acp_tools())
+    # Spec 038 Phase 5: campaign governance (settings/exclusions/
+    # history review, audience, eligibility, lineage).  Every tool is
+    # backed by an implemented, accepted CRM route; schemas are closed
+    # (additionalProperties=false), carry no tenant/URL/SQL/provider
+    # inputs, and consequential operations are marked destructive.
+    tools.extend(build_campaign_governance_tools())
+    return tools
+
+
+# ---------------------------------------------------------------------------
+# Spec 038 Phase 5 — campaign governance tools
+# ---------------------------------------------------------------------------
+
+#: Consequential campaign-governance tool guard (Spec 038 Phase 5).
+#:
+#: The Gateway Spec 001 C1 intent taxonomy is a closed vocabulary
+#: (adding an enum value requires a specification revision), so the
+#: campaign-governance consequential-intent guard is enforced here, at
+#: the trusted tool boundary, over the RAW user message for this turn
+#: (never classifier output, never tool arguments): explicit operation
+#: verb + the domain noun + the exact opaque resource id stated by the
+#: user, with negation / hypothetical / quotation / documentation /
+#: prompt-writing framing vetoed, and multi-stage "analyze then commit"
+#: requests refused (they must stop after the non-consequential stage).
+_INTENT_NEGATION = re.compile(
+    r"\b(?:do\s+not|don['\u2019]?t|never|senza|avoid|non)\b", re.I)
+_INTENT_HYPOTHETICAL = re.compile(
+    r"\b(?:if|suppose|supposing|hypothetical|would|could|might|"
+    r"in\s+case|nel\s+caso|immagina|ipotetico)\b", re.I)
+_INTENT_DOC = re.compile(
+    r"\b(?:how\s+(?:do|can|to|does)|what\s+is|what's|explain|"
+    r"documentation|docs?|guide|example|write\s+(?:a|me)\s+"
+    r"(?:prompt|doc|documentation|guide))\b", re.I)
+_INTENT_MULTI_STAGE = re.compile(
+    r"(?:analy[sz]e|analizza|import|stage|review)\b[^.]{0,120}"
+    r"\b(?:then|and\s+then|afterwards|dopo)\b[^.]{0,120}"
+    r"\b(?:commit|activate|approve|revoke|amend|conferma)\b", re.I)
+
+
+def _require_campaign_intent(ctx: ToolContext, *, action: str,
+                             verbs: tuple, nouns: tuple,
+                             resource: str) -> None:
+    """Fail-closed deterministic explicit-intent check (tool boundary)."""
+    message = (getattr(ctx, "user_message", "") or "").strip()
+    lowered = message.lower()
+    resource = str(resource or "").strip().lower()
+    if not message:
+        raise ToolExecutionError(
+            "explicit_intent_required",
+            f"{action} requires an explicit user request in this turn.")
+    if (not lowered or _INTENT_NEGATION.search(lowered)
+            or _INTENT_HYPOTHETICAL.search(lowered)
+            or _INTENT_DOC.search(lowered)
+            or re.fullmatch(r"\s*[\"\u201c\u2018'].*"
+                            r"[\"\u201d\u2019']\s*", message,
+                            re.S)):
+        raise ToolExecutionError(
+            "explicit_intent_required",
+            f"{action} requires an explicit, non-negated, non-"
+            "hypothetical user request (quoted or documentation text "
+            "never executes).")
+    if _INTENT_MULTI_STAGE.search(lowered):
+        raise ToolExecutionError(
+            "explicit_intent_required",
+            "This request combines stages. Complete the analysis/review "
+            "stage first; then ask separately and explicitly for "
+            f"{action} in a new turn.")
+    if not any(re.search(v, lowered) for v in verbs):
+        raise ToolExecutionError(
+            "explicit_intent_required",
+            f"{action} requires the explicit operation verb in the "
+            "user's request.")
+    if not any(re.search(n, lowered) for n in nouns):
+        raise ToolExecutionError(
+            "explicit_intent_required",
+            f"{action} requires the requested object to be named "
+            "explicitly (grace policy / exclusion / history import).")
+    if not resource or resource not in lowered:
+        raise ToolExecutionError(
+            "explicit_intent_required",
+            f"{action} requires the exact opaque identifier stated in "
+            "the user's request.")
+
+
+def _cg_schema(properties: Dict[str, Any], required: List[str]) \
+        -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": required,
+    }
+
+
+def _cg_seg(value: Any) -> str:
+    """Quote one opaque identifier for a fixed CRM path segment."""
+    from urllib.parse import quote
+    return quote(str(value or "").strip(), safe="")
+
+
+async def _cg_call(method: str, path: str, *, body: Optional[Dict] = None,
+                   params: Optional[Dict] = None) -> Any:
+    kwargs: Dict[str, Any] = {}
+    if body is not None:
+        kwargs["json"] = body
+    if params:
+        kwargs["params"] = params
+    return await _crm_request(
+        method, f"/api/v2/crm/campaigns{path}", **kwargs)
+
+
+def _cg_items(result: Any) -> Dict[str, Any]:
+    if isinstance(result, list):
+        return {"items": result, "count": len(result)}
+    return result if isinstance(result, dict) else {"items": [result]}
+
+
+def _cg_require(args: Dict[str, Any], *names: str) -> None:
+    missing = [n for n in names if not str(args.get(n) or "").strip()]
+    if missing:
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "Missing required argument(s): " + ", ".join(missing))
+
+
+async def _cg_get_campaign(args, ctx):
+    _cg_require(args, "campaign")
+    return _cg_items(await _cg_call("GET", f"/{_cg_seg(args['campaign'])}"))
+
+
+async def _cg_list_campaigns(args, ctx):
+    params = {}
+    for key in ("status", "family"):
+        if args.get(key):
+            params[key] = args[key]
+    return _cg_items(await _cg_call("GET", "", params=params or None))
+
+
+async def _cg_lineage(args, ctx):
+    _cg_require(args, "campaign")
+    return _cg_items(await _cg_call(
+        "GET", f"/{_cg_seg(args['campaign'])}/lineage"))
+
+
+async def _cg_revoke_addressed(args, ctx):
+    _cg_require(args, "campaign", "organization_id", "event_id",
+                "reason_text", "source_system", "source_record_id")
+    _require_campaign_intent(
+        ctx, action="addressed-event revocation",
+        verbs=(r"revok", r"undo", r"correct", r"annull", r"revoca"),
+        nouns=(r"address|addressed|contatt|correction",),
+        resource=args["event_id"])
+    result = await _cg_call(
+        "POST",
+        f"/{_cg_seg(args['campaign'])}/companies/"
+        f"{_cg_seg(args['organization_id'])}/addressed/"
+        f"{_cg_seg(args['event_id'])}/revoke",
+        body={"reason_text": args["reason_text"],
+              "source_system": args["source_system"],
+              "source_record_id": args["source_record_id"]})
+    result["chat_summary"] = (
+        "The addressed event was revoked with an append-only "
+        "correction; the original event remains inspectable and the "
+        "company may be re-evaluated.")
+    return result
+
+
+async def _cg_batch(args, ctx):
+    _cg_require(args, "batch_id")
+    result = _cg_items(await _cg_call(
+        "GET", f"/import-batches/{_cg_seg(args['batch_id'])}"))
+    if isinstance(result, dict) and result.get("review_url"):
+        result["review_url"] = _public_review_url(result["review_url"])
+    return result
+
+
+async def _cg_rows(args, ctx):
+    _cg_require(args, "batch_id")
+    params = {"status": args["status"]} if args.get("status") else None
+    return _cg_items(await _cg_call(
+        "GET", f"/import-batches/{_cg_seg(args['batch_id'])}/rows",
+        params=params))
+
+
+async def _cg_row_decision(args, ctx):
+    _cg_require(args, "batch_id", "row_id", "decision")
+    body = {"decision": args["decision"]}
+    for key in ("organization_id", "addressed_date", "addressed_time",
+                "addressed_timezone", "reason_text"):
+        if args.get(key):
+            body[key] = args[key]
+    result = await _cg_call(
+        "POST",
+        f"/import-batches/{_cg_seg(args['batch_id'])}/rows/"
+        f"{_cg_seg(args['row_id'])}/decision",
+        body=body)
+    result["chat_summary"] = (
+        "Row decision recorded. Row decisions never approve or commit "
+        "the batch.")
+    return result
+
+
+async def _cg_commit_import(args, ctx):
+    _cg_require(args, "batch_id", "idempotency_key")
+    _require_campaign_intent(
+        ctx, action="historical-import commit",
+        verbs=(r"commit", r"conferma", r"confirm"),
+        nouns=(r"import|histor|batch",),
+        resource=args["batch_id"])
+    body = {"actor_id": f"chat:{ctx.session_id}",
+            "idempotency_key": args["idempotency_key"]}
+    result = await _cg_call(
+        "POST", f"/import-batches/{_cg_seg(args['batch_id'])}/commit",
+        body=body)
+    result["chat_summary"] = (
+        "Historical import committed as one idempotent transaction; "
+        "campaigns schema state changed only for resolved rows.")
+    return result
+
+
+async def _cg_receipt(args, ctx):
+    _cg_require(args, "batch_id")
+    return _cg_items(await _cg_call(
+        "GET", f"/import-batches/{_cg_seg(args['batch_id'])}/receipt"))
+
+
+async def _cg_amend(args, ctx):
+    _cg_require(args, "campaign", "target_event_id", "source_record_id",
+                "reason_text", "idempotency_key")
+    _require_campaign_intent(
+        ctx, action="historical amendment",
+        verbs=(r"amend", r"correct", r"revise", r"revoca", r"corregg"),
+        nouns=(r"histor|amendment|event",),
+        resource=args["target_event_id"])
+    body = {
+        "actor_id": f"chat:{ctx.session_id}",
+        "target_event_id": args["target_event_id"],
+        "source_record_id": args["source_record_id"],
+        "reason_text": args["reason_text"],
+        "idempotency_key": args["idempotency_key"],
+    }
+    if isinstance(args.get("correction"), dict):
+        body["correction"] = args["correction"]
+    result = await _cg_call(
+        "POST", f"/{_cg_seg(args['campaign'])}/history-amendments",
+        body=body)
+    result["chat_summary"] = (
+        "Historical correction appended (append-only); the original "
+        "event is preserved and linked from the amendment.")
+    return result
+
+
+async def _cg_explain_eligibility(args, ctx):
+    _cg_require(args, "organization_id")
+    return _cg_items(await _cg_call(
+        "GET", f"/organizations/{_cg_seg(args['organization_id'])}"
+               "/eligibility"))
+
+
+async def _cg_evaluate_eligibility(args, ctx):
+    ids = args.get("organization_ids")
+    if not isinstance(ids, list) or not ids:
+        raise ToolExecutionError(
+            "invalid_arguments", "organization_ids must be a non-empty list.")
+    body = {"organization_ids": ids}
+    if args.get("campaign"):
+        body["campaign"] = args["campaign"]
+    return _cg_items(await _cg_call(
+        "POST", "/eligibility/evaluate", body=body))
+
+
+async def _cg_get_active_policy(args, ctx):
+    result = await _cg_call("GET", "/grace-policy")
+    if result is None:
+        return {"active": False,
+                "chat_summary": "No active grace policy is configured; "
+                                "audience analysis is fail-closed and "
+                                "commit cannot proceed until an "
+                                "authorized activation."}
+    return {"active": True, "policy": result}
+
+
+async def _cg_policy_history(args, ctx):
+    return _cg_items(await _cg_call("GET", "/grace-policy/history"))
+
+
+async def _cg_create_draft(args, ctx):
+    _cg_require(args, "timezone")
+    body = {"grace_days": args["grace_days"], "timezone": args["timezone"]}
+    for key in ("reason_text", "expected_version"):
+        if args.get(key) is not None:
+            body[key] = args[key]
+    result = await _cg_call("PUT", "/grace-policy", body=body)
+    result["chat_summary"] = (
+        "Grace-policy draft created. A draft never activates; it must "
+        "be submitted, reviewed, approved, and activated separately.")
+    return result
+
+
+def _cg_policy_action(action: str):
+    async def runner(args, ctx):
+        _cg_require(args, "grace_policy_id")
+        if action in ("approve", "activate", "revoke"):
+            _require_campaign_intent(
+                ctx, action=f"grace-policy {action}",
+                verbs={
+                    "approve": (r"approv", r"approva"),
+                    "activate": (r"activat", r"attiva", r"roll\s?back",
+                                 r"ripristin"),
+                    "revoke": (r"revok", r"revoca", r"disattiva"),
+                }[action],
+                nouns=(r"grace|polic|setting",),
+                resource=args["grace_policy_id"])
+        body = {}
+        if args.get("reason_text"):
+            body["reason_text"] = args["reason_text"]
+        result = await _cg_call(
+            "POST",
+            f"/grace-policy/{_cg_seg(args['grace_policy_id'])}/{action}",
+            body=body)
+        result["chat_summary"] = (
+            f"Grace policy {action} recorded " +
+            ("(this was the explicitly-requested action)."
+             if action in ("activate", "revoke")
+             else "(next lifecycle step only; nothing was activated)."))
+        return result
+    return runner
+
+
+async def _cg_activate_policy(args, ctx):
+    _cg_require(args, "grace_policy_id")
+    _require_campaign_intent(
+        ctx, action="grace-policy activation",
+        verbs=(r"activat", r"attiva", r"roll\s?back", r"ripristin"),
+        nouns=(r"grace|polic|setting",),
+        resource=args["grace_policy_id"])
+    body = {"grace_policy_id": args["grace_policy_id"]}
+    if args.get("reason_text"):
+        body["reason_text"] = args["reason_text"]
+    result = await _cg_call("POST", "/grace-policy/activate", body=body)
+    result["chat_summary"] = (
+        "Grace policy activated: audience commits now evaluate the "
+        "grace period under this version.")
+    return result
+
+
+async def _cg_list_exclusions(args, ctx):
+    params = {}
+    for key in ("organization_id", "status", "limit", "cursor"):
+        if args.get(key) is not None:
+            params[key] = args[key]
+    return _cg_items(await _cg_call("GET", "/exclusions",
+                                    params=params or None))
+
+
+async def _cg_get_exclusion(args, ctx):
+    _cg_require(args, "exclusion_id")
+    return _cg_items(await _cg_call(
+        "GET", f"/exclusions/{_cg_seg(args['exclusion_id'])}"))
+
+
+async def _cg_propose_exclusion(args, ctx):
+    _cg_require(args, "organization_id", "reason_code")
+    body = {"organization_id": args["organization_id"],
+            "reason_code": args["reason_code"]}
+    for key in ("reason_text", "effective_from", "effective_until"):
+        if args.get(key):
+            body[key] = args[key]
+    result = await _cg_call("POST", "/exclusions", body=body)
+    result["chat_summary"] = (
+        "Exclusion proposed (PENDING_REVIEW). A proposal never excludes "
+        "anyone: review and approval are required, and activation is a "
+        "separate, explicit operation.")
+    return result
+
+
+def _cg_exclusion_action(action: str, *, destructive: bool):
+    async def runner(args, ctx):
+        _cg_require(args, "exclusion_id")
+        if action in ("approve", "activate", "revoke", "expire"):
+            _require_campaign_intent(
+                ctx, action=f"exclusion {action}",
+                verbs={
+                    "approve": (r"approv", r"approva"),
+                    "activate": (r"activat", r"attiva"),
+                    "revoke": (r"revok", r"revoca"),
+                    "expire": (r"expir", r"scad", r"fai\s+scadere"),
+                }[action],
+                nouns=(r"exclusion|exclude|competitor",),
+                resource=args["exclusion_id"])
+        body = {}
+        for key in ("reason_text", "expected_status"):
+            if args.get(key):
+                body[key] = args[key]
+        result = await _cg_call(
+            "POST",
+            f"/exclusions/{_cg_seg(args['exclusion_id'])}/{action}",
+            body=body)
+        result["chat_summary"] = (
+            f"Exclusion {action} recorded.")
+        return result
+    return runner
+
+
+async def _cg_supersede_exclusion(args, ctx):
+    _cg_require(args, "exclusion_id")
+    _require_campaign_intent(
+        ctx, action="exclusion supersession",
+        verbs=(r"supersed", r"sostituisc", r"replace"),
+        nouns=(r"exclusion|exclude|competitor",),
+        resource=args["exclusion_id"])
+    body = {}
+    for key in ("reason_code", "reason_text", "effective_from",
+                "effective_until"):
+        if args.get(key):
+            body[key] = args[key]
+    result = await _cg_call(
+        "POST", f"/exclusions/{_cg_seg(args['exclusion_id'])}/supersede",
+        body=body)
+    result["chat_summary"] = (
+        "A replacement exclusion proposal was created and the prior "
+        "version superseded; the replacement still requires its own "
+        "review/approval/activation.")
+    return result
+
+
+async def _cg_exclusion_impact(args, ctx):
+    _cg_require(args, "exclusion_id", "campaign")
+    return _cg_items(await _cg_call(
+        "GET", f"/exclusions/{_cg_seg(args['exclusion_id'])}/impact",
+        params={"campaign": args["campaign"]}))
+
+
+async def _cg_competitor_signals(args, ctx):
+    """Read-only competitor-role proposal signals (server-computed)."""
+    params = {}
+    if args.get("limit") is not None:
+        params["limit"] = args["limit"]
+    return _cg_items(await _cg_call(
+        "GET", "/exclusions/competitor-signals", params=params or None))
+
+
+def build_campaign_governance_tools() -> List[ToolDefinition]:
+    """Spec 038 Phase 5 campaign-governance tools (closed schemas)."""
+    str_p = {"type": "string"}
+    int_p = {"type": "integer"}
+    tools: List[ToolDefinition] = [
+        ToolDefinition(
+            name="get_campaign",
+            description="Read one campaign (code, display name, origin, "
+                        "lifecycle). Read-only.",
+            parameters=_cg_schema({"campaign": str_p}, ["campaign"]),
+            execute=_cg_get_campaign),
+        ToolDefinition(
+            name="list_campaigns",
+            description="List campaigns, optionally filtered by status or "
+                        "family. Read-only.",
+            parameters=_cg_schema({"status": str_p, "family": str_p}, []),
+            execute=_cg_list_campaigns),
+        ToolDefinition(
+            name="get_campaign_lineage",
+            description="Read a campaign's lineage (import batch, source "
+                        "hash, receipt counts; audit references when "
+                        "authorized). Read-only.",
+            parameters=_cg_schema({"campaign": str_p}, ["campaign"]),
+            execute=_cg_lineage),
+        ToolDefinition(
+            name="revoke_addressed_event",
+            description="Revoke ONE addressed event with an append-only "
+                        "correction. Consequential; requires the exact "
+                        "event id and a reason.",
+            parameters=_cg_schema({
+                "campaign": str_p, "organization_id": str_p,
+                "event_id": str_p, "reason_text": str_p,
+                "source_system": str_p, "source_record_id": str_p,
+            }, ["campaign", "organization_id", "event_id", "reason_text",
+                "source_system", "source_record_id"]),
+            execute=_cg_revoke_addressed,
+            destructive=True),
+        ToolDefinition(
+            name="get_campaign_history_batch",
+            description="Read a historical campaign import batch summary "
+                        "(state, counts, date range, review URL). Read-only.",
+            parameters=_cg_schema({"batch_id": str_p}, ["batch_id"]),
+            execute=_cg_batch),
+        ToolDefinition(
+            name="list_campaign_history_rows",
+            description="List staged historical-import rows and their "
+                        "dispositions/issues. Read-only.",
+            parameters=_cg_schema({"batch_id": str_p, "status": str_p},
+                                  ["batch_id"]),
+            execute=_cg_rows),
+        ToolDefinition(
+            name="review_campaign_history_row",
+            description="Record ONE row decision (select_match, "
+                        "exclude_row, reject, ...). Review only: never "
+                        "approves or commits the batch.",
+            parameters=_cg_schema({
+                "batch_id": str_p, "row_id": str_p, "decision": str_p,
+                "organization_id": str_p, "addressed_date": str_p,
+                "addressed_time": str_p, "addressed_timezone": str_p,
+                "reason_text": str_p,
+            }, ["batch_id", "row_id", "decision"]),
+            execute=_cg_row_decision,
+            destructive=True),
+        ToolDefinition(
+            name="commit_campaign_history_batch",
+            description="Commit an APPROVED historical import batch as one "
+                        "idempotent transaction. Consequential: requires "
+                        "an idempotency key.",
+            parameters=_cg_schema({
+                "batch_id": str_p, "idempotency_key": str_p,
+            }, ["batch_id", "idempotency_key"]),
+            execute=_cg_commit_import,
+            destructive=True),
+        ToolDefinition(
+            name="get_campaign_history_receipt",
+            description="Read the immutable historical-import commit "
+                        "receipt (or the recorded replay). Read-only.",
+            parameters=_cg_schema({"batch_id": str_p}, ["batch_id"]),
+            execute=_cg_receipt),
+        ToolDefinition(
+            name="amend_campaign_history",
+            description="Append an append-only historical correction for "
+                        "one event. Consequential: requires an "
+                        "idempotency key and a reason.",
+            parameters=_cg_schema({
+                "campaign": str_p, "target_event_id": str_p,
+                "source_record_id": str_p, "reason_text": str_p,
+                "idempotency_key": str_p, "correction": {"type": "object"},
+            }, ["campaign", "target_event_id", "source_record_id",
+                "reason_text", "idempotency_key"]),
+            execute=_cg_amend,
+            destructive=True),
+        ToolDefinition(
+            name="explain_campaign_eligibility",
+            description="Explain one company's campaign eligibility at one "
+                        "instant (state, reason codes, grace expiry, "
+                        "exclusion references). Read-only.",
+            parameters=_cg_schema({"organization_id": str_p},
+                                  ["organization_id"]),
+            execute=_cg_explain_eligibility),
+        ToolDefinition(
+            name="evaluate_campaign_eligibility",
+            description="Explain eligibility for a bounded list of "
+                        "companies (same campaign context). Read-only.",
+            parameters=_cg_schema({
+                "organization_ids": {"type": "array",
+                                     "items": {"type": "string"}},
+                "campaign": str_p,
+            }, ["organization_ids"]),
+            execute=_cg_evaluate_eligibility),
+        ToolDefinition(
+            name="get_active_grace_policy",
+            description="Read the active tenant-global grace policy (or "
+                        "the fail-closed no-policy state). Read-only.",
+            parameters=_cg_schema({}, []),
+            execute=_cg_get_active_policy),
+        ToolDefinition(
+            name="list_grace_policy_versions",
+            description="List grace-policy versions and lifecycle state. "
+                        "Read-only.",
+            parameters=_cg_schema({}, []),
+            execute=_cg_policy_history),
+        ToolDefinition(
+            name="create_grace_policy_draft",
+            description="Create the next DRAFT grace-policy version. A "
+                        "draft never activates.",
+            parameters=_cg_schema({
+                "grace_days": int_p, "timezone": str_p,
+                "reason_text": str_p, "expected_version": int_p,
+            }, ["grace_days", "timezone"]),
+            execute=_cg_create_draft),
+        ToolDefinition(
+            name="submit_grace_policy",
+            description="Submit a DRAFT grace policy for review.",
+            parameters=_cg_schema({"grace_policy_id": str_p}, 
+                                  ["grace_policy_id"]),
+            execute=_cg_policy_action("submit")),
+        ToolDefinition(
+            name="review_grace_policy",
+            description="Record the review of a submitted grace policy.",
+            parameters=_cg_schema({"grace_policy_id": str_p,
+                                   "reason_text": str_p},
+                                  ["grace_policy_id"]),
+            execute=_cg_policy_action("review")),
+        ToolDefinition(
+            name="approve_grace_policy",
+            description="Approve a reviewed grace policy. Approval alone "
+                        "does not activate it.",
+            parameters=_cg_schema({"grace_policy_id": str_p,
+                                   "reason_text": str_p},
+                                  ["grace_policy_id"]),
+            execute=_cg_policy_action("approve"),
+            destructive=True),
+        ToolDefinition(
+            name="activate_grace_policy",
+            description="Activate an approved grace policy (or roll back "
+                        "by activating a prior approved version). "
+                        "Consequential: separate explicit action.",
+            parameters=_cg_schema({"grace_policy_id": str_p,
+                                   "reason_text": str_p},
+                                  ["grace_policy_id"]),
+            execute=_cg_activate_policy,
+            destructive=True),
+        ToolDefinition(
+            name="revoke_grace_policy",
+            description="Revoke the active grace policy (commit becomes "
+                        "fail-closed again). Consequential.",
+            parameters=_cg_schema({"grace_policy_id": str_p,
+                                   "reason_text": str_p},
+                                  ["grace_policy_id", "reason_text"]),
+            execute=_cg_policy_action("revoke"),
+            destructive=True),
+        ToolDefinition(
+            name="list_campaign_exclusions",
+            description="List global campaign exclusions (bounded keyset "
+                        "pagination). Read-only.",
+            parameters=_cg_schema({
+                "organization_id": str_p, "status": str_p,
+                "limit": int_p, "cursor": str_p,
+            }, []),
+            execute=_cg_list_exclusions),
+        ToolDefinition(
+            name="get_campaign_exclusion",
+            description="Read one exclusion with lifecycle and lineage. "
+                        "Read-only.",
+            parameters=_cg_schema({"exclusion_id": str_p},
+                                  ["exclusion_id"]),
+            execute=_cg_get_exclusion),
+        ToolDefinition(
+            name="propose_campaign_exclusion",
+            description="Propose an ALL_CAMPAIGNS exclusion (competitor "
+                        "exclusion proposals never activate).",
+            parameters=_cg_schema({
+                "organization_id": str_p, "reason_code": str_p,
+                "reason_text": str_p, "effective_from": str_p,
+                "effective_until": str_p,
+            }, ["organization_id", "reason_code"]),
+            execute=_cg_propose_exclusion),
+        ToolDefinition(
+            name="review_campaign_exclusion",
+            description="Record the review of a proposed exclusion.",
+            parameters=_cg_schema({"exclusion_id": str_p,
+                                   "reason_text": str_p,
+                                   "expected_status": str_p},
+                                  ["exclusion_id"]),
+            execute=_cg_exclusion_action("review", destructive=False)),
+        ToolDefinition(
+            name="approve_campaign_exclusion",
+            description="Approve a reviewed exclusion. Approval alone does "
+                        "not activate it.",
+            parameters=_cg_schema({"exclusion_id": str_p,
+                                   "reason_text": str_p,
+                                   "expected_status": str_p},
+                                  ["exclusion_id"]),
+            execute=_cg_exclusion_action("approve", destructive=True),
+            destructive=True),
+        ToolDefinition(
+            name="activate_campaign_exclusion",
+            description="Activate an approved exclusion (affects every "
+                        "campaign). Consequential: separate explicit action.",
+            parameters=_cg_schema({"exclusion_id": str_p,
+                                   "reason_text": str_p,
+                                   "expected_status": str_p},
+                                  ["exclusion_id"]),
+            execute=_cg_exclusion_action("activate", destructive=True),
+            destructive=True),
+        ToolDefinition(
+            name="revoke_campaign_exclusion",
+            description="Revoke an exclusion (ends its block). "
+                        "Consequential: requires a reason.",
+            parameters=_cg_schema({"exclusion_id": str_p,
+                                   "reason_text": str_p,
+                                   "expected_status": str_p},
+                                  ["exclusion_id", "reason_text"]),
+            execute=_cg_exclusion_action("revoke", destructive=True),
+            destructive=True),
+        ToolDefinition(
+            name="supersede_campaign_exclusion",
+            description="Supersede an ACTIVE exclusion with a new version "
+                        "(the replacement must be reviewed/approved). "
+                        "Consequential.",
+            parameters=_cg_schema({
+                "exclusion_id": str_p, "reason_code": str_p,
+                "reason_text": str_p, "effective_from": str_p,
+                "effective_until": str_p,
+            }, ["exclusion_id"]),
+            execute=_cg_supersede_exclusion,
+            destructive=True),
+        ToolDefinition(
+            name="expire_campaign_exclusion",
+            description="Record an explicit exclusion expiry. "
+                        "Consequential: requires a reason.",
+            parameters=_cg_schema({"exclusion_id": str_p,
+                                   "reason_text": str_p},
+                                  ["exclusion_id", "reason_text"]),
+            execute=_cg_exclusion_action("expire", destructive=True),
+            destructive=True),
+        ToolDefinition(
+            name="preview_campaign_exclusion_impact",
+            description="Advisory read-only impact preview for one "
+                        "exclusion and campaign: current vs scheduled "
+                        "removal. Never activates.",
+            parameters=_cg_schema({"exclusion_id": str_p,
+                                   "campaign": str_p},
+                                  ["exclusion_id", "campaign"]),
+            execute=_cg_exclusion_impact),
+        ToolDefinition(
+            name="list_competitor_proposal_signals",
+            description="Read-only competitor-role proposal assistance: "
+                        "the CRM computes signals; nothing is created or "
+                        "activated.",
+            parameters=_cg_schema({"limit": int_p}, []),
+            execute=_cg_competitor_signals),
+    ]
     return tools
 
 

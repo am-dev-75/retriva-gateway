@@ -346,6 +346,11 @@ class OperationSpec:
     consequential: bool
     family_override_nouns: Optional[Tuple[str, ...]] = None
     reason: ReasonCode = ReasonCode.EXPLICIT_ACTION_VERB
+    #: Spec 038 Phase 5: when set, the operation is recognized only with
+    #: its domain noun (or matching opaque identifier) present — weak /
+    #: pronoun / generic matches are refused so the new campaign
+    #: governance vocabulary cannot steal audience/import/ACP requests.
+    requires_noun: bool = False
 
 
 # Operations with no C1 intent (import rejection, ACP deactivation: no
@@ -439,6 +444,136 @@ OPERATIONS: Tuple[OperationSpec, ...] = (
     OperationSpec(
         Topic.QUALIFICATION, Intent.QUALIFICATION_APPROVAL,
         (r"approv\w*",), True),
+    # --- CAMPAIGN governance (Spec 038 Phase 5 addendum; ADR-043) ---
+    # Every rule requires its domain noun and the exact identifier where
+    # applicable, so accepted audience / import / ACP routing is
+    # untouched.  Consequential members are destructive and guarded.
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_SETTINGS_STATUS,
+        (r"statu\w*", r"stato", r"show", r"list", r"read", r"get\w*",
+         r"mostra\w*", r"vedi\b"), False,
+        family_override_nouns=(r"grace", r"polic(?:y|ies)", r"settings?"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_SETTINGS_DRAFT,
+        (r"creat\w*", r"draft", r"edit\w*", r"updat\w*", r"set\w*",
+         r"modif\w*", r"configur\w*"), False,
+        family_override_nouns=(r"grace", r"polic(?:y|ies)", r"settings?"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_SETTINGS_SUBMIT,
+        (r"submit\w*", r"invia\w*", r"sottopon\w*"), False,
+        family_override_nouns=(r"grace", r"polic(?:y|ies)", r"settings?"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_SETTINGS_REVIEW,
+        (r"reviews?", r"reviewing", r"rived\w*", r"revisiona\w*"), False,
+        family_override_nouns=(r"grace", r"polic(?:y|ies)", r"settings?"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_SETTINGS_APPROVAL,
+        (r"approv\w*", r"approva\w*"), True,
+        family_override_nouns=(r"grace", r"polic(?:y|ies)", r"settings?"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_SETTINGS_ACTIVATION,
+        (r"activat\w*", r"attiva\w*", r"roll\s?back",
+         r"ripristin\w*"), True,
+        family_override_nouns=(r"grace", r"polic(?:y|ies)", r"settings?"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_SETTINGS_REVOCATION,
+        (r"revok\w*", r"revoca\w*", r"disattiva\w*"), True,
+        family_override_nouns=(r"grace", r"polic(?:y|ies)", r"settings?"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_EXCLUSION_IMPACT,
+        (r"impact\w*", r"preview\w*", r"effect\w*"), False,
+        family_override_nouns=(r"exclusions?", r"impact\w*"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_EXCLUSION_LIST,
+        (r"statu\w*", r"stato", r"show", r"list", r"read", r"get\w*",
+         r"mostra\w*", r"vedi\b"), False,
+        family_override_nouns=(r"exclusions?", r"exclud\w*",
+                               r"competitors?"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_EXCLUSION_PROPOSAL,
+        (r"propos\w*", r"propon\w*", r"exclud\w*", r"esclud\w*",
+         r"block\w*", r"blocca\w*", r"ban\b"), False,
+        family_override_nouns=(r"exclusions?", r"competitors?",
+                               r"rival\w*"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_EXCLUSION_REVIEW,
+        (r"reviews?", r"reviewing", r"rived\w*", r"revisiona\w*"), False,
+        family_override_nouns=(r"exclusions?",), requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_EXCLUSION_APPROVAL,
+        (r"approv\w*", r"approva\w*"), True,
+        family_override_nouns=(r"exclusions?",), requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_EXCLUSION_ACTIVATION,
+        (r"activat\w*", r"attiva\w*"), True,
+        family_override_nouns=(r"exclusions?",), requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_EXCLUSION_REVOCATION,
+        (r"revok\w*", r"revoca\w*"), True,
+        family_override_nouns=(r"exclusions?",), requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_EXCLUSION_SUPERSESSION,
+        (r"supersed\w*", r"sostituisc\w*", r"replace"), True,
+        family_override_nouns=(r"exclusions?",), requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_EXCLUSION_EXPIRY,
+        (r"expir\w*", r"scad\w*"), True,
+        family_override_nouns=(r"exclusions?",), requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_HISTORY_STATUS,
+        (r"statu\w*", r"stato", r"show", r"list", r"read", r"get\w*",
+         r"mostra\w*", r"vedi\b"), False,
+        family_override_nouns=(r"campaign\s+histor\w*", r"histor\w*",
+                               r"import\s+batch\w*", r"cronologia",
+                               r"storico"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_HISTORY_REVIEW,
+        (r"reviews?", r"reviewing", r"rived\w*", r"revisiona\w*"), False,
+        family_override_nouns=(r"campaign\s+histor\w*", r"histor\w*",
+                               r"import\s+batch\w*"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_HISTORY_COMMIT,
+        (r"commit\w*", r"conferma\w*"), True,
+        family_override_nouns=(r"campaign\s+histor\w*", r"histor\w*",
+                               r"import\s+batch\w*"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_HISTORY_AMEND,
+        (r"amend\w*", r"correct\w*", r"corregg\w*", r"revise\w*"), True,
+        family_override_nouns=(r"histor\w*", r"amendment\w*",
+                               r"correction\w*"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_ELIGIBILITY,
+        (r"eligib\w*", r"explain\w*", r"check\w*", r"verifica\w*",
+         r"show\w*", r"mostra\w*"), False,
+        family_override_nouns=(r"eligibilit\w*", r"eligib\w*"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_LINEAGE,
+        (r"lineage", r"provenance", r"storico", r"cronologia"), False,
+        family_override_nouns=(r"campaigns?", r"campagne?",
+                               r"lineage", r"provenance"),
+        requires_noun=True),
+    OperationSpec(
+        Topic.CAMPAIGN, Intent.CAMPAIGN_ADDRESSED_REVOCATION,
+        (r"revok\w*", r"revoca\w*", r"undo\b", r"annull\w*",
+         r"correct\w*"), True,
+        family_override_nouns=(r"address\w*", r"contatt\w*",
+                               r"correction\w*"),
+        requires_noun=True),
     # --- COMPANY_IMPORT family ---
     OperationSpec(
         Topic.COMPANY_IMPORT, Intent.COMPANY_IMPORT_ANALYSIS,
@@ -520,6 +655,18 @@ _NOUN_PAIR_RULES: Tuple[Tuple[Topic, Intent, str, str, bool], ...] = (
 _DESTRUCTIVE_INTENTS = {
     Intent.ACP_SUPERSESSION, Intent.ACP_ROLLBACK,
     Intent.ACP_EVIDENCE_ENRICHMENT, Intent.ACP_EVIDENCE_ACCEPTANCE,
+    # Spec 038 Phase 5 campaign governance
+    Intent.CAMPAIGN_SETTINGS_APPROVAL,
+    Intent.CAMPAIGN_SETTINGS_ACTIVATION,
+    Intent.CAMPAIGN_SETTINGS_REVOCATION,
+    Intent.CAMPAIGN_EXCLUSION_APPROVAL,
+    Intent.CAMPAIGN_EXCLUSION_ACTIVATION,
+    Intent.CAMPAIGN_EXCLUSION_REVOCATION,
+    Intent.CAMPAIGN_EXCLUSION_SUPERSESSION,
+    Intent.CAMPAIGN_EXCLUSION_EXPIRY,
+    Intent.CAMPAIGN_HISTORY_COMMIT,
+    Intent.CAMPAIGN_HISTORY_AMEND,
+    Intent.CAMPAIGN_ADDRESSED_REVOCATION,
 }
 
 _DOC_FRAMING_ANCHORS = re.compile(
@@ -957,6 +1104,8 @@ class DeterministicEngine:
             pronoun_here = bool(words & _COMMAND_PRONOUNS)
             generic_here = bool(_GENERIC_RESOURCE.search(clause.text))
             strong = bool(noun_here or id_here)
+            if spec.requires_noun and not strong:
+                continue
             # E-D1: a consequential operation verb is recognized even when
             # its resource is unresolved, so the deterministic engine can
             # produce a consequential candidate and fail closed to
@@ -1000,6 +1149,16 @@ class DeterministicEngine:
                         noun_based=True, explicit_resource=None,
                         clause_index=clause.index,
                         reason=ReasonCode.EXPLICIT_ACTION_VERB))
+        # "commit/amend the history import batch" names the import
+        # artifact but expresses the commit/amendment operation: the
+        # stronger lifecycle operation supersedes the import-analysis
+        # match in the same clause (Spec 038 Phase 5 vocabulary).
+        stronger = {m.intent for m in matches
+                    if m.intent in (Intent.CAMPAIGN_HISTORY_COMMIT,
+                                    Intent.CAMPAIGN_HISTORY_AMEND)}
+        if stronger:
+            matches = [m for m in matches
+                       if m.intent is not Intent.CAMPAIGN_HISTORY_IMPORT]
         return matches
 
     @staticmethod

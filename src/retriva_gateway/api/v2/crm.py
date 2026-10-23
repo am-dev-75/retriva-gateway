@@ -608,39 +608,100 @@ async def crm_imports_passthrough(path: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Company-level campaign tracking + audience planning: thin passthrough
-# subtree.  The CRM extension enforces all semantics (tenant scoping,
-# permissions, addressed invariant, selection lifecycle).
+# Company-level campaign tracking + audience planning + Phase 5 campaign
+# governance: thin passthrough subtree.  The CRM extension enforces all
+# semantics (tenant scoping, permissions, trusted principal, addressed
+# invariant, selection/exclusion/settings lifecycles).
+#
+# Transport bounds and trust rules (Spec 038 Phase 5):
+# - identity headers are rebuilt from scratch by ``core_client`` from the
+#   authenticated Gateway principal (client-supplied ``X-Retriva-User`` /
+#   ``X-Service-Principal`` values are never forwarded); only Content-Type
+#   is merged here;
+# - fixed CRM origin and fixed path prefix only (no arbitrary downstream
+#   URL/host/path), with traversal/control characters refused;
+# - request/response size and timeout bounds;
+# - CRM typed status codes and ``{"code","message"}`` envelopes are
+#   preserved verbatim (never rewritten, never turned into a generic
+#   HTTPException detail or a RAG fallback).
 # ---------------------------------------------------------------------------
 
+CAMPAIGN_PROXY_MAX_BODY = 1_048_576          # 1 MiB JSON/upload ceiling
+CAMPAIGN_PROXY_MAX_RESPONSE = 5_242_880      # 5 MiB response ceiling
+CAMPAIGN_PROXY_TIMEOUT = 30.0                # seconds
+
+_CAMPAIGN_PATH_FORBIDDEN = ("..", "://", "\\", "\x00", "\n", "\r")
+
+
+def _campaign_path_safe(path: str) -> bool:
+    candidate = path or ""
+    if any(token in candidate for token in _CAMPAIGN_PATH_FORBIDDEN):
+        return False
+    if candidate.startswith("/") or "//" in candidate:
+        return False
+    return True
+
+
+def _gateway_error(status_code: int, code: str, message: str) -> Response:
+    """Bounded, content-free Gateway transport error envelope."""
+    import json as _json
+    return Response(
+        content=_json.dumps({"error": {"code": code,
+                                       "message": message}}),
+        status_code=status_code,
+        media_type="application/json",
+    )
+
+
 @router.api_route("/campaigns/{path:path}", methods=["GET", "POST",
-                                                    "PATCH"])
+                                                    "PUT", "PATCH"])
 async def crm_campaigns_passthrough(path: str, request: Request):
-    """Forward /api/v2/crm/campaigns/* to Core (body passthrough)."""
+    """Forward /api/v2/crm/campaigns/* to Core (body/query passthrough)."""
+    if not _campaign_path_safe(path):
+        return _gateway_error(
+            400, "INVALID_PROXY_PATH",
+            "the requested campaign path is not allowed")
+    body = await request.body()
+    if len(body) > CAMPAIGN_PROXY_MAX_BODY:
+        return _gateway_error(
+            413, "REQUEST_TOO_LARGE",
+            "the campaign request body exceeds the proxy limit")
     try:
-        kwargs: dict = {}
-        body = await request.body()
+        from urllib.parse import parse_qsl
+        kwargs: dict = {"timeout": CAMPAIGN_PROXY_TIMEOUT}
         if body:
             kwargs["content"] = body
             content_type = request.headers.get("content-type")
             if content_type:
+                # Only the content type is merged; identity headers are
+                # reconstructed by core_client from the trusted principal.
                 kwargs["headers"] = {"Content-Type": content_type}
-        query = request.url.query
+        params = dict(parse_qsl(request.url.query, keep_blank_values=True))
         resp = await core_client._request(
             request.method, core_client.ingestion_base_url,
             f"/api/v2/crm/campaigns/{path}",
-            params=dict(kv.split("=", 1) for kv in query.split("&")
-                        if kv) or None,
+            params=params or None,
             **kwargs)
+        if len(resp.content) > CAMPAIGN_PROXY_MAX_RESPONSE:
+            return _gateway_error(
+                502, "UPSTREAM_RESPONSE_TOO_LARGE",
+                "the campaign response exceeds the proxy limit")
         return Response(
             content=resp.content,
             status_code=resp.status_code,
             media_type=resp.headers.get("content-type"),
         )
     except httpx.HTTPStatusError as e:
-        raise HTTPException(
+        # Preserve the CRM typed status code and envelope verbatim.
+        return Response(
+            content=e.response.content,
             status_code=e.response.status_code,
-            detail=e.response.text)
+            media_type=e.response.headers.get("content-type")
+            or "application/json")
+    except (httpx.TimeoutException, httpx.TransportError):
+        return _gateway_error(
+            504, "UPSTREAM_TIMEOUT",
+            "the campaign service did not answer within the bound")
 
 
 # ---------------------------------------------------------------------------

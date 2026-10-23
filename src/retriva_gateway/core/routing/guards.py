@@ -65,6 +65,21 @@ CONSEQUENTIAL_INTENTS: FrozenSet[Intent] = frozenset({
     Intent.CAMPAIGN_HISTORY_IMPORT,
     Intent.CAMPAIGN_MARK_ADDRESSED,
     Intent.CAMPAIGN_OUTCOME_UPDATE,
+    # Spec 038 Phase 5 campaign governance (destructive=True in the
+    # accepted tool registry: settings approval/activation/revocation,
+    # exclusion approval/activation/revocation/supersession/expiry,
+    # history commit/amend, addressed-event revocation).
+    Intent.CAMPAIGN_SETTINGS_APPROVAL,
+    Intent.CAMPAIGN_SETTINGS_ACTIVATION,
+    Intent.CAMPAIGN_SETTINGS_REVOCATION,
+    Intent.CAMPAIGN_EXCLUSION_APPROVAL,
+    Intent.CAMPAIGN_EXCLUSION_ACTIVATION,
+    Intent.CAMPAIGN_EXCLUSION_REVOCATION,
+    Intent.CAMPAIGN_EXCLUSION_SUPERSESSION,
+    Intent.CAMPAIGN_EXCLUSION_EXPIRY,
+    Intent.CAMPAIGN_HISTORY_COMMIT,
+    Intent.CAMPAIGN_HISTORY_AMEND,
+    Intent.CAMPAIGN_ADDRESSED_REVOCATION,
 })
 
 

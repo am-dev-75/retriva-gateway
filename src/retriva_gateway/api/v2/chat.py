@@ -514,6 +514,7 @@ async def _agent_chat(request: ChatRequest, corr_id: str, *,
         allowed_attachment_ids=list(request.attachment_ids or []),
         correlation_id=corr_id,
         claimed_confirmation=claimed,
+        user_message=request.message or "",
     )
     try:
         result = await run_agent_loop(
