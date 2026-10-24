@@ -43,7 +43,8 @@ def transport(monkeypatch) -> List[Dict[str, Any]]:
     async def fake_request(method, base_url, path, *, params=None,
                            content=None, json=None, headers=None,
                            **kwargs):
-        calls.append({"method": method, "path": path, "params": params,
+        calls.append({"method": method, "base_url": base_url,
+                      "path": path, "params": params,
                       "content": content, "headers": headers,
                       "timeout": kwargs.get("timeout")})
         return _response(200, {"ok": True})
@@ -83,8 +84,8 @@ def test_query_parameters_are_preserved(transport):
         params={"limit": 25, "cursor": "abc|def",
                 "status": "ACTIVE"})
     assert response.status_code == 200
-    assert transport[-1]["params"] == {
-        "limit": "25", "cursor": "abc|def", "status": "ACTIVE"}
+    assert transport[-1]["params"] == [
+        ("limit", "25"), ("cursor", "abc|def"), ("status", "ACTIVE")]
 
 
 def test_typed_crm_error_is_preserved_verbatim(monkeypatch):
@@ -219,3 +220,106 @@ def test_campaign_governance_health_is_bounded():
     for forbidden in ("cust_0007", "tenant", "http://", "localhost",
                       "password", "secret"):
         assert forbidden not in text, forbidden
+
+
+def test_collection_root_forwards_without_slash_redirect(transport):
+    response = client.post(
+        "/api/v2/crm/campaigns",
+        json={"campaign_code": "C-1", "name": "C"})
+    assert response.status_code == 200
+    assert transport[-1]["method"] == "POST"
+    assert transport[-1]["path"] == "/api/v2/crm/campaigns"
+
+
+def test_collection_root_trailing_slash_uses_canonical_upstream(transport):
+    response = client.get("/api/v2/crm/campaigns/")
+    assert response.status_code == 200
+    assert transport[-1]["path"] == "/api/v2/crm/campaigns"
+
+
+def test_collection_root_never_emits_a_redirect(transport):
+    response = client.post(
+        "/api/v2/crm/campaigns",
+        json={"campaign_code": "C-1", "name": "C"},
+        follow_redirects=False)
+    assert response.status_code == 200
+    assert response.history == []
+    assert "location" not in {k.lower() for k in response.headers}
+    assert len(transport) == 1
+
+
+def test_collection_root_following_client_has_zero_redirects(transport):
+    response = client.get("/api/v2/crm/campaigns",
+                          follow_redirects=True)
+    assert response.status_code == 200
+    assert response.history == []
+    assert len(transport) == 1
+
+
+def test_collection_root_preserves_query_string(transport):
+    response = client.get(
+        "/api/v2/crm/campaigns",
+        params=[("limit", "2"), ("status", "ACTIVE"),
+                ("cursor", "a|b"), ("status", "DRAFT")])
+    assert response.status_code == 200
+    assert sorted(transport[-1]["params"]) == sorted([
+        ("limit", "2"), ("status", "ACTIVE"), ("cursor", "a|b"),
+        ("status", "DRAFT")])
+
+
+def test_child_trailing_slash_uses_the_canonical_upstream_path(transport):
+    response = client.get("/api/v2/crm/campaigns/exclusions/")
+    assert response.status_code == 200
+    assert transport[-1]["path"] == "/api/v2/crm/campaigns/exclusions"
+
+
+def test_proxy_uses_the_fixed_core_origin(transport):
+    client.get("/api/v2/crm/campaigns")
+    from retriva_gateway.core.client import core_client
+    assert transport[-1]["base_url"] == core_client.ingestion_base_url
+
+
+@pytest.mark.parametrize("path", [
+    "/api/v2/crm/campaigns/%2e%2e/%2e%2e/secret",
+    "/api/v2/crm/campaigns/..%2fsecret",
+    "/api/v2/crm/campaigns/%2e%2e%5csecret",
+    "/api/v2/crm/campaigns/%252e%252e%255csecret",
+])
+def test_encoded_traversal_is_refused(path, transport):
+    response = client.get(path)
+    assert response.status_code in (400, 404), (path, response.status_code)
+    if response.status_code == 400:
+        assert response.json()["code"] == "INVALID_PROXY_PATH"
+    assert transport == []
+
+
+def test_dynamic_campaign_reference_still_routes_to_child_path(transport):
+    response = client.get("/api/v2/crm/campaigns/2026-Q1/lineage")
+    assert response.status_code == 200
+    assert transport[-1]["path"] ==         "/api/v2/crm/campaigns/2026-Q1/lineage"
+
+
+def test_double_encoded_traversal_is_rejected_in_real_asgi(transport):
+    import asyncio
+
+    async def run():
+        transport_client = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+                transport=transport_client,
+                base_url="http://testserver") as async_client:
+            return await async_client.get(
+                "/api/v2/crm/campaigns/%252e%252e%252fsecret")
+
+    response = asyncio.run(run())
+    assert response.status_code == 400
+    assert response.json()["code"] == "INVALID_PROXY_PATH"
+    assert transport == []
+
+
+@pytest.mark.parametrize("encoded", ["%3F", "%23"])
+def test_encoded_query_or_fragment_is_rejected(encoded, transport):
+    response = client.get(
+        f"/api/v2/crm/campaigns/exclusions{encoded}injected=1")
+    assert response.status_code == 400
+    assert response.json()["code"] == "INVALID_PROXY_PATH"
+    assert transport == []

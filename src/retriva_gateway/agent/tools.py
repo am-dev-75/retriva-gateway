@@ -47,24 +47,38 @@ from retriva_gateway.core.context import get_correlation_id
 def _public_url(path: str) -> str:
     """Absolute, browser-reachable URL for a gateway-served path.
 
-    The import review/reconciliation pages are proxied by the gateway
-    (``/api/v2/crm/imports/*`` passthrough), so prefixing the public
-    gateway origin yields a URL a human can simply click.
+    Only a root-relative CRM path is accepted.  Scheme-relative and
+    foreign-origin inputs are reduced to the configured public origin so
+    a server/tool payload can never turn into an open redirect.
     """
     base = (getattr(settings, "GATEWAY_PUBLIC_URL", "") or "").rstrip("/")
-    return f"{base}{path}"
+    candidate = (path or "").strip()
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return base
+    return f"{base}{candidate}"
 
 
 def _public_review_url(review_url: Optional[str]) -> str:
-    """Absolute review URL for chat presentation.
+    """Absolute, trusted review URL for chat presentation.
 
-    The server returns a root-relative path; if a future server already
-    returns an absolute URL it is passed through unchanged.
+    Trust only the path of a CRM-served review URL; the origin always
+    comes from ``GATEWAY_PUBLIC_URL``.  This preserves clickable links
+    without accepting an arbitrary origin from upstream payloads.
     """
-    url = review_url or ""
-    if url.startswith("http://") or url.startswith("https://"):
-        return url
-    return _public_url(url)
+    from urllib.parse import urlsplit
+
+    raw = (review_url or "").strip()
+    if not raw:
+        return _public_url("")
+    if raw.startswith("/") and not raw.startswith("//"):
+        return _public_url(raw)
+    parts = urlsplit(raw)
+    if parts.path.startswith("/api/v2/crm/"):
+        query = f"?{parts.query}" if parts.query else ""
+        return _public_url(parts.path + query)
+    # An unexpected URL is not a review link: land on the campaign
+    # console registry rather than the site root.
+    return _public_url("/api/v2/crm/campaigns/console")
 
 
 # ---------------------------------------------------------------------------
@@ -2347,6 +2361,8 @@ async def _tool_analyze_company_import(
         payload["notes"] = args["notes"]
     result = await _crm_request(
         "POST", "/api/v2/crm/imports/analyze", json=payload)
+    if result.get("review_url"):
+        result["review_url"] = _public_review_url(result["review_url"])
 
     if result.get("status") == "PROFILE_SELECTION_REQUIRED":
         selection = result.get("profile_selection") or {}
@@ -2393,6 +2409,9 @@ async def _tool_commit_company_import(
     result = await _crm_request(
         "POST", f"/api/v2/crm/imports/batches/{batch_id}/commit",
         json=payload)
+    if result.get("reconciliation_url"):
+        result["reconciliation_url"] = _public_review_url(
+            result["reconciliation_url"])
     applied = result.get("applied") or {}
     recon = result.get("reconciliation_summary") or {}
     counters = recon.get("counters") or {}
@@ -2471,6 +2490,8 @@ async def _tool_analyze_campaign_audience(
     result = await _crm_request(
         "POST", f"/api/v2/crm/campaigns/{campaign}/selection-runs",
         json=payload)
+    if result.get("review_url"):
+        result["review_url"] = _public_review_url(result["review_url"])
     result["chat_summary"] = (
         f"Selection run {result.get('selection_run_id')} created for "
         f"{result.get('campaign_code')}: considered "
@@ -2567,6 +2588,8 @@ async def _tool_import_campaign_company_history(
     result = await _crm_request(
         "POST", "/api/v2/crm/campaigns/import-history-attachment",
         json=payload)
+    if result.get("review_url"):
+        result["review_url"] = _public_review_url(result["review_url"])
     result["chat_summary"] = (
         f"Campaign-history workbook staged (batch "
         f"{result.get('import_batch_id')}): "

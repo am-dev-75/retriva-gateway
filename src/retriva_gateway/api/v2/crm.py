@@ -635,12 +635,33 @@ _CAMPAIGN_PATH_FORBIDDEN = ("..", "://", "\\", "\x00", "\n", "\r")
 
 
 def _campaign_path_safe(path: str) -> bool:
+    """Reject traversal, separators, query/fragment injection and
+    residual percent-encoding before the path is forwarded.
+
+    ASGI decodes the request target once; a client can therefore send
+    ``%252e`` and leave ``%2e`` in ``scope["path"]``.  Validate the
+    decoded value repeatedly so the forwarded path cannot be decoded a
+    second time by Core into ``..``.
+    """
+    from urllib.parse import unquote
+
     candidate = path or ""
-    if any(token in candidate for token in _CAMPAIGN_PATH_FORBIDDEN):
-        return False
-    if candidate.startswith("/") or "//" in candidate:
-        return False
-    return True
+    decoded = candidate
+    for _ in range(4):
+        if any(token in decoded for token in _CAMPAIGN_PATH_FORBIDDEN):
+            return False
+        if decoded.startswith("/") or "//" in decoded:
+            return False
+        if "?" in decoded or "#" in decoded:
+            return False
+        lowered = decoded.lower()
+        if any(token in lowered for token in ("%2e", "%2f", "%5c")):
+            return False
+        next_value = unquote(decoded)
+        if next_value == decoded:
+            return True
+        decoded = next_value
+    return False
 
 
 def _gateway_error(status_code: int, code: str, message: str) -> Response:
@@ -708,6 +729,20 @@ async def campaign_governance_health():
     }
 
 
+@router.api_route("/campaigns", methods=["GET", "POST", "PUT", "PATCH"])
+@router.api_route("/campaigns/", methods=["GET", "POST", "PUT", "PATCH"])
+async def crm_campaigns_root(request: Request):
+    """Forward the campaign collection root without the slash-redirect loop.
+
+    Core declares the collection at ``/campaigns`` (no trailing slash).
+    Forwarding ``/campaigns/`` makes Core answer 307 back to the
+    slash-less path, which the proxy would return to the client as an
+    unusable redirect.  The root route therefore forwards the canonical
+    upstream path explicitly.
+    """
+    return await crm_campaigns_passthrough("", request)
+
+
 @router.api_route("/campaigns/{path:path}", methods=["GET", "POST",
                                                     "PUT", "PATCH"])
 async def crm_campaigns_passthrough(path: str, request: Request):
@@ -731,10 +766,18 @@ async def crm_campaigns_passthrough(path: str, request: Request):
                 # Only the content type is merged; identity headers are
                 # reconstructed by core_client from the trusted principal.
                 kwargs["headers"] = {"Content-Type": content_type}
-        params = dict(parse_qsl(request.url.query, keep_blank_values=True))
+        # Preserve ordering/duplicates and blank values exactly.
+        params = parse_qsl(request.url.query, keep_blank_values=True)
+        # Child paths use the canonical slash-less Core route.  Only the
+        # collection root is special because Core declares it without a
+        # trailing slash; stripping a child's final slash prevents a
+        # second upstream 307 back to the same proxy path.
+        canonical_path = (path or "").rstrip("/")
+        upstream_path = "/api/v2/crm/campaigns" + (
+            f"/{canonical_path}" if canonical_path else "")
         resp = await core_client._request(
             request.method, core_client.ingestion_base_url,
-            f"/api/v2/crm/campaigns/{path}",
+            upstream_path,
             params=params or None,
             **kwargs)
         if len(resp.content) > CAMPAIGN_PROXY_MAX_RESPONSE:

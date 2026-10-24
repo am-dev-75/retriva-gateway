@@ -431,3 +431,96 @@ class TestToolExecution:
         assert exc.value.code == "CAMPAIGN_VERSION_CONFLICT"
         assert exc.value.http_status == 409
         monkeypatch.setattr(tools_mod, "_crm_request", original)
+
+
+class TestPhase6RemediationToolBoundaries:
+    @pytest.mark.asyncio
+    async def test_review_urls_use_the_configured_trusted_origin(
+            self, monkeypatch):
+        from retriva_gateway.config import settings
+        from retriva_gateway.agent import loop
+
+        async def fake(method, path, **kwargs):
+            return {"ok": True, "import_batch_id": "ibth_1",
+                    "review_url": "https://evil.example/steal?x=1"}
+
+        monkeypatch.setattr(tools_mod, "_crm_request", fake)
+        monkeypatch.setattr(settings, "GATEWAY_PUBLIC_URL",
+                            "https://retriva.example")
+        by_name = {t.name: t for t in build_campaign_governance_tools()}
+        result = await by_name["get_campaign_history_batch"].execute(
+            {"batch_id": "ibth_1"}, _ctx("Show batch ibth_1"))
+        assert result["review_url"] == (
+            "https://retriva.example/api/v2/crm/campaigns/console")
+        assert "evil.example" not in result["review_url"]
+
+        async def relative(method, path, **kwargs):
+            return {"ok": True, "import_batch_id": "ibth_2",
+                    "review_url": "/api/v2/crm/imports/batches/ibth_2/review"}
+
+        monkeypatch.setattr(tools_mod, "_crm_request", relative)
+        result = await by_name["get_campaign_history_batch"].execute(
+            {"batch_id": "ibth_2"}, _ctx("Show batch ibth_2"))
+        assert result["review_url"] == (
+            "https://retriva.example/api/v2/crm/imports/batches/"
+            "ibth_2/review")
+
+    @pytest.mark.asyncio
+    async def test_typed_tool_error_is_not_rewritten_or_rag_fallback(
+            self, monkeypatch):
+        from retriva_gateway.agent import loop
+
+        async def typed(method, path, **kwargs):
+            raise ToolExecutionError(
+                "CAMPAIGN_CONCURRENT_ELIGIBILITY_CHANGE",
+                "eligibility changed", http_status=409)
+
+        monkeypatch.setattr(tools_mod, "_crm_request", typed)
+        by_name = {t.name: t for t in build_campaign_governance_tools()}
+        tool = by_name["get_campaign_exclusion"]
+        result = await loop._execute_tool(
+            tool, {"name": tool.name, "args": {"exclusion_id": "excl_1"}},
+            _ctx("Show exclusion excl_1"), 5.0)
+        assert result == {"error": {
+            "code": "CAMPAIGN_CONCURRENT_ELIGIBILITY_CHANGE",
+            "message": "eligibility changed"}}
+
+    @pytest.mark.asyncio
+    async def test_unexpected_tool_crash_is_sanitized(self):
+        from retriva_gateway.agent import loop
+        from retriva_gateway.agent.tools import ToolDefinition
+
+        async def boom(args, ctx):
+            raise RuntimeError(
+                "SELECT * FROM campaigns.secret /app/src/x.py")
+
+        tool = ToolDefinition(
+            name="probe", description="probe", parameters={
+                "type": "object", "properties": {},
+                "additionalProperties": False},
+            execute=boom, destructive=False)
+        result = await loop._execute_tool(
+            tool, {"name": "probe", "args": {}}, _ctx("probe"), 5.0)
+        assert result == {"error": {"code": "tool_crash",
+                                    "message": "tool execution failed"}}
+        assert "SELECT" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_absolute_review_url_keeps_run_query(monkeypatch):
+    from retriva_gateway.config import settings
+
+    async def fake(method, path, **kwargs):
+        return {"ok": True,
+                "review_url": "http://internal:9/api/v2/crm/campaigns/"
+                              "2026-Q1/audience?run=crun_1&x=2"}
+
+    monkeypatch.setattr(tools_mod, "_crm_request", fake)
+    monkeypatch.setattr(settings, "GATEWAY_PUBLIC_URL",
+                        "https://retriva.example")
+    by_name = {t.name: t for t in build_campaign_governance_tools()}
+    result = await by_name["get_campaign_history_batch"].execute(
+        {"batch_id": "ibth_1"}, _ctx("Show batch ibth_1"))
+    assert result["review_url"] == (
+        "https://retriva.example/api/v2/crm/campaigns/2026-Q1/audience"
+        "?run=crun_1&x=2")

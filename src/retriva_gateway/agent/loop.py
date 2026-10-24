@@ -301,9 +301,10 @@ async def _execute_tool(
                           "message": f"Tool {tool.name} timed out after {tool_timeout}s."}}
     except ToolExecutionError as e:
         return {"error": {"code": e.code, "message": e.message}}
-    except Exception as e:  # noqa: BLE001 — tool boundary
+    except Exception:  # noqa: BLE001 — tool boundary
         logger.exception(f"[{ctx.correlation_id}] tool {tool.name} crashed")
-        return {"error": {"code": "tool_crash", "message": str(e)[:500]}}
+        return {"error": {"code": "tool_crash",
+                          "message": "tool execution failed"}}
 
 
 async def run_agent_loop(

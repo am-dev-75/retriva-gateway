@@ -147,8 +147,14 @@ def test_analyze_emits_absolute_clickable_review_url():
     assert "new tab" in result["chat_summary"].lower()
 
 
-def test_analyze_passes_through_absolute_review_url():
-    """If the server already returns an absolute URL, keep it as-is."""
+def test_absolute_review_url_is_reduced_to_the_trusted_origin():
+    """An upstream absolute URL never becomes an open review redirect.
+
+    The path is preserved; the origin is always the configured public
+    Gateway origin.
+    """
+    from retriva_gateway.config import settings
+
     absolute = dict(ANALYSIS)
     absolute["review_url"] = \
         "http://elsewhere:9/api/v2/crm/imports/batches/x/review"
@@ -165,8 +171,11 @@ def test_analyze_passes_through_absolute_review_url():
                 {"attachment_id": "att_wb"}, _ctx())
 
     result = asyncio.run(run())
-    assert "http://elsewhere:9/api/v2/crm/imports/batches/x/review" \
-        in result["chat_summary"]
+    expected = (settings.GATEWAY_PUBLIC_URL.rstrip("/") +
+                "/api/v2/crm/imports/batches/x/review")
+    assert expected in result["chat_summary"]
+    assert result["review_url"] == expected
+    assert "elsewhere:9" not in result["chat_summary"]
 
 
 def test_commit_emits_absolute_reconciliation_url():
