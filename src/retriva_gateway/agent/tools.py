@@ -1302,7 +1302,9 @@ async def _cg_policy_history(args, ctx):
 
 async def _cg_create_draft(args, ctx):
     _cg_require(args, "timezone")
-    body = {"grace_days": args["grace_days"], "timezone": args["timezone"]}
+    body = {"timezone": args["timezone"]}
+    if args.get("grace_days") is not None:
+        body["grace_days"] = args["grace_days"]
     for key in ("reason_text", "expected_version"):
         if args.get(key) is not None:
             body[key] = args[key]
@@ -1606,12 +1608,13 @@ def build_campaign_governance_tools() -> List[ToolDefinition]:
             execute=_cg_policy_history),
         ToolDefinition(
             name="create_grace_policy_draft",
-            description="Create the next DRAFT grace-policy version. A "
+            description="Create the next DRAFT grace-policy version. "
+                        "grace_days defaults to 60 when omitted. A "
                         "draft never activates.",
             parameters=_cg_schema({
                 "grace_days": int_p, "timezone": str_p,
                 "reason_text": str_p, "expected_version": int_p,
-            }, ["grace_days", "timezone"]),
+            }, ["timezone"]),
             execute=_cg_create_draft),
         ToolDefinition(
             name="submit_grace_policy",

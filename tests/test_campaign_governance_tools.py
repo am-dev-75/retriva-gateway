@@ -278,6 +278,19 @@ class TestToolExecution:
             out["review_url"].startswith("/")
 
     @pytest.mark.asyncio
+    async def test_create_grace_draft_defaults_duration_in_crm(
+            self, crm_calls):
+        by_name = {t.name: t for t in build_campaign_governance_tools()}
+        tool = by_name["create_grace_policy_draft"]
+        assert tool.parameters["required"] == ["timezone"]
+        await tool.execute({"timezone": "UTC"},
+                           _ctx("Create a grace policy draft"))
+        assert crm_calls[-1]["method"] == "PUT"
+        assert crm_calls[-1]["path"] == \
+            "/api/v2/crm/campaigns/grace-policy"
+        assert crm_calls[-1]["json"] == {"timezone": "UTC"}
+
+    @pytest.mark.asyncio
     async def test_proposal_never_activates(self, crm_calls):
         by_name = {t.name: t for t in build_campaign_governance_tools()}
         result = await by_name["propose_campaign_exclusion"].execute(
