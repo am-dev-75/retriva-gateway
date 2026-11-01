@@ -22,6 +22,7 @@ The Gateway is a thin pass-through.
 """
 
 from typing import Optional
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import Response
@@ -302,6 +303,54 @@ async def crm_update_cco(kb_id: str, collection_name: Optional[str] = None):
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
+
+@router.get("/qualification-settings")
+async def crm_get_qualification_settings():
+    try:
+        resp = await core_client._request(
+            "GET", core_client.ingestion_base_url,
+            "/api/v2/crm/qualification-settings",
+        )
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
+@router.put("/qualification-settings")
+async def crm_save_qualification_settings(body: dict):
+    try:
+        resp = await core_client._request(
+            "PUT", core_client.ingestion_base_url,
+            "/api/v2/crm/qualification-settings", json=body,
+        )
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
+@router.get("/ideal-customer-profile/{kb_id}/text")
+async def crm_get_icp_text(kb_id: str):
+    try:
+        resp = await core_client._request(
+            "GET", core_client.ingestion_base_url,
+            f"/api/v2/crm/ideal-customer-profile/{kb_id}/text",
+        )
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
+@router.put("/ideal-customer-profile/{kb_id}/text")
+async def crm_save_icp_text(kb_id: str, body: dict):
+    try:
+        resp = await core_client._request(
+            "PUT", core_client.ingestion_base_url,
+            f"/api/v2/crm/ideal-customer-profile/{kb_id}/text", json=body,
+        )
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
 # ---------------------------------------------------------------------------
 # Human-approved Company Intelligence Store (review API pass-through).
 # Pure transport: mirrors the CRM extension's /intelligence/* endpoints
@@ -322,6 +371,7 @@ _INTEL_PATHS = {
     ("GET", "/intelligence/schema"),
     ("GET", "/intelligence/review"),
     ("GET", "/intelligence/assessments/{assessment_id}/report"),
+    ("GET", "/intelligence/qualification-runs"),
     ("GET", "/intelligence/apollo/readiness"),
     ("POST", "/intelligence/request-research"),
     ("GET", "/intelligence/research-requests/{request_id}"),
@@ -392,6 +442,24 @@ async def intel_company_history(identity_id: str):
 async def intel_latest_approved(identity_id: str):
     return await _proxy_intelligence(
         "GET", f"/companies/{identity_id}/latest-approved")
+
+
+@router.get("/intelligence/qualification-runs")
+async def intel_qualification_runs(
+        company_identity_id: Optional[str] = None,
+        job_id: Optional[str] = None,
+        candidate_id: Optional[str] = None,
+        limit: int = 200):
+    query = urlencode({
+        key: value for key, value in {
+            "company_identity_id": company_identity_id,
+            "job_id": job_id,
+            "candidate_id": candidate_id,
+            "limit": limit,
+        }.items() if value is not None
+    })
+    return await _proxy_intelligence(
+        "GET", f"/qualification-runs?{query}")
 
 
 @router.get("/intelligence/assessments/{a_id}/compare/{b_id}")

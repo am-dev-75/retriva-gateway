@@ -273,6 +273,61 @@ def test_legacy_acp_text_proxies_removed_from_routes_and_openapi():
     assert "/api/v2/crm/acp/cohorts" in paths
 
 
+def test_qualification_settings_proxies(transport_log):
+    response = client.get("/api/v2/crm/qualification-settings")
+    assert response.status_code == 200
+    assert ("GET", "/api/v2/crm/qualification-settings", b"") in transport_log
+
+    response = client.put(
+        "/api/v2/crm/qualification-settings",
+        json={
+            "acp_weight": "0.2",
+            "icp_weight": "0.4",
+            "cco_weight": "0.4",
+            "credit_threshold": "0.6",
+        },
+    )
+    assert response.status_code == 200
+    assert ("PUT", "/api/v2/crm/qualification-settings") in [
+        (method, path) for method, path, _ in transport_log
+    ]
+
+
+def test_icp_text_proxies(transport_log):
+    response = client.get(
+        "/api/v2/crm/ideal-customer-profile/default/text")
+    assert response.status_code == 200
+    assert (
+        "GET",
+        "/api/v2/crm/ideal-customer-profile/default/text",
+        b"",
+    ) in transport_log
+
+    response = client.put(
+        "/api/v2/crm/ideal-customer-profile/default/text",
+        json={"content": "# Ideal customer\n"},
+    )
+    assert response.status_code == 200
+    assert (
+        "PUT",
+        "/api/v2/crm/ideal-customer-profile/default/text",
+    ) in [(method, path) for method, path, _ in transport_log]
+
+
+def test_qualification_runs_proxy(transport_log):
+    response = client.get(
+        "/api/v2/crm/intelligence/qualification-runs"
+        "?company_identity_id=identity-1")
+    assert response.status_code == 200
+    paths = [path for method, path, _ in transport_log
+             if method == "GET"]
+    assert any(
+        path.startswith("/api/v2/crm/intelligence/qualification-runs")
+        and "company_identity_id=identity-1" in path
+        for path in paths
+    )
+
+
 def test_legacy_acp_text_put_is_rejected_without_forwarding(transport_log):
     """PUT /acp/{kb_id}/text has no handler any more: the gateway
     answers its standard 404/405 (the path exists only for GET/POST
