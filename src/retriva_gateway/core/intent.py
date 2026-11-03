@@ -92,6 +92,24 @@ _CRM_WORKFLOW = re.compile(
     r"|\b(import)\b[^\n]{0,80}\b(campaign|company\s+history)\b",
     re.IGNORECASE)
 
+# Read-only campaign aggregate questions.  Kept separate and narrow so
+# the accepted verb+noun workflow patterns above are not widened: only
+# an explicit count cue plus the campaign family noun matches.  Lifecycle
+# words (completed/done/finished) are handled by the agent prompt, which
+# maps them to the COMPLETED campaign status.
+_CAMPAIGN_COUNT = re.compile(
+    r"\bhow\s+many\b[^\n]{0,80}\bcampaigns?\b"
+    r"|\bnumber\s+of\s+(?:outreach\s+)?campaigns?\b"
+    r"|\bcampaigns?\s+(?:count|total)\b"
+    r"|\bquant[ie]\s+(?:outreach\s+)?campagn[ae]\b",
+    re.IGNORECASE)
+
+
+def _is_workflow_text(text: str) -> bool:
+    """Legacy CRM-workflow match (accepted patterns + campaign count)."""
+    return bool(_CRM_WORKFLOW.search(text) or _CAMPAIGN_COUNT.search(text))
+
+
 # Sticky-continuation guard (review fix 17): interrogative how-to /
 # what-is framings and generic knowledge phrasing are NEVER routed by
 # stickiness, even inside an active workflow — only the workflow regex
@@ -200,7 +218,7 @@ class IntentDetector:
                          if key in fields}
                 if known:
                     return Intent.METADATA_FILTERED_RAG, dict(known)
-        workflow = bool(_CRM_WORKFLOW.search(text))
+        workflow = _is_workflow_text(text)
         if not workflow and IntentDetector._hit_sticky(session_key) \
                 and not _KNOWLEDGE_FRAMING.search(text):
             # Sticky continuation: a short approval/confirmation turn
@@ -217,7 +235,7 @@ class IntentDetector:
                         session_key: Optional[str] = None) -> bool:
         """Synchronous CRM-workflow check for the chat router."""
         text = message or ""
-        if _CRM_WORKFLOW.search(text):
+        if _is_workflow_text(text):
             return True
         # Sticky continuation mirrors analyze() without the async
         # metadata lookup: explicit filter/catalog/dynamic-filter

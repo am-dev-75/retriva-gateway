@@ -84,7 +84,7 @@ _SAFE_WORKFLOW_INTENTS = frozenset({
     Intent.QUALIFICATION_REVIEW,
     Intent.COMPANY_IMPORT_ANALYSIS, Intent.COMPANY_IMPORT_STATUS,
     Intent.CAMPAIGN_CREATE, Intent.CAMPAIGN_AUDIENCE_ANALYSIS,
-    Intent.CAMPAIGN_STATUS,
+    Intent.CAMPAIGN_STATUS, Intent.CAMPAIGN_COUNT,
     # Spec 038 Phase 5: safe (non-consequential) campaign-governance
     # reads and lifecycle proposals/reviews only.
     Intent.CAMPAIGN_SETTINGS_STATUS, Intent.CAMPAIGN_SETTINGS_DRAFT,

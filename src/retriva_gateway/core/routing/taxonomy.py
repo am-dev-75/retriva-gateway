@@ -130,6 +130,10 @@ class Intent(str, Enum):
     CAMPAIGN_MARK_ADDRESSED = "CAMPAIGN_MARK_ADDRESSED"
     CAMPAIGN_OUTCOME_UPDATE = "CAMPAIGN_OUTCOME_UPDATE"
     CAMPAIGN_STATUS = "CAMPAIGN_STATUS"
+    # Read-only campaign aggregate (count questions over the campaign
+    # registry; never a mutation).  Safe workflow: routes to the agent
+    # loop so the count comes from campaigns.campaigns, never RAG.
+    CAMPAIGN_COUNT = "CAMPAIGN_COUNT"
     AMBIGUOUS = "AMBIGUOUS"
     UNSUPPORTED = "UNSUPPORTED"
     CLARIFICATION_REQUIRED = "CLARIFICATION_REQUIRED"

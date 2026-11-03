@@ -76,6 +76,8 @@ ACCEPTED_INTENTS = {
     "CAMPAIGN_ADDRESSED_REVOCATION",
     "CAMPAIGN_MARK_ADDRESSED", "CAMPAIGN_OUTCOME_UPDATE",
     "CAMPAIGN_STATUS",
+    # Read-only campaign aggregate (count questions over campaigns.campaigns).
+    "CAMPAIGN_COUNT",
     "AMBIGUOUS", "UNSUPPORTED", "CLARIFICATION_REQUIRED",
 }
 

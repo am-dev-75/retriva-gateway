@@ -40,7 +40,11 @@ from retriva_gateway.core.routing.deterministic import (
     normalize_message,
     split_clauses,
 )
-from retriva_gateway.core.routing.taxonomy import ReasonCode, Route
+from retriva_gateway.core.routing.taxonomy import (
+    Intent,
+    ReasonCode,
+    Route,
+)
 
 ENGINE = DeterministicEngine()
 
@@ -63,6 +67,7 @@ ACCEPTED_PRIORITIES = {
     "R-HYPOTHETIC": 25,
     "R-QUOTED": 30,
     "R-QUOTE-FRAMING": 32,
+    "R-CAMPAIGN-COUNT": 38,
     "R-COMMAND": 40,
     "R-QUESTION": 50,
     "R-MULTI-INTENT": 55,
@@ -145,6 +150,83 @@ def test_clear_safe_workflow_commands_route_to_agent_loop(message, intent):
     assert routed.decision.intent.value == intent
     assert routed.decision.classifier_invoked is False
     assert routed.decision.source.value == "deterministic"
+
+
+# ---------------------------------------------------------------------------
+# Campaign count (read-only aggregate; never RAG/CLARIFY, never a mutation).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("message", [
+    "How many outreach campaigns have we done?",
+    "How many campaigns do we have?",
+    "How many campaigns are completed?",
+    "How many campaigns have we finished?",
+    "How many campaigns have we approved?",
+    "Number of campaigns",
+    "Campaign count",
+    "What is the campaign count?",
+    "What is the number of campaigns?",
+    "Quante campagne abbiamo fatto?",
+])
+def test_campaign_count_questions_route_to_agent_loop(message):
+    routed = route_non_streaming(message)
+    assert routed.route == Route.AGENT_LOOP
+    assert routed.decision.intent.value == "CAMPAIGN_COUNT"
+    assert routed.decision.classifier_invoked is False
+    assert routed.decision.source.value == "deterministic"
+    decision = ENGINE.classify(message)
+    assert decision.rule == "R-CAMPAIGN-COUNT"
+
+
+@pytest.mark.parametrize("message,expected", [
+    ("How many outreach campaigns have we done?", "COMPLETED"),
+    ("How many campaigns are completed?", "COMPLETED"),
+    ("How many campaigns have we finished?", "COMPLETED"),
+    ("How many campaigns do we have?", None),
+    ("Number of campaigns", None),
+])
+def test_campaign_count_maps_lifecycle_words_to_completed(message, expected):
+    from retriva_gateway.core.routing.deterministic import (
+        campaign_count_status_filter,
+    )
+    assert campaign_count_status_filter(message) == expected
+    assert ENGINE.classify(message).campaign_status_filter == expected
+
+
+@pytest.mark.parametrize("message", [
+    "Create a new campaign",
+    "Approve the campaign audience",
+    "Commit the campaign audience",
+    "Activate the campaign audience camp_5",
+    "Approve the campaign and how many campaigns do we have?",
+])
+def test_campaign_write_commands_never_become_a_count(message):
+    result = ENGINE.classify(message)
+    assert result.intent is not Intent.CAMPAIGN_COUNT
+    assert result.rule != "R-CAMPAIGN-COUNT"
+
+
+@pytest.mark.parametrize("message", [
+    "How does the campaign count work?",
+    "How do I find the number of campaigns?",
+    "Explain the campaign count",
+    "What is the campaign count formula?",
+])
+def test_documentation_framed_count_questions_stay_on_rag(message):
+    routed = route_non_streaming(message)
+    assert routed.route == Route.RAG
+    assert routed.decision.intent.value == "WORKFLOW_DOCUMENTATION"
+
+
+@pytest.mark.parametrize("message", [
+    "How many customers do we have?",
+    "How many files do we have?",
+    "What is the meaning of life?",
+    "How do I create a campaign?",
+])
+def test_unrelated_questions_are_not_campaign_counts(message):
+    assert ENGINE.classify(message).intent is not Intent.CAMPAIGN_COUNT
+    assert route_of(message) != Route.AGENT_LOOP
 
 
 @pytest.mark.parametrize("message", [
@@ -465,7 +547,11 @@ def dataclass_fields_are_classification_only(result) -> bool:
         # Phase C: the weak follow-up's matched operations (closed
         # Intent tuple — detection-only classification data; the
         # resource comes from the typed registry, never the engine).
-        "followup_intents"}
+        "followup_intents",
+        # Campaign count: the optional COMPLETED lifecycle filter named
+        # by the request (closed string metadata; selects no tool and
+        # carries no authorization).
+        "campaign_status_filter"}
     return set(result.__dataclass_fields__) <= allowed
 
 

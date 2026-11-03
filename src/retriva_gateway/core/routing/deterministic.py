@@ -98,6 +98,7 @@ RULE_PRIORITIES: Dict[str, int] = {
     "R-HYPOTHETIC": 25,
     "R-QUOTED": 30,
     "R-QUOTE-FRAMING": 32,
+    "R-CAMPAIGN-COUNT": 38,
     "R-COMMAND": 40,
     "R-QUESTION": 50,
     "R-MULTI-INTENT": 55,
@@ -722,6 +723,83 @@ _STATUS_QUESTION_ANCHORS = re.compile(
     r"qual\s+[eè]\s+lo\s+stato|stato\s+(?:di|della|del))"
 )
 
+# Campaign count questions (read-only aggregate).  The count cue is
+# deliberately narrow — an explicit "how many" / "number of" / "count
+# of" / "<campaign> count|total" / Italian "quante" phrase plus the
+# campaign family noun.  A campaign write command never carries one of
+# these cues, and an imperative write-verb head vetoes the rule, so the
+# aggregate can never hijack a mutation.  Priority 38 runs before
+# R-COMMAND (40): "how many campaigns have we approved?" is a count of
+# APPROVED campaigns, not an approval command.
+_CAMPAIGN_COUNT_CUES = re.compile(
+    r"(?:"
+    r"\bhow\s+many\b[^\n]{0,80}?\bcampaigns?\b"
+    r"|\bnumber\s+of\b[^\n]{0,40}?\bcampaigns?\b"
+    r"|\bcount\s+of\b[^\n]{0,40}?\bcampaigns?\b"
+    r"|\bcampaigns?\s+(?:count|total)\b"
+    r"|\bquant[ie]\b[^\n]{0,60}?\bcampagn[ae]\b"
+    r")"
+)
+
+#: Imperative write heads that veto the count rule (checked per clause).
+_CAMPAIGN_COUNT_WRITE_HEAD = re.compile(
+    r"^\s*(?:please\s+)?(?:creat\w*|committ?\w*|approv\w*|activat\w*|"
+    r"revok\w*|expir\w*|supersed\w*|mark\w*|updat\w*|import\w*|"
+    r"reviews?|submit\w*|propos\w*|exclud\w*|reject\w*|delet\w*|"
+    r"amend\w*|correct\w*|roll\s?back|ripristin\w*)\b"
+)
+
+#: Lifecycle words that map a count question to the COMPLETED campaign
+#: status (campaigns.campaigns lifecycle vocabulary).
+_CAMPAIGN_COMPLETED_ANCHORS = re.compile(
+    r"\b(?:completed?|done|finished|closed)\b"
+)
+
+#: How-to / explanation framing around a count cue stays documentation
+#: ("How does the campaign count work?"), never a data query.
+_CAMPAIGN_COUNT_HOWTO = re.compile(
+    r"\b(?:how\s+(?:do|can|to|does|did|would|should)|explain|describe|"
+    r"tell\s+me\s+about|overview\s+of|come\s+(?:si|funziona)|spiega|"
+    r"spiegami|dimmi|descrivi)\b"
+)
+
+#: Documentation nouns that make a count-cue question conceptual rather
+#: than a request for the stored aggregate.
+_CAMPAIGN_COUNT_DOC_NOUN = re.compile(
+    r"\b(?:formula|definition|defined|meaning|means?|calculation|"
+    r"calculated|comput\w*|derived?|works?|workflow|documentation|"
+    r"docs?|guide)\b"
+)
+
+
+def _is_campaign_count_data_query(text: str) -> bool:
+    """True when ``text`` asks for the stored campaign aggregate.
+
+    A count cue plus the campaign noun is not enough: how-to/explanation
+    framing and documentation nouns keep the question on the knowledge
+    path (R-DOC-FRAMING).  Pure and deterministic.
+    """
+    if not _CAMPAIGN_COUNT_CUES.search(text):
+        return False
+    if _CAMPAIGN_COUNT_HOWTO.search(text):
+        return False
+    if _CAMPAIGN_COUNT_DOC_NOUN.search(text):
+        return False
+    return True
+
+
+def campaign_count_status_filter(message: str) -> Optional[str]:
+    """Optional campaign lifecycle filter for a count request.
+
+    'completed' / 'done' / 'finished' map to ``COMPLETED`` (the closed
+    ``campaigns.campaigns`` lifecycle value).  Returns ``None`` for an
+    unfiltered count.  Pure and deterministic (matching form only).
+    """
+    if _CAMPAIGN_COMPLETED_ANCHORS.search(normalize_message(message)):
+        return "COMPLETED"
+    return None
+
+
 _PROMPT_WRITING_RE = re.compile(
     r"\b(?:prompt|example|esempio|richiesta|request)\b"
 )
@@ -847,6 +925,10 @@ class DeterministicResult:
     # order.  Detection-only — the resource comes from the typed
     # workflow-context registry, never from the engine.
     followup_intents: Tuple["Intent", ...] = ()
+    #: R-CAMPAIGN-COUNT only: the optional lifecycle filter the request
+    #: names ('completed'/'done'/'finished' -> COMPLETED).  Routing
+    #: metadata only — it selects no tool and carries no authorization.
+    campaign_status_filter: Optional[str] = None
 
 
 class _MessageScan:
@@ -989,6 +1071,7 @@ class DeterministicEngine:
             "R-HYPOTHETIC": self._rule_hypothetical,
             "R-QUOTED": self._rule_quoted,
             "R-QUOTE-FRAMING": self._rule_quote_framing,
+            "R-CAMPAIGN-COUNT": self._rule_campaign_count,
             "R-COMMAND": self._rule_command,
             "R-QUESTION": self._rule_question,
             "R-MULTI-INTENT": self._rule_multi_intent,
@@ -1244,6 +1327,14 @@ class DeterministicEngine:
         doc_clauses = [c for c in scan.clauses if c.doc_framed]
         if not doc_clauses:
             return None
+        # A doc-framed clause whose ONLY content is a campaign count data
+        # query ("What is the campaign count?") is an aggregate request,
+        # not a documentation question: abstain so R-CAMPAIGN-COUNT (38)
+        # routes it to the campaign data path.  How-to/explanation
+        # framings and documentation nouns keep the doc route.
+        if (len(doc_clauses) == 1
+                and _is_campaign_count_data_query(doc_clauses[0].text)):
+            return None
         # Vetoed only when the clause itself carries a genuinely
         # imperative/requestive form (closed marker set, D-2c) together
         # with a consequential operation verb and an explicit resource
@@ -1365,6 +1456,47 @@ class DeterministicEngine:
             reason_codes=(ReasonCode.QUOTED_EXAMPLE,),
             families=families or (Topic.GENERAL,),
             consequential_operations=(),
+        )
+
+    def _rule_campaign_count(self, scan: _MessageScan
+                             ) -> Optional[DeterministicResult]:
+        """Read-only campaign aggregate (CAMPAIGN_COUNT).
+
+        Fires only for a narrow count cue plus the campaign family noun
+        ("how many campaigns", "number of campaigns", "campaign count",
+        "quante campagne").  A consequential command in a DIFFERENT
+        clause, a multi-intent shape, or an imperative campaign write
+        head vetoes the rule, so a count question can never steal a
+        mutation.  The optional lifecycle filter is routing metadata:
+        "completed"/"done"/"finished" -> COMPLETED.
+        """
+        if scan.is_multi_intent:
+            return None
+        count_clauses = {
+            clause.index for clause in scan.clauses
+            if _CAMPAIGN_COUNT_CUES.search(clause.text)}
+        if any(m.consequential and m.clause_index not in count_clauses
+               for m in scan.effective_matches):
+            # A consequential command in a DIFFERENT clause is a real
+            # second action ("approve the campaign, and how many..."):
+            # abstain so multi-intent handling/clarification wins.
+            return None
+        if any(_CAMPAIGN_COUNT_WRITE_HEAD.search(c.text)
+               for c in scan.clauses):
+            return None
+        text = " ".join(c.text for c in scan.clauses)
+        if not count_clauses:
+            return None
+        return DeterministicResult(
+            rule="R-CAMPAIGN-COUNT",
+            topic=Topic.CAMPAIGN,
+            intent=Intent.CAMPAIGN_COUNT,
+            mode=InteractionMode.ANALYSIS,
+            explicitness=Explicitness.EXPLICIT,
+            reason_codes=(ReasonCode.STATUS_QUESTION,),
+            families=(Topic.CAMPAIGN,),
+            consequential_operations=(),
+            campaign_status_filter=campaign_count_status_filter(text),
         )
 
     def _rule_command(self, scan: _MessageScan

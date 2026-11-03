@@ -46,12 +46,14 @@ LEGACY_WORKFLOW = [
     "Yes, enrich the three companies",
     "Review the cohort proposal",
     "Activate ACP version acpver_123",
+    "How many outreach campaigns have we done?",
 ]
 # Messages the legacy router keeps on RAG.
 LEGACY_RAG = [
     "What is the return policy in the documentation?",
     "How does the qualification pipeline work?",
     "hello",
+    "How many customers do we have?",
 ]
 
 
@@ -106,6 +108,20 @@ def test_off_mode_preserves_documentation_defect_d2(monkeypatch):
     monkeypatch.setattr(settings, "AGENT_INTENT_ROUTER_MODE", "off")
     assert _run_agent_mode(
         _request("How do I activate an ACP?"), "corr") is _AGENT_SENTINEL
+
+
+@pytest.mark.parametrize("mode", ["off", "shadow", "active"])
+@pytest.mark.parametrize("message", [
+    "How many outreach campaigns have we done?",
+    "How many campaigns are completed?",
+    "Number of campaigns",
+])
+def test_campaign_count_routes_to_agent_in_every_mode(
+        message, mode, monkeypatch):
+    """The campaign count must reach the CRM path with the legacy router
+    (mode off) AND the deterministic pipeline (shadow/active)."""
+    monkeypatch.setattr(settings, "AGENT_INTENT_ROUTER_MODE", mode)
+    assert _run_agent_mode(_request(message), "corr") is _AGENT_SENTINEL
 
 
 @pytest.mark.parametrize("message", LEGACY_WORKFLOW + LEGACY_RAG)

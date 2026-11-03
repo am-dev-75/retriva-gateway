@@ -379,6 +379,85 @@ class TestAgentLoop:
 
 
 # ---------------------------------------------------------------------------
+# Campaign count (read-only aggregate answered from list_campaigns)
+# ---------------------------------------------------------------------------
+
+class TestCampaignCount:
+    def test_system_prompt_exposes_list_campaigns_and_completed_mapping(self):
+        from retriva_gateway.agent.loop import AGENT_SYSTEM_PROMPT
+
+        assert "list_campaigns" in AGENT_SYSTEM_PROMPT
+        assert 'status="COMPLETED"' in AGENT_SYSTEM_PROMPT
+        lowered = " ".join(AGENT_SYSTEM_PROMPT.lower().split())
+        assert "never write campaign data to the knowledge base" in lowered
+        assert "never answer a campaign count from the knowledge base" \
+            in lowered
+
+    @pytest.mark.asyncio
+    async def test_agent_answers_campaign_count_from_list_campaigns(self):
+        """The loop calls list_campaigns(status=COMPLETED) and the tool
+        result carries the real aggregate count (1 COMPLETED campaign,
+        2026-CRA-IT) — never a knowledge-base answer."""
+        from retriva_gateway.agent.loop import run_agent_loop
+        from retriva_gateway.agent.tools import (
+            ToolContext,
+            build_default_tool_registry,
+        )
+
+        registry = build_default_tool_registry()
+        ctx = ToolContext(
+            session_id="s", kb_id="k",
+            user_message="How many outreach campaigns have we done?")
+        tool_call = {
+            "id": "call_1", "type": "function",
+            "function": {"name": "list_campaigns",
+                         "arguments": json.dumps({"status": "COMPLETED"})},
+        }
+        responses = [
+            _llm_response(tool_calls=[tool_call]),
+            _llm_response(content="We have completed 1 outreach campaign: "
+                                  "2026-CRA-IT."),
+        ]
+        payloads = []
+
+        async def fake_chat(payload, stream=False):
+            payloads.append(payload)
+            return responses[len(payloads) - 1]
+
+        async def fake_crm_request(method, path, **kwargs):
+            assert method == "GET"
+            assert path == "/api/v2/crm/campaigns"
+            assert kwargs.get("params") == {"status": "COMPLETED"}
+            return [{
+                "campaign_code": "2026-CRA-IT",
+                "name": "2026-CRA-IT",
+                "status": "COMPLETED",
+            }]
+
+        with patch("retriva_gateway.agent.tools._crm_request",
+                   fake_crm_request), patch(
+                "retriva_gateway.agent.loop.core_client.chat_completions",
+                new=AsyncMock(side_effect=fake_chat)):
+            result = await run_agent_loop(
+                user_message="How many outreach campaigns have we done?",
+                registry=registry, ctx=ctx, kb_ids=["k"])
+
+        assert result.stopped_reason == "final_answer"
+        assert result.tool_calls_executed == [{
+            "iteration": 1,
+            "tool": "list_campaigns",
+            "args": {"status": "COMPLETED"},
+            "ok": True,
+        }]
+        tool_messages = [m for m in payloads[1]["messages"]
+                         if m.get("role") == "tool"]
+        tool_payload = json.loads(tool_messages[-1]["content"])
+        assert tool_payload["count"] == 1
+        assert tool_payload["items"][0]["campaign_code"] == "2026-CRA-IT"
+        assert "1" in result.content
+
+
+# ---------------------------------------------------------------------------
 # Plain chat unaffected
 # ---------------------------------------------------------------------------
 

@@ -76,6 +76,19 @@ def test_informational_streaming_passthrough():
     assert decision is StreamingDecision.RAG_PASSTHROUGH
 
 
+def test_campaign_count_never_streams_clarification():
+    # A campaign count is a recognized deterministic read intent.  The
+    # streaming gate never streams a clarification for it: streaming
+    # cannot execute tools (Phase E), so it stays on the cited RAG path
+    # and the non-streaming chat path (the WebUI default) runs the agent
+    # loop with list_campaigns.
+    decision, _, res = classify_streaming_message(
+        "How many outreach campaigns have we done?")
+    assert decision is not StreamingDecision.STREAM_CLARIFY
+    assert decision is StreamingDecision.RAG_PASSTHROUGH
+    assert res.intent.value == "CAMPAIGN_COUNT"
+
+
 def test_non_adjacent_ambiguous_streaming_passthrough():
     # "Yes." is non-adjacent ambiguity — unchanged cited SSE RAG, never
     # a clarification or refusal.

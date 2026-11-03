@@ -88,6 +88,37 @@ async def test_generic_enrich_mention_stays_rag():
 
 
 @pytest.mark.asyncio
+async def test_campaign_count_routes_to_agent_loop():
+    """Campaign count questions reach the CRM path in the legacy router
+    (AGENT_INTENT_ROUTER_MODE off, the default), so the count comes from
+    list_campaigns instead of the knowledge base."""
+    for message in (
+        "How many outreach campaigns have we done?",
+        "How many campaigns do we have?",
+        "Number of campaigns",
+        "Campaign count",
+        "Quante campagne abbiamo fatto?",
+    ):
+        intent, meta = await IntentDetector.analyze(message)
+        assert intent == Intent.CRM_WORKFLOW, message
+        assert meta == {}
+        assert IntentDetector.is_crm_workflow(message) is True
+
+
+@pytest.mark.asyncio
+async def test_unrelated_count_questions_stay_pure_rag():
+    """The new count trigger stays narrow: no campaign noun, no CRM."""
+    for message in (
+        "How many customers do we have?",
+        "What is the meaning of life?",
+    ):
+        intent, meta = await IntentDetector.analyze(message)
+        assert intent == Intent.PURE_RAG, message
+        assert meta == {}
+        assert IntentDetector.is_crm_workflow(message) is False
+
+
+@pytest.mark.asyncio
 async def test_workflow_stickiness_routes_confirmation_replies():
     """Review fix 17: the staged flow's short confirmation replies
     stay in the agent loop for the session that is mid-workflow
