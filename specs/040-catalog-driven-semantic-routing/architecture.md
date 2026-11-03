@@ -1,8 +1,8 @@
-# Spec 002 — architecture
+# Spec 040 — architecture
 
-- **Status:** PROPOSED
-- **Companion ADR:** ADR-0003
-- **Implementation:** not authorized (Phase A ends at Gate A)
+- **Status:** ACCEPTED (Gate A passed 2026-11-03)
+- **Companion ADR:** ADR-045
+- **Implementation:** Phase B authorized; Phases C–E gated
 
 ## 1. Component map
 
@@ -62,7 +62,7 @@ become **hints**:
 - `intent` and `family` from the deterministic result;
 - the closed `reason_codes`;
 - the detected language;
-- optional session-derived categorical hints (PENDING-2):
+- optional session-derived categorical hints (D-9):
   `last_routed_data_plane`, `last_family`.
 
 Hints are categorical only. The message is passed verbatim as untrusted
@@ -180,8 +180,8 @@ Process-global, startup-validated (same discipline as
 | `AGENT_SEMANTIC_ROUTER_FAMILY_MIN_CONFIDENCE` | `0.85` | `[0.50, 1.00]` and `>= MIN_CONFIDENCE` |
 | `AGENT_SEMANTIC_ROUTER_TIMEOUT_SECONDS` | implementation-defined | positive, bounded |
 
-The family default is finalized at Gate A (PENDING-1). No per-request,
-tenant, session, or model override exists.
+The family default was finalized at Gate A 2026-11-03 as `0.85` (D-8). No
+per-request, tenant, session, or model override exists.
 
 ### 6.3 Authority
 
@@ -315,5 +315,5 @@ off  -> shadow -> active
   now.
 - Whether the router band later expands to workflow-adjacent
   `CLARIFICATION_REQUIRED` is a pack revision (see `spec.md` §6 note).
-- The family threshold default is PENDING-1; the architecture permits
-  `0.85` or `0.90` without structural change.
+- The family threshold default is `0.85` (D-8); the architecture also
+  permits `0.90` without structural change.

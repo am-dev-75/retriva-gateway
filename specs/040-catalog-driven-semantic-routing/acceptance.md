@@ -1,31 +1,33 @@
-# Spec 002 — acceptance contract
+# Spec 040 — acceptance contract
 
-- **Status:** PROPOSED
+- **Status:** ACCEPTED (Gate A passed 2026-11-03)
 - **Phase A environment:** documentation only; no runtime change
 - **Prohibition:** never mutate `cust_0007` or production state
-- **Implementation:** not authorized before Gate A
+- **Implementation:** Phase B authorized; Phases C–E gated
 
 ## 1. Gate A — owner acceptance of the pack
 
-Gate A passes only when:
+Gate A required:
 
 1. The owner accepts `spec.md`, `architecture.md`, `plan.md`, `tasks.md`,
    and this acceptance contract.
-2. The owner accepts ADR-0003.
-3. The registry entries (`002`, `0003`) are present, parse cleanly, and
+2. The owner accepts ADR-045.
+3. The registry entries (`040`, `045`) are present, parse cleanly, and
    point at existing artifacts.
-4. PENDING-1..4 are resolved:
-   - PENDING-1: family threshold (`0.85` recommended; `0.90` retained for
-     the safe-workflow advisory path).
-   - PENDING-2: hint set (`last_routed_data_plane` + `last_family`
-     recommended).
-   - PENDING-3: mirrored `AGENT_SEMANTIC_ROUTER_*` flags (recommended).
-   - PENDING-4: gateway-local `002` / `0003` naming (recommended).
+4. PENDING-1..4 resolved at Gate A (2026-11-03) as D-8..D-11:
+   - D-8: family threshold `0.85`; `0.90` retained for the Phase D
+     advisory path.
+   - D-9: hints `last_routed_data_plane` + `last_family` (categorical
+     only, bounded, never raw history).
+   - D-10: mirrored `AGENT_SEMANTIC_ROUTER_*` flags with independent
+     rollback; shared Core transport selected by `prompt_version`.
+   - D-11: renumbered to project-wide specification `040` / ADR `045`.
 5. No source, config, migration, prompt, eval, or flag change is part of
    Phase A.
 
-Gate A is **not** implementation authorization. Phase B starts only after
-Gate A and a separate Phase B authorization.
+**Gate A result (2026-11-03): PASSED.** The owner accepted the pack and
+resolved all four questions; Phase B is authorized. Phases C–E remain
+gated on their own phase acceptance.
 
 ## 2. Phase A verification evidence
 

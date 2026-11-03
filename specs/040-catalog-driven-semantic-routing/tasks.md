@@ -1,10 +1,11 @@
-# Spec 002 — tasks
+# Spec 040 — tasks
 
-- **Status:** PROPOSED
-- **Implementation:** not authorized
+- **Status:** ACCEPTED (Gate A passed 2026-11-03)
+- **Implementation:** Phase B authorized; Phases C–E gated
 - **Rule:** check a task only after its evidence is accepted; no task
   bypasses its phase gate.
-- **Current slice:** Phase A documentation and registry allocation only.
+- **Current slice:** Gate A passed; Phase B implementation is authorized
+  and its tasks remain unchecked until Gate B acceptance.
 
 ## Phase A — governance (this turn)
 
@@ -14,18 +15,19 @@
   tenant `cust_0007`, 442 memberships).
 - [x] Write the spec pack (`spec.md`, `architecture.md`, `plan.md`,
   `tasks.md`, `acceptance.md`).
-- [x] Write ADR-0003 with the seven ratified decisions, cost model,
+- [x] Write ADR-045 with the seven ratified decisions, cost model,
   read-only admission, freeze, and rejected alternatives.
 - [x] Ratify the `CAMPAIGN_COUNT` stopgap as a grandfathered fast path.
-- [x] Record the four PENDING owner questions with recommendations.
-- [x] Allocate gateway-local specification `002` and ADR `0003` in the
-  core registry with status `proposed`.
+- [x] Record the four owner questions; resolved at Gate A as D-8..D-11.
+- [x] Allocate project-wide specification `040` and ADR `045` in the
+  core registry with status `accepted`.
 - [x] Verify the registry parses and the registry-integrity test passes.
 - [x] Verify the gateway baseline is unchanged (829 passed, 3 known
   pre-existing unrelated failures).
-- [ ] **Gate A:** owner accepts the pack and resolves PENDING-1..4.
+- [x] **Gate A:** owner accepted the pack on 2026-11-03; PENDING-1..4
+  resolved as D-8..D-11 (Spec §13); Phase B authorized.
 
-## Phase B — capability cards and schema v2 (not started)
+## Phase B — capability cards and schema v2 (authorized at Gate A)
 
 - [ ] Add `core/routing/cards.py`: card types, derivation, normalized
   digests, catalog version.

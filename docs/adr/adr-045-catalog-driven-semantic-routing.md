@@ -1,18 +1,18 @@
-# ADR-0003: Catalog-Driven Semantic Router for Retriva Chat Routing
+# ADR-045: Catalog-Driven Semantic Router for Retriva Chat Routing
 
-- **Status:** PROPOSED (Phase A — documentation and governance pack)
-- **Date:** 2026-11-03
+- **Status:** ACCEPTED (Gate A passed 2026-11-03; Phase B authorized)
+- **Date:** 2026-11-03 (Gate A: 2026-11-03)
 - **Deciders:** Retriva owner (ratified program 2026-11-03), Kilo (code agent)
 - **Scope:** `retriva-gateway` (routing, agent-loop admission);
   `retriva-core` (additive prompt/schema v2 on the existing internal
   classification endpoint)
-- **Spec pack:** `retriva-gateway/specs/002-catalog-driven-semantic-routing/`
+- **Spec pack:** `retriva-gateway/specs/040-catalog-driven-semantic-routing/`
 - **Governing authority:** `retriva-core/.agent/rules/retriva-constitution.md`
   v1.2, §§ 18, 38, 42, 43
 - **Extends, does not amend:** Spec 001 / ADR-0002 (hybrid intent routing;
   deterministic safety layer and advisory classifier). The deterministic
   safety layer remains unchanged and terminal.
-- **Implementation:** not authorized. Phase A ends at Gate A.
+- **Implementation:** Phase B authorized; Phases C–E gated.
 
 ## Context
 
@@ -198,28 +198,28 @@ Neutral:
    The router selects a data plane/family only; the loop selects from the
    read-only subset.
 
-## Open questions (PENDING owner decisions at Gate A)
+## Resolved owner decisions (Gate A, 2026-11-03)
 
-1. **PENDING-1 — family threshold.** `0.85` recommended for read-only
-   family routing; `0.90` retained for the existing safe-workflow advisory
-   path.
-2. **PENDING-2 — hint set.** Recommend adding `last_routed_data_plane` and
-   `last_family` categorical hints for read follow-ups.
-3. **PENDING-3 — transport flags.** Recommend mirrored, distinct-authority
-   `AGENT_SEMANTIC_ROUTER_*` flags rather than reusing the Phase D
-   classifier flags.
-4. **PENDING-4 — naming.** Recommend confirming the verified gateway-local
-   numbers: specification `002`, ADR `0003`. The project-wide registry
-   already uses specification `002` (core, "Image injection") and ADR `003`
-   (CRM, "Retriva Web Research module boundary"); the gateway-local series
-   is distinct and grandfathered. If the owner requires project-wide
-   numbers, the next free ones are specification `040` and ADR `045`.
+1. **D-8 (PENDING-1) — family threshold.** `0.85` for read-only family
+   routing; `0.90` retained for the existing safe-workflow advisory path.
+   Read-only admission bounds the worst case to a harmless read.
+2. **D-9 (PENDING-2) — hint set.** Add `last_routed_data_plane` and
+   `last_family` categorical hints for read follow-ups (categorical only,
+   bounded, never raw history).
+3. **D-10 (PENDING-3) — transport flags.** Mirrored
+   `AGENT_SEMANTIC_ROUTER_*` flags with distinct authority and independent
+   rollback from the Phase D classifier; the shared Core transport is
+   selected by `prompt_version`.
+4. **D-11 (PENDING-4) — naming.** Renumber to the project-wide sequence:
+   specification `040`, ADR `045`, per Constitution §43 (one project-wide
+   sequence, prospective from v1.2; the grandfather clause covers only
+   historical backfills).
 
 ## References
 
-- `retriva-gateway/specs/002-catalog-driven-semantic-routing/spec.md`
-- `retriva-gateway/specs/002-catalog-driven-semantic-routing/architecture.md`
-- `retriva-gateway/specs/002-catalog-driven-semantic-routing/acceptance.md`
+- `retriva-gateway/specs/040-catalog-driven-semantic-routing/spec.md`
+- `retriva-gateway/specs/040-catalog-driven-semantic-routing/architecture.md`
+- `retriva-gateway/specs/040-catalog-driven-semantic-routing/acceptance.md`
 - `retriva-gateway/docs/adr/0002-hybrid-intent-routing.md`
 - `retriva-core/.agent/rules/retriva-constitution.md` v1.2 §§ 18, 38, 42, 43
 - `retriva-core/docs/governance/spec-adr-registry.yaml`

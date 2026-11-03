@@ -1,28 +1,28 @@
-# Spec 002 — implementation plan
+# Spec 040 — implementation plan
 
-- **Status:** PROPOSED
-- **Implementation:** not authorized
+- **Status:** ACCEPTED (Gate A passed 2026-11-03)
+- **Implementation:** Phase B authorized; Phases C–E gated
 - **Rule:** each phase begins only after the prior gate passes (Constitution
-  §38). Phase A ends at Gate A.
+  §38). Phase A ended at Gate A on 2026-11-03.
 
-## Phase A — governance pack (this turn)
+## Phase A — governance pack (closed at Gate A, 2026-11-03)
 
 Deliverables:
 
 1. Factual audit of the current tree (citations re-verified 2026-11-03).
 2. This spec pack (`spec.md`, `architecture.md`, `plan.md`, `tasks.md`,
    `acceptance.md`).
-3. ADR-0003.
+3. ADR-045.
 4. Registry entries in
    `retriva-core/docs/governance/spec-adr-registry.yaml`
-   (gateway-local specification `002`, ADR `0003`, status `proposed`).
-5. Retroactive ratification of the `CAMPAIGN_COUNT` stopgap (ADR-0003).
+   (project-wide specification `040`, ADR `045`, status `accepted`).
+5. Retroactive ratification of the `CAMPAIGN_COUNT` stopgap (ADR-045).
 
 No source code, config change, migration, prompt change, eval data, flag
 enablement, or stack restart.
 
-**Gate A exit:** owner accepts the pack and resolves PENDING-1..4. No
-implementation may start before this.
+**Gate A exit (2026-11-03):** passed. The owner accepted the pack,
+resolved PENDING-1..4 as D-8..D-11, and authorized Phase B.
 
 ## Phase B — capability cards and schema v2 contracts
 

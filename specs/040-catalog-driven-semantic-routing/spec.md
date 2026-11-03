@@ -1,22 +1,21 @@
-# Spec 002 — Catalog-Driven Semantic Intent Router for Retriva Chat Routing
+# Spec 040 — Catalog-Driven Semantic Intent Router for Retriva Chat Routing
 
-- **Status:** PROPOSED (Phase A — documentation and governance pack)
+- **Status:** ACCEPTED (Gate A passed 2026-11-03; revision 1)
 - **Revision:** 1
 - **Date:** 2026-11-03
-- **Allocated:** 2026-11-03 (gateway-local series; naming confirmation is
-  PENDING at Gate A — see §12)
+- **Allocated:** 2026-11-03 in the project-wide sequence per Constitution
+  §43 (renumbered at Gate A — see §12)
 - **Repository:** `retriva-gateway`
-- **Companion ADR:** ADR-0003
-  (`retriva-gateway/docs/adr/0003-catalog-driven-semantic-routing.md`)
+- **Companion ADR:** ADR-045
+  (`retriva-gateway/docs/adr/adr-045-catalog-driven-semantic-routing.md`)
 - **Governing authority:** `retriva-core/.agent/rules/retriva-constitution.md`,
   v1.2, especially §18 (optional capabilities safe by default), §38 (phase
   gating), §42 (spec before code), and §43 (ADRs and registry allocation).
 - **Extends, does not amend:** Spec 001 / ADR-0002 (hybrid intent routing
   and the ambiguity-only advisory classifier). The deterministic safety
   layer defined by Spec 001 remains unchanged and terminal.
-- **Implementation:** NOT AUTHORIZED. Phase A ends at **Gate A** (owner
-  acceptance of this pack and resolution of the four PENDING questions in
-  §13). Phases B–E are separately gated.
+- **Implementation:** Phase B AUTHORIZED at Gate A (2026-11-03).
+  Phases C–E remain separately gated.
 
 ## 1. Purpose
 
@@ -35,8 +34,9 @@ The authoritative decision boundary stays deterministic: the semantic
 router may only choose a *data plane*, never an operation, tool, mutation,
 or identity.
 
-The program was owner-ratified on 2026-11-03. This pack records the
-decision; it does not implement it.
+The program was owner-ratified on 2026-11-03 and Gate A passed the same
+day. This pack records the decision and authorizes Phase B only; Phases
+C–E remain gated.
 
 ## 2. Problem and production evidence
 
@@ -171,7 +171,7 @@ These are recorded as **decided**, not as open questions.
 `CAMPAIGN_COUNT` (taxonomy enum, `R-CAMPAIGN-COUNT` at priority 38, the
 legacy `_CAMPAIGN_COUNT` regex, the `_SAFE_WORKFLOW_INTENTS` entry, and the
 `loop.py` prompt guidance) was implemented before this pack under a worker
-instruction. ADR-0003 ratifies it as a **grandfathered stopgap fast path**
+instruction. ADR-045 ratifies it as a **grandfathered stopgap fast path**
 under the freeze policy; it is not removed and not used as a template for
 future coverage. This closes the previously unresolved "needs spec/ADR
 ratification" item from that worker report.
@@ -226,7 +226,7 @@ streaming refusal, confirmation claims, guard failures, and
 > is **not** in the Phase C router band and remains terminal (it stays with
 > the existing Phase D behavior when that flag is enabled). Expanding the
 > band to workflow-adjacent clarification is a pack revision, not a silent
-> interpretation. See §13 (PENDING-2) for the related hint question.
+> interpretation. See §13 (D-9) for the resolved hint decision.
 
 ## 7. Router output contract (JSON v2)
 
@@ -301,7 +301,7 @@ Invalid output is a router failure, never a permissive route.
   - `AGENT_SEMANTIC_ROUTER_ENABLED` (bool, default `false`);
   - `AGENT_SEMANTIC_ROUTER_MIN_CONFIDENCE` (default `0.85`);
   - `AGENT_SEMANTIC_ROUTER_FAMILY_MIN_CONFIDENCE` (default `0.85`,
-    finalized at Gate A — PENDING-1);
+    finalized at Gate A 2026-11-03 — D-8);
   - `AGENT_SEMANTIC_ROUTER_TIMEOUT_SECONDS`.
 - The router may never route a write. `FAMILY` admission filters the tool
   schema to `ToolDefinition.destructive is False`; writes remain reachable
@@ -410,45 +410,49 @@ tuple of card versions plus the registry-derived digest.
 | Confidential-data egress | Reuse the existing internal classification transport and its privacy rules; categorical inputs only; content-free metrics. |
 | Streaming gap | Documented residual miss class; WebUI is non-streaming; no silent streaming route change. |
 
-## 12. Numbering and naming (verified 2026-11-03)
+## 12. Numbering and naming (resolved at Gate A, 2026-11-03)
 
-- `retriva-gateway/specs/` contains only `001-hybrid-intent-routing`;
-  the next gateway-local specification number is **002**.
-- `retriva-gateway/docs/adr/` contains `0001` and `0002`; the next
-  gateway-local ADR number is **0003**.
-- The project-wide registry already uses specification `002` (core,
-  "Image injection") and ADR `003` (CRM, "Retriva Web Research module
-  boundary"). The gateway-local series is distinct and grandfathered by
-  the registry and its integrity test
-  (`retriva-core/docs/governance/spec-adr-registry.yaml:175-185`,
-  `:822-843`; `retriva-core/tests/test_governance_registry.py`).
-- Constitution §43 requires one project-wide sequence for *future*
-  artifacts. Using the gateway-local numbers is therefore recorded as a
-  **PENDING owner decision (PENDING-4)** with the recommendation to
-  confirm `002` / `0003`. If the owner instead requires project-wide
-  numbers, the next free ones are specification `040` and ADR `045`.
+Gate A resolved PENDING-4: this pack uses the project-wide sequence.
 
-## 13. Open questions (PENDING owner decisions at Gate A)
+- Constitution v1.2 §43 requires **one project-wide numbering sequence**
+  for future specifications and one for future ADRs. The requirement
+  applies prospectively from v1.2.
+- The grandfather clause covers only historical backfills (the
+  pre-registry artifacts, including gateway-local `001` / `0001` /
+  `0002`). Those keep their original numbers and paths and are not
+  renumbered.
+- Before this pack the registry's highest allocations were specification
+  `039` and ADR `044` (verified 2026-11-03). The next free numbers are
+  therefore specification **`040`** and ADR **`045`**.
+- The pack was renumbered at Gate A from the provisional gateway-local
+  numbers to `040` / `045`. Specification files use zero-padded
+  three-digit numbers (`040`); ADR file names use the reserved
+  `adr-NNN` prefix (`adr-045-catalog-driven-semantic-routing.md`).
 
-| ID | Question | Recommendation |
-|---|---|---|
-| PENDING-1 | Family threshold: `0.85` or `0.90`? | `0.85` for read-only family routing (the read-only construction bounds the worst case); retain `0.90` for the existing safe-workflow advisory path. |
-| PENDING-2 | Router hint set: which categorical hints? | Add `last_routed_data_plane` and `last_family` for read follow-ups, in addition to the existing categorical hints; never raw history. |
-| PENDING-3 | Transport flags: reuse or mirror the Phase D classifier flags? | Mirror, with distinct authority (`AGENT_SEMANTIC_ROUTER_*`), so the two capabilities can be rolled back independently. |
-| PENDING-4 | Naming confirmation: gateway-local `002` / `0003` vs project-wide numbers? | Confirm the verified gateway-local numbers `002` / `0003`. |
+## 13. Resolved owner decisions (Gate A, 2026-11-03)
+
+Gate A is closed. The four previously PENDING questions are resolved as
+follows and are normative for Phases B–E.
+
+| ID | Decision (2026-11-03) |
+|---|---|
+| D-8 (PENDING-1) | Family threshold is **0.85** (`AGENT_SEMANTIC_ROUTER_FAMILY_MIN_CONFIDENCE`). The existing Phase D advisory path keeps **0.90**. Read-only admission bounds the worst case to a harmless read. |
+| D-9 (PENDING-2) | Router hints are `last_routed_data_plane` + `last_family` — categorical only, bounded, never raw history — in addition to the existing categorical hints. |
+| D-10 (PENDING-3) | Mirrored `AGENT_SEMANTIC_ROUTER_*` flags with distinct authority and independent rollback from the Phase D classifier; the shared Core transport is selected by `prompt_version`. |
+| D-11 (PENDING-4) | Renumber to the project-wide sequence: specification **040**, ADR **045**, per Constitution §43 (see §12). |
 
 ## 14. Phase gates
 
 | Phase | Deliverable | Gate exit criterion |
 |---|---|---|
-| A | This pack + ADR-0003 + registry entries | **Gate A:** owner accepts the pack and resolves PENDING-1..4. No code. |
+| A | This pack + ADR-045 + registry entries | **Gate A passed 2026-11-03** (D-8..D-11 resolved); Phase B authorized. |
 | B | Cards + schema v2 contracts in `core/routing/cards.py` | Gate B: derivation/digest tests pass; zero behavior change (full gateway baseline unchanged). |
 | C | Prompt v2 + `core/routing/semantic.py` + read-only admission + flags + metrics + tests | Gate C: full unit/integration matrix; mode-off byte-identical rollback proof; zero destructive routes. |
 | D | Eval dataset v2 + thresholds + shadow run | Gate D: threshold gates pass (including zero-destructive and zero-shadow-route-change); owner reviews the shadow report. |
 | E | Active rollout on an isolated synthetic tenant | Gate E: deployed walkthrough + delivery report; `cust_0007` untouched; freeze effective. |
 
-Phase B MUST NOT begin before Gate A. Each subsequent phase MUST NOT begin
-before the prior gate passes (Constitution §38).
+Gate A passed on 2026-11-03. Phase B is authorized. Each subsequent phase
+MUST NOT begin before the prior gate passes (Constitution §38).
 
 ## 15. References (verified 2026-11-03)
 
@@ -475,7 +479,7 @@ before the prior gate passes (Constitution §38).
   prompt v1 and schema v1.
 - `retriva-core/src/retriva/openai_api/routers/intent_classification.py:17,
   216` — internal classification endpoint.
-- `retriva-core/docs/governance/spec-adr-registry.yaml` — registry and
-  gateway-local entries.
+- `retriva-core/docs/governance/spec-adr-registry.yaml` — registry
+  (including the historical gateway-local entries).
 - `retriva-gateway/src/retriva_gateway/core/models.py:55` and
   `retriva-webui/src/api/gateway-client.ts:161` — non-streaming chat.
