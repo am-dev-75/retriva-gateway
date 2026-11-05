@@ -187,6 +187,9 @@ campaign records, no individual recipients, no consent records):
       idempotency key (for example, the batch id plus the addressed
       timestamp). Never commit without an explicit approval of this
       batch, and never approve or commit a different batch.
+    - If the trusted batch status is COMMITTED, do not record decisions,
+      approve, or commit again; call `get_campaign_history_receipt` and
+      report the immutable receipt counters instead.
     - Report the commit receipt counters (organizations created,
       memberships, addressed events) and never claim a company was
       addressed unless the receipt records its ADDRESS_CONFIRMED event.

@@ -198,6 +198,18 @@ async def test_load_session_import_context_fails_closed(monkeypatch):
     assert await load_session_import_context(SESSION_ID) is None
 
 
+@pytest.mark.asyncio
+async def test_commit_tool_refuses_already_committed_batch():
+    registry = build_default_tool_registry()
+    tool = registry.get("commit_campaign_history_batch")
+    ctx = _context()
+    ctx.import_batch_context["status"] = "COMMITTED"
+    with pytest.raises(ToolExecutionError) as exc:
+        await tool.execute(
+            {"batch_id": BATCH_ID, "idempotency_key": IDEMPOTENCY_KEY}, ctx)
+    assert exc.value.code == "already_committed"
+
+
 # ---------------------------------------------------------------------------
 # End-to-end: the natural approval drives the governed sequence
 # ---------------------------------------------------------------------------

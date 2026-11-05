@@ -1309,7 +1309,7 @@ async def load_session_import_context(
         if item.get("source_system") != "campaign_history":
             continue
         if item.get("status") not in (
-                "ANALYZED", "NEEDS_REVIEW", "APPROVED"):
+                "ANALYZED", "NEEDS_REVIEW", "APPROVED", "COMMITTED"):
             continue
         batch_id = str(item.get("import_batch_id") or "").strip()
         if not batch_id:
@@ -1490,6 +1490,12 @@ async def _cg_commit_import(args, ctx):
     _require_campaign_import_intent(
         ctx, action="historical-import commit",
         resource=args["batch_id"], allow_batch_anaphor=True)
+    if ((getattr(ctx, "import_batch_context", None) or {}).get("status")
+            == "COMMITTED"):
+        raise ToolExecutionError(
+            "already_committed",
+            "This batch is already COMMITTED. Do not re-commit it; read "
+            "the immutable receipt and report its counters.")
     body = {"idempotency_key": args["idempotency_key"],
             "source_system": "chat_agent"}
     result = await _cg_call(
