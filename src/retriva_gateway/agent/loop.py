@@ -352,9 +352,17 @@ _EMPTY_FINAL_NO_TOOLS = (
 
 def _empty_final_fallback(
         executed: List[Dict[str, Any]],
-        last_result: Optional[Dict[str, Any]]) -> str:
+        last_result: Optional[Dict[str, Any]],
+        finish_reason: str = "") -> str:
     """Truthful, deterministic text for an empty model final answer."""
     if not executed:
+        if finish_reason == "length":
+            return (
+                "The model reached its response-length limit before it "
+                "produced a final answer, so no tool was executed and no "
+                "data was changed. Please retry the request or split it "
+                "into a smaller step."
+            )
         return _EMPTY_FINAL_NO_TOOLS
     last = executed[-1]
     name = str(last.get("tool") or "the tool")
@@ -522,6 +530,7 @@ async def run_agent_loop(
     stopped_reason = "max_iterations"
     final_content = ""
     last_result: Optional[Dict[str, Any]] = None
+    final_finish_reason = ""
     iteration = 0
 
     for iteration in range(1, max_iterations + 1):
@@ -537,12 +546,14 @@ async def run_agent_loop(
         }
         core_response = await core_client.chat_completions(payload, stream=False)
         choice = (core_response.get("choices") or [{}])[0]
+        finish_reason = str(choice.get("finish_reason") or "")
         message = choice.get("message", {}) or {}
         content = message.get("content") or ""
         tool_calls = _extract_tool_calls(message)
 
         if not tool_calls:
             final_content = content
+            final_finish_reason = finish_reason
             stopped_reason = "final_answer"
             break
 
@@ -639,7 +650,8 @@ async def run_agent_loop(
     # content and no tool calls must never reach the client as an empty
     # assistant message.  The fallback is deterministic and truthful.
     if not final_content.strip():
-        final_content = _empty_final_fallback(executed, last_result)
+        final_content = _empty_final_fallback(
+            executed, last_result, final_finish_reason)
         logger.warning(
             f"[{corr_id}] agent_empty_final_answer "
             f"executed={len(executed)}")

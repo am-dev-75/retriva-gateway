@@ -175,12 +175,13 @@ class TestTrustedContext:
 # Agent loop
 # ---------------------------------------------------------------------------
 
-def _llm_response(content="", tool_calls=None):
+def _llm_response(content="", tool_calls=None, finish_reason="stop"):
     """Fake Core /v1/chat/completions response."""
     message = {"role": "assistant", "content": content}
     if tool_calls:
         message["tool_calls"] = tool_calls
-    return {"choices": [{"message": message, "finish_reason": "stop"}]}
+    return {"choices": [{"message": message,
+                         "finish_reason": finish_reason}]}
 
 
 def _make_registry_with_stub(executor):
@@ -484,6 +485,29 @@ class TestEmptyFinalAnswerHardening:
         assert result.content.strip()
         assert "No tool was executed" in result.content
         assert "no data was changed" in result.content.lower()
+
+    @pytest.mark.asyncio
+    async def test_empty_final_at_length_limit_is_explained(self):
+        from retriva_gateway.agent.loop import run_agent_loop
+        from retriva_gateway.agent.tools import (
+            ToolContext,
+            build_default_tool_registry,
+        )
+
+        registry = build_default_tool_registry()
+        ctx = ToolContext(session_id="s", kb_id="k")
+        with patch(
+            "retriva_gateway.agent.loop.core_client.chat_completions",
+            new=AsyncMock(return_value=_llm_response(
+                content="", finish_reason="length")),
+        ):
+            result = await run_agent_loop(
+                user_message="Ho revisionato e approvato il batch.",
+                registry=registry, ctx=ctx, kb_ids=["k"])
+        assert result.content.strip()
+        assert "response-length limit" in result.content
+        assert "no tool was executed" in result.content
+        assert result.tool_calls_executed == []
 
     @pytest.mark.asyncio
     async def test_empty_final_after_successful_tool_summarizes_result(self):
