@@ -159,6 +159,8 @@ campaign records, no individual recipients, no consent records):
     campaign tools (`create_campaign`, `list_campaigns`, `get_campaign`,
     `analyze_campaign_audience`, `approve_campaign_audience`,
     `commit_campaign_audience`, `import_campaign_company_history`,
+    `review_campaign_history_row`, `approve_campaign_history_batch`,
+    `commit_campaign_history_batch`, `get_campaign_history_receipt`,
     `get_company_campaign_history`, `mark_company_addressed`,
     `update_company_campaign_outcome`).
     When the user asks how many campaigns exist, how many we have run, or
@@ -169,6 +171,25 @@ campaign records, no individual recipients, no consent records):
     You never generate SQL, never write campaign data to the knowledge
     base, and never trigger company qualification from a campaign
     import.
+16b. Historical campaign-import follow-ups. The trusted request context
+    may name the session's staged import batch (batch_id, status, rows).
+    Use those trusted identifiers; never ask the user to repeat them.
+    - When the user approves the batch and supplies an ISO-8601 addressed
+      timestamp, call `review_campaign_history_row` for every row in the
+      batch with `decision="set_addressed_date"`, the exact `addressed_at`
+      string the user wrote, and `addressed_timezone` set to the campaign
+      IANA zone (for this tenant `Europe/Rome`; the supplied offset must
+      match). Never infer, round, or substitute a timestamp; if the user
+      did not supply one, ask for it.
+    - Row decisions return the batch to NEEDS_REVIEW. Then call
+      `approve_campaign_history_batch` and, only after the batch is
+      APPROVED, call `commit_campaign_history_batch` with a stable
+      idempotency key (for example, the batch id plus the addressed
+      timestamp). Never commit without an explicit approval of this
+      batch, and never approve or commit a different batch.
+    - Report the commit receipt counters (organizations created,
+      memberships, addressed events) and never claim a company was
+      addressed unless the receipt records its ADDRESS_CONFIRMED event.
 17. PRESERVE THE DISTINCTIONS: CONSIDERED means evaluated during
     planning; SELECTED means chosen for the proposed audience; APPROVED
     means a human approved inclusion; EXPORTED means sent to an
@@ -313,6 +334,57 @@ async def _execute_tool(
                           "message": "tool execution failed"}}
 
 
+#: Deterministic non-empty fallbacks for a model final answer that carries
+#: no content and no tool calls.  The loop NEVER returns an empty assistant
+#: message: the fallback states only what actually happened (no tools, a
+#: completed tool, or a typed tool error) and never claims a mutation that
+#: was not executed.
+_EMPTY_FINAL_NO_TOOLS = (
+    "I could not produce a response for that request. No tool was "
+    "executed and no data was changed. Please restate the request; if you "
+    "were continuing a staged workflow, ask me to show its current state "
+    "first."
+)
+
+
+def _empty_final_fallback(
+        executed: List[Dict[str, Any]],
+        last_result: Optional[Dict[str, Any]]) -> str:
+    """Truthful, deterministic text for an empty model final answer."""
+    if not executed:
+        return _EMPTY_FINAL_NO_TOOLS
+    last = executed[-1]
+    name = str(last.get("tool") or "the tool")
+    result = last_result if isinstance(last_result, dict) else {}
+    summary = result.get("chat_summary")
+    if isinstance(summary, str) and summary.strip():
+        return (
+            f"The `{name}` step completed: {summary.strip()} "
+            "No additional narrative was generated."
+        )
+    error = result.get("error")
+    if isinstance(error, dict):
+        code = str(error.get("code") or "tool_error").strip()
+        message = str(error.get("message") or "").strip()
+        detail = f" ({code})" if code else ""
+        if message:
+            detail += f": {message}"
+        return (
+            f"I attempted `{name}`, but it failed{detail}. "
+            "No further action was taken."
+        )
+    if last.get("ok"):
+        return (
+            f"The `{name}` step completed successfully, but no final "
+            "summary was generated. Ask me for the current state to "
+            "continue."
+        )
+    return (
+        f"`{name}` did not complete, and no final summary was generated. "
+        "No further action was taken."
+    )
+
+
 async def run_agent_loop(
     *,
     user_message: str,
@@ -406,6 +478,30 @@ async def run_agent_loop(
             f"session's workflow context for the requested "
             f"{resolved_reference.operation} operation)"
         )
+    # Trusted session import context: the Gateway resolves the staged
+    # campaign-history batch for THIS session (read-only CRM lookup) so a
+    # natural follow-up approval does not need to restate opaque IDs.
+    # The values are trusted request context, never model- or
+    # request-body-supplied.
+    import_context = getattr(ctx, "import_batch_context", None)
+    if import_context:
+        context_lines.append(
+            "- staged campaign-history import batch for this session: "
+            f"{import_context.get('batch_id')} "
+            f"(status {import_context.get('status') or 'unknown'}, "
+            f"campaign {import_context.get('campaign_code') or 'unknown'})"
+        )
+        rows = import_context.get("rows") or []
+        if rows:
+            context_lines.append(
+                "- rows in this batch (use these exact row_id values; "
+                "never invent identifiers):")
+            for row in rows[:20]:
+                context_lines.append(
+                    f"  - {row.get('row_id')} (source row "
+                    f"{row.get('source_row')}, disposition "
+                    f"{row.get('disposition') or 'unresolved'}, "
+                    f"addressed {row.get('addressed_date') or 'none'})")
     messages.append({
         "role": "system",
         "content": (
@@ -422,6 +518,7 @@ async def run_agent_loop(
     seen_calls: set = set()
     stopped_reason = "max_iterations"
     final_content = ""
+    last_result: Optional[Dict[str, Any]] = None
     iteration = 0
 
     for iteration in range(1, max_iterations + 1):
@@ -508,6 +605,7 @@ async def run_agent_loop(
                     except Exception:  # noqa: BLE001
                         logger.warning(
                             f"[{corr_id}] workflow_context_observer_failed")
+            last_result = result
             executed.append({
                 "iteration": iteration,
                 "tool": name,
@@ -533,6 +631,15 @@ async def run_agent_loop(
             f"({max_iterations} iterations) before a final answer was "
             "produced. Please ask for the current job status to continue."
         )
+
+    # Harden the user-visible answer: a model final message with empty
+    # content and no tool calls must never reach the client as an empty
+    # assistant message.  The fallback is deterministic and truthful.
+    if not final_content.strip():
+        final_content = _empty_final_fallback(executed, last_result)
+        logger.warning(
+            f"[{corr_id}] agent_empty_final_answer "
+            f"executed={len(executed)}")
 
     # Phase C (addendum D-3): the claimed context is scoped to ONE
     # agent-loop execution — cleared at loop completion (the caller

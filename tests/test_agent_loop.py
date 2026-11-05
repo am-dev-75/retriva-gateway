@@ -458,6 +458,97 @@ class TestCampaignCount:
 
 
 # ---------------------------------------------------------------------------
+# Empty-final-answer hardening (incident 2026-11-05)
+# ---------------------------------------------------------------------------
+
+class TestEmptyFinalAnswerHardening:
+    @pytest.mark.asyncio
+    async def test_empty_final_without_tools_is_non_empty(self):
+        from retriva_gateway.agent.loop import run_agent_loop
+        from retriva_gateway.agent.tools import (
+            ToolContext,
+            build_default_tool_registry,
+        )
+
+        registry = build_default_tool_registry()
+        ctx = ToolContext(session_id="s", kb_id="k")
+        with patch(
+            "retriva_gateway.agent.loop.core_client.chat_completions",
+            new=AsyncMock(return_value=_llm_response(content="")),
+        ):
+            result = await run_agent_loop(
+                user_message="Ho revisionato e approvato il batch.",
+                registry=registry, ctx=ctx, kb_ids=["k"])
+        assert result.stopped_reason == "final_answer"
+        assert result.tool_calls_executed == []
+        assert result.content.strip()
+        assert "No tool was executed" in result.content
+        assert "no data was changed" in result.content.lower()
+
+    @pytest.mark.asyncio
+    async def test_empty_final_after_successful_tool_summarizes_result(self):
+        from retriva_gateway.agent.loop import run_agent_loop
+        from retriva_gateway.agent.tools import ToolContext
+
+        async def executor(args, ctx):
+            return {"chat_summary": "The batch was committed: 4 created."}
+
+        registry = _make_registry_with_stub(executor)
+        ctx = ToolContext(session_id="s", kb_id="k")
+        tc = {
+            "id": "call_1", "type": "function",
+            "function": {"name": "stub_tool",
+                         "arguments": json.dumps({"x": "1"})},
+        }
+        responses = [_llm_response(tool_calls=[tc]), _llm_response(content="")]
+
+        async def fake_chat(payload, stream=False):
+            return responses.pop(0)
+
+        with patch(
+            "retriva_gateway.agent.loop.core_client.chat_completions",
+            new=AsyncMock(side_effect=fake_chat),
+        ):
+            result = await run_agent_loop(
+                user_message="commit it", registry=registry, ctx=ctx,
+                kb_ids=["k"])
+        assert result.content.strip()
+        assert "stub_tool" in result.content
+        assert "4 created" in result.content
+        assert result.tool_calls_executed[0]["ok"] is True
+
+    @pytest.mark.asyncio
+    async def test_empty_final_after_tool_error_reports_typed_error(self):
+        from retriva_gateway.agent.loop import run_agent_loop
+        from retriva_gateway.agent.tools import ToolContext
+
+        async def executor(args, ctx):
+            raise ToolExecutionError("tool_timeout", "timed out after 1s")
+
+        registry = _make_registry_with_stub(executor)
+        ctx = ToolContext(session_id="s", kb_id="k")
+        tc = {
+            "id": "call_1", "type": "function",
+            "function": {"name": "stub_tool",
+                         "arguments": json.dumps({"x": "1"})},
+        }
+        responses = [_llm_response(tool_calls=[tc]), _llm_response(content="")]
+
+        with patch(
+            "retriva_gateway.agent.loop.core_client.chat_completions",
+            new=AsyncMock(side_effect=responses),
+        ):
+            result = await run_agent_loop(
+                user_message="commit it", registry=registry, ctx=ctx,
+                kb_ids=["k"])
+        assert result.content.strip()
+        assert "stub_tool" in result.content
+        assert "tool_timeout" in result.content
+        assert "timed out after 1s" in result.content
+        assert result.tool_calls_executed[0]["ok"] is False
+
+
+# ---------------------------------------------------------------------------
 # Plain chat unaffected
 # ---------------------------------------------------------------------------
 

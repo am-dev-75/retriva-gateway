@@ -20,6 +20,7 @@ from loguru import logger
 from typing import Any, Dict, List, Optional
 import datetime
 import json
+import re
 
 from retriva_gateway.core.models import ChatRequest
 from retriva_gateway.core.context import get_correlation_id
@@ -206,6 +207,13 @@ class _ClassifierEligible:
 #: The retry contract's closed endpoint reference (the Gateway's own
 #: chat route; Spec 001 C5 — machine-readable, content-free).
 _CHAT_ENDPOINT_PATH = "/api/v2/chat"
+
+#: Narrow trigger for the read-only session import-context lookup: only
+#: turns that can plausibly continue a staged historical import pay for
+#: the extra CRM read.  Qualification/ACP turns are unaffected.
+_IMPORT_CONTEXT_HINT = re.compile(
+    r"\b(?:batch|import|importazione|lotto|timestamp)\b", re.I)
+
 
 #: Closed reason code for the streaming refusal (C5: safe reason).
 _STREAM_REFUSAL_REASON = "streaming_workflow_command"
@@ -499,7 +507,11 @@ async def _agent_chat(request: ChatRequest, corr_id: str, *,
         AgentLoopError,
         run_agent_loop,
     )
-    from retriva_gateway.agent.tools import ToolContext, build_default_tool_registry
+    from retriva_gateway.agent.tools import (
+        ToolContext,
+        build_default_tool_registry,
+        load_session_import_context,
+    )
     from retriva_gateway.core.routing import get_workflow_context_registry
 
     registry = build_default_tool_registry(
@@ -516,6 +528,19 @@ async def _agent_chat(request: ChatRequest, corr_id: str, *,
         claimed_confirmation=claimed,
         user_message=request.message or "",
     )
+    # Trusted session import context: resolve the staged campaign-history
+    # batch for this session so a natural follow-up approval can continue
+    # the governed review/approve/commit flow without restating opaque
+    # IDs.  Read-only and fail-closed: a lookup failure simply means no
+    # anaphoric write authorization.
+    if (request.session_id
+            and _IMPORT_CONTEXT_HINT.search(request.message or "")):
+        try:
+            ctx.import_batch_context = await load_session_import_context(
+                ctx.session_id)
+        except Exception:  # noqa: BLE001 - context lookup is best-effort
+            logger.warning(
+                f"[{corr_id}] session import context lookup failed")
     try:
         result = await run_agent_loop(
             user_message=request.message,

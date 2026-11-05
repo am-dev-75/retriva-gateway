@@ -35,7 +35,9 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Callable, Awaitable, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from loguru import logger
 
@@ -127,6 +129,12 @@ class ToolContext:
     #: explicit-intent guard for consequential campaign-governance
     #: tools (Spec 038 Phase 5); it is not part of any tool schema.
     user_message: str = ""
+    #: Trusted session-scoped campaign-history import context, resolved
+    #: by the Gateway from the CRM (never model- or request-body-supplied):
+    #: the staged batch for this chat session and its rows.  Used ONLY by
+    #: the import intent guard to resolve a definite anaphor ("il batch")
+    #: and to bind row decisions to the already-staged batch.
+    import_batch_context: Optional[Dict[str, Any]] = None
 
 
 class ToolExecutionError(Exception):
@@ -973,7 +981,7 @@ _INTENT_NEGATION = re.compile(
     r"\b(?:do\s+not|don['\u2019]?t|never|senza|avoid|non)\b", re.I)
 _INTENT_HYPOTHETICAL = re.compile(
     r"\b(?:if|suppose|supposing|hypothetical|might|would|in\s+case|"
-    r"nel\s+caso|immagina|ipotetico)\b", re.I)
+    r"nel\s+caso|immagina|ipotetico|se)\b", re.I)
 _INTENT_DOC = re.compile(
     r"\b(?:how\s+(?:do|can|to|does)|what\s+is|what's|explain|"
     r"documentation|docs?|guide|example|write\s+(?:a|me)\s+"
@@ -1028,6 +1036,158 @@ def _quoted_span_contains(message: str, resource: str) -> bool:
         if _resource_stated(match.group(1).lower(), resource.lower()):
             return True
     return False
+
+
+
+# ---------------------------------------------------------------------------
+# Historical campaign-import confirmation guard (incident 2026-11-05)
+# ---------------------------------------------------------------------------
+#
+# A natural approval of a STAGED batch ("Ho revisionato e approvato il
+# batch. Il suo timestamp e ...") is explicit confirmation, but the strict
+# Spec 038 guard above requires an imperative verb and the exact opaque ID
+# in the user's message.  This narrower guard keeps every safety veto
+# (negation, hypothetical, documentation, attribution, question, quoted
+# text, multi-stage) and only adds:
+#   - first-person completed approval ("I reviewed and approved") as an
+#     explicit confirmation, and
+#   - a definite anaphor ("il batch"/"the batch") when the resource is
+#     the ONE trusted batch already staged in this session, or a row of
+#     that batch.
+# It never auto-approves or auto-commits: the user's message must still
+# contain an approval/action verb, and the tool call must target the
+# trusted session batch.
+_IMPORT_APPROVAL = re.compile(
+    r"\b(?:ho\s+(?:rivisto|revisionato|verificato|esaminato|controllato)|"
+    r"i\s+have\s+(?:reviewed|checked|verified)|"
+    r"i\s+(?:reviewed|checked|verified))\b[^.!?]{0,120}?"
+    r"\b(?:e\s+)?(?:approvato|approvo|confermo|confirmed|approved|"
+    r"authorized)\b", re.I)
+_IMPORT_ACTION = re.compile(
+    r"\b(?:commit|conferm\w*|confirm\w*|approv\w*|autorizz\w*|"
+    r"authoriz\w*|procedi|proceed|revision\w*|review\w*)\b", re.I)
+_IMPORT_BATCH_ANAPHOR = re.compile(
+    r"\b(?:il|lo|questo|the|this)\s+(?:batch|import|importazione|lotto)\b",
+    re.I)
+_IMPORT_ROWS_ANAPHOR = re.compile(
+    r"\b(?:le|queste|the|these)\s+righe?\b|\brows?\b", re.I)
+_IMPORT_TIMESTAMP = re.compile(
+    r"\d{4}-\d{2}-\d{2}[t\s]\d{1,2}:\d{2}(?::\d{2})?"
+    r"(?:z|[+-]\d{2}:?\d{2})?", re.I)
+
+
+def _batch_context_ids(ctx: ToolContext):
+    context = getattr(ctx, "import_batch_context", None) or {}
+    batch_id = str(context.get("batch_id") or "").strip().lower()
+    row_ids = {
+        str(row.get("row_id") or "").strip().lower()
+        for row in (context.get("rows") or [])
+        if row.get("row_id")
+    }
+    return batch_id, row_ids
+
+
+def _require_campaign_import_intent(
+        ctx: ToolContext, *, action: str, resource: str,
+        allow_batch_anaphor: bool = False,
+        allow_row_context: bool = False,
+        require_timestamp: bool = False) -> None:
+    """Fail-closed explicit-intent check for historical-import tools."""
+    message = (getattr(ctx, "user_message", "") or "").strip()
+    lowered = message.lower()
+    resource = str(resource or "").strip().lower()
+    session_batch, session_rows = _batch_context_ids(ctx)
+    if not message:
+        raise ToolExecutionError(
+            "explicit_intent_required",
+            f"{action} requires an explicit user request in this turn.")
+    hypothetical_text = _POLITE_PREFIX.sub("", lowered, count=1)
+    fully_quoted = bool(re.fullmatch(
+        r"\s*[\"\u201c\u2018'].*[\"\u201d\u2019']\s*",
+        message, re.S))
+    if (not lowered or _INTENT_NEGATION.search(lowered)
+            or _INTENT_HYPOTHETICAL.search(hypothetical_text)
+            or _INTENT_DOC.search(lowered)
+            or _INTENT_ATTRIBUTION.search(lowered)
+            or _INTENT_QUESTION.search(lowered)
+            or fully_quoted
+            or (message.rstrip().endswith("?")
+                and not _POLITE_PREFIX.match(lowered))
+            or _quoted_span_contains(message, resource)):
+        raise ToolExecutionError(
+            "explicit_intent_required",
+            f"{action} requires an explicit, non-negated, "
+            "non-hypothetical user request (questions, descriptions, "
+            "quoted text, and documentation never execute).")
+    approval_language = bool(_IMPORT_APPROVAL.search(lowered))
+    if not (approval_language or _IMPORT_ACTION.search(lowered)):
+        raise ToolExecutionError(
+            "explicit_intent_required",
+            f"{action} requires an explicit approval or confirmation "
+            "in the user's request.")
+    past_match = _INTENT_PAST.search(lowered)
+    past_description = bool(
+        past_match and not _IMPERATIVE_HEAD.match(lowered)
+        and not approval_language)
+    if past_description:
+        raise ToolExecutionError(
+            "explicit_intent_required",
+            f"{action} requires an explicit approval, not a past-tense "
+            "description.")
+    if _INTENT_MULTI_STAGE.search(lowered):
+        raise ToolExecutionError(
+            "explicit_intent_required",
+            "This request combines stages. Complete the review stage "
+            "first; then ask separately and explicitly for "
+            f"{action} in a new turn.")
+    if require_timestamp and not _IMPORT_TIMESTAMP.search(message):
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "the addressed timestamp must be stated explicitly in the "
+            "user's request.")
+    if _resource_stated(lowered, resource):
+        return
+    if (allow_batch_anaphor and resource and resource == session_batch
+            and _IMPORT_BATCH_ANAPHOR.search(lowered)):
+        return
+    if (allow_row_context and resource and resource in session_rows
+            and (_IMPORT_BATCH_ANAPHOR.search(lowered)
+                 or _IMPORT_ROWS_ANAPHOR.search(lowered))):
+        return
+    raise ToolExecutionError(
+        "explicit_intent_required",
+        f"{action} requires the target of this session's staged import "
+        "batch to be named explicitly.")
+
+
+def _split_addressed_at(value: str, tz_name: str):
+    """Return (date, HH:MM:SS) for an ISO timestamp + IANA zone.
+
+    The supplied offset must match the IANA zone at that instant; no
+    timestamp is ever guessed or substituted.
+    """
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "addressed_at must be an ISO-8601 timestamp.") from exc
+    if parsed.tzinfo is None:
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "addressed_at must include an explicit UTC offset.")
+    try:
+        zone = ZoneInfo(tz_name)
+    except Exception as exc:
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "addressed_timezone must be an IANA timezone.") from exc
+    local = parsed.astimezone(zone)
+    if local.utcoffset() != parsed.utcoffset():
+        raise ToolExecutionError(
+            "invalid_arguments",
+            "addressed_at offset does not match addressed_timezone.")
+    return local.date().isoformat(), local.strftime("%H:%M:%S")
 
 
 def _require_campaign_intent(ctx: ToolContext, *, action: str,
@@ -1121,6 +1281,78 @@ def _cg_items(result: Any) -> Dict[str, Any]:
     return result if isinstance(result, dict) else {"items": [result]}
 
 
+
+async def load_session_import_context(
+        session_id: str) -> Optional[Dict[str, Any]]:
+    """Resolve the session's staged campaign-history batch (read-only).
+
+    Returns the single most recent ANALYZED/NEEDS_REVIEW/APPROVED
+    campaign-history batch whose ``source_session_id`` is this chat
+    session, plus its row ids/dispositions.  The value is trusted
+    request context for the agent loop and the import guard; it is never
+    model- or request-body-supplied.  Any CRM/transport error yields
+    ``None`` so the chat remains available (fail-closed: no batch
+    context means no anaphoric write authorization).
+    """
+    if not session_id:
+        return None
+    try:
+        listing = await _crm_request(
+            "GET", "/api/v2/crm/imports/batches", params={"limit": 10})
+    except Exception:  # noqa: BLE001 - context lookup is best-effort
+        logger.warning("session_import_context_list_failed")
+        return None
+    batches = listing.get("batches") if isinstance(listing, dict) else None
+    for item in batches or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("source_system") != "campaign_history":
+            continue
+        if item.get("status") not in (
+                "ANALYZED", "NEEDS_REVIEW", "APPROVED"):
+            continue
+        batch_id = str(item.get("import_batch_id") or "").strip()
+        if not batch_id:
+            continue
+        try:
+            detail = await _crm_request(
+                "GET",
+                f"/api/v2/crm/imports/batches/{_cg_seg(batch_id)}")
+        except Exception:  # noqa: BLE001
+            continue
+        if not isinstance(detail, dict) or \
+                detail.get("source_session_id") != session_id:
+            continue
+        try:
+            rows = await _crm_request(
+                "GET",
+                f"/api/v2/crm/campaigns/import-batches/"
+                f"{_cg_seg(batch_id)}/rows")
+        except Exception:  # noqa: BLE001
+            rows = []
+        summary = detail.get("summary_jsonb") or {}
+        return {
+            "batch_id": batch_id,
+            "status": detail.get("status"),
+            "campaign_code": (
+                summary.get("campaign_code_normalized")
+                or summary.get("campaign_code_argument")),
+            "rows": [
+                {
+                    "row_id": row.get("row_id"),
+                    "source_row": row.get("source_row_number"),
+                    "disposition": (
+                        row.get("selected_disposition")
+                        or row.get("status")),
+                    "addressed_date": row.get("addressed_date"),
+                }
+                for row in (rows if isinstance(rows, list) else [])
+                if isinstance(row, dict) and row.get("row_id")
+            ],
+        }
+    return None
+
+
 def _cg_require(args: Dict[str, Any], *names: str) -> None:
     missing = [n for n in names if not str(args.get(n) or "").strip()]
     if missing:
@@ -1190,16 +1422,40 @@ async def _cg_rows(args, ctx):
 
 async def _cg_row_decision(args, ctx):
     _cg_require(args, "batch_id", "row_id", "decision")
-    _require_campaign_intent(
-        ctx, action="historical row decision",
-        verbs=(r"select", r"match", r"exclude", r"reject", r"decide",
-               r"scegli", r"esclud", r"rifiuta"),
-        nouns=(r"row", r"histor", r"import|batch"),
-        resource=args["row_id"])
-    body = {"decision": args["decision"]}
+    decision = str(args["decision"])
+    if decision == "set_addressed_date":
+        # The reviewer timestamp is a review-stage fact, not a commit.
+        # It is reachable from a natural approval that names the staged
+        # batch and states the timestamp explicitly; exclude/reject/
+        # select_match keep the strict exact-ID guard below.
+        _require_campaign_import_intent(
+            ctx, action="addressed timestamp decision",
+            resource=args["row_id"], allow_batch_anaphor=True,
+            allow_row_context=True, require_timestamp=True)
+    else:
+        _require_campaign_intent(
+            ctx, action="historical row decision",
+            verbs=(r"select", r"match", r"exclude", r"reject", r"decide",
+                   r"scegli", r"esclud", r"rifiuta"),
+            nouns=(r"row", r"histor", r"import|batch"),
+            resource=args["row_id"])
+    body = {"decision": decision}
+    addressed_at = str(args.get("addressed_at") or "").strip()
+    if addressed_at:
+        addressed_timezone = str(
+            args.get("addressed_timezone") or "").strip()
+        if not addressed_timezone:
+            raise ToolExecutionError(
+                "invalid_arguments",
+                "addressed_timezone (IANA) is required with addressed_at.")
+        addressed_date, addressed_time = _split_addressed_at(
+            addressed_at, addressed_timezone)
+        body["addressed_date"] = addressed_date
+        body["addressed_time"] = addressed_time
+        body["addressed_timezone"] = addressed_timezone
     for key in ("organization_id", "addressed_date", "addressed_time",
                 "addressed_timezone", "reason_text"):
-        if args.get(key):
+        if args.get(key) and key not in body:
             body[key] = args[key]
     result = await _cg_call(
         "POST",
@@ -1212,13 +1468,28 @@ async def _cg_row_decision(args, ctx):
     return result
 
 
+
+async def _cg_approve_import(args, ctx):
+    _cg_require(args, "batch_id")
+    _require_campaign_import_intent(
+        ctx, action="historical-import approval",
+        resource=args["batch_id"], allow_batch_anaphor=True)
+    result = await _crm_request(
+        "POST",
+        f"/api/v2/crm/imports/batches/"
+        f"{_cg_seg(args['batch_id'])}/approve",
+        json={"approve_pending": bool(args.get("approve_pending", True))})
+    result["chat_summary"] = (
+        "Historical import batch approved. Commit remains a separate "
+        "explicit operation.")
+    return result
+
+
 async def _cg_commit_import(args, ctx):
     _cg_require(args, "batch_id", "idempotency_key")
-    _require_campaign_intent(
+    _require_campaign_import_intent(
         ctx, action="historical-import commit",
-        verbs=(r"commit", r"conferma", r"confirm"),
-        nouns=(r"import|histor|batch",),
-        resource=args["batch_id"])
+        resource=args["batch_id"], allow_batch_anaphor=True)
     body = {"idempotency_key": args["idempotency_key"],
             "source_system": "chat_agent"}
     result = await _cg_call(
@@ -1537,15 +1808,34 @@ def build_campaign_governance_tools() -> List[ToolDefinition]:
         ToolDefinition(
             name="review_campaign_history_row",
             description="Record ONE row decision (select_match, "
-                        "exclude_row, reject, ...). Review only: never "
-                        "approves or commits the batch.",
+                        "exclude_row, reject, set_addressed_date). "
+                        "Review only: never approves or commits the "
+                        "batch. set_addressed_date preserves the exact "
+                        "reviewer timestamp (date + time + IANA zone).",
             parameters=_cg_schema({
-                "batch_id": str_p, "row_id": str_p, "decision": str_p,
-                "organization_id": str_p, "addressed_date": str_p,
+                "batch_id": str_p, "row_id": str_p,
+                "decision": {"type": "string", "enum": [
+                    "select_match", "exclude_row", "reject",
+                    "set_addressed_date"]},
+                "organization_id": str_p,
+                "addressed_at": str_p,
+                "addressed_date": str_p,
                 "addressed_time": str_p, "addressed_timezone": str_p,
                 "reason_text": str_p,
             }, ["batch_id", "row_id", "decision"]),
             execute=_cg_row_decision,
+            destructive=True),
+        ToolDefinition(
+            name="approve_campaign_history_batch",
+            description="Approve a reviewed historical import batch "
+                        "(re-asserts the review gate after row "
+                        "decisions). Consequential; commit remains a "
+                        "separate explicit operation.",
+            parameters=_cg_schema({
+                "batch_id": str_p,
+                "approve_pending": {"type": "boolean"},
+            }, ["batch_id"]),
+            execute=_cg_approve_import,
             destructive=True),
         ToolDefinition(
             name="commit_campaign_history_batch",

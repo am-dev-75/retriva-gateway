@@ -45,6 +45,7 @@ ENGINE = DeterministicEngine()
 CONSEQUENTIAL_TOOLS = {
     "revoke_addressed_event",
     "review_campaign_history_row",
+    "approve_campaign_history_batch",
     "commit_campaign_history_batch",
     "amend_campaign_history",
     "approve_grace_policy",
@@ -209,7 +210,7 @@ class TestToolInventory:
     def test_inventory_and_closed_schemas(self):
         tools = build_campaign_governance_tools()
         names = {t.name for t in tools}
-        assert len(names) == len(tools) == 32
+        assert len(names) == len(tools) == 33
         assert CONSEQUENTIAL_TOOLS <= names
         for tool in tools:
             assert tool.parameters["additionalProperties"] is False
@@ -338,6 +339,7 @@ class TestToolExecution:
                 "campaign": "2026-X", "organization_id": "org_1",
                 "event_id": "cev_1", "reason_text": "r",
                 "source_system": "s", "source_record_id": "sr"},
+            "approve_campaign_history_batch": {"batch_id": "ibth_1"},
             "commit_campaign_history_batch": {
                 "batch_id": "ibth_1", "idempotency_key": "k1"},
             "amend_campaign_history": {
