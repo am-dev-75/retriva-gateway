@@ -33,16 +33,40 @@ def normalize_language(language: Optional[str]) -> str:
     return value if value in SUPPORTED_LANGUAGES else "en"
 
 
-_ITALIAN_MARKER = re.compile(
-    r"(?:come|cosa|quante|quanti|quale|perch|vorrei|posso|devo|"
-    r"aziende|campagna|campagne|esporta|esportare|crea|creare|"
-    r"indirizzate|righe|dati)|\u00e0|\u00e8|\u00e9|\u00ec|\u00f2|"
-    r"\u00f9", re.IGNORECASE)
+_ITALIAN_WORDS = re.compile(
+    r"\b(?:come|cosa|quante|quanti|quale|perch|vorrei|posso|devo|deve|"
+    r"puoi|abbiamo|sono|questo|questa|questi|queste|il|lo|la|i|gli|le|"
+    r"un|una|uno|di|del|della|dei|degli|delle|che|per|con|non|"
+    r"aziende|azienda|campagna|campagne|esporta|esportare|importa|"
+    r"attiva|attivare|approva|approvare|conferma|confermare|verifica|"
+    r"mostra|elenca|imposta|configura|crea|creare|cancella|aggiorna|"
+    r"elimina|ripristina|sostituisci|invia|genera|analizza|qualifica|"
+    r"seleziona|rifiuta|escludi|aggiungi|rimuovi|carica|scarica|"
+    r"presentazione|righe|dati)\b", re.IGNORECASE)
+_ENGLISH_WORDS = re.compile(
+    r"\b(?:the|and|of|to|how|many|what|which|export|import|create|"
+    r"approve|confirm|activate|campaigns?|companies|company|"
+    r"presentation|file|excel)\b", re.IGNORECASE)
+_ACCENTED = re.compile(r"[\u00e0\u00e8\u00e9\u00ec\u00f2\u00f9]")
 
 
 def detect_language(message: str) -> str:
-    """Deterministic, conservative IT/EN detection; default English."""
-    return "it" if _ITALIAN_MARKER.search(message or "") else "en"
+    """Deterministic, conservative IT/EN detection; default English.
+
+    Scores Italian action words/articles and English function words; an
+    accented character is a strong Italian signal. Ties default to English
+    only when there is no Italian signal at all.
+    """
+    text = message or ""
+    italian = len(_ITALIAN_WORDS.findall(text))
+    english = len(_ENGLISH_WORDS.findall(text))
+    if _ACCENTED.search(text):
+        italian += 1
+    if italian > english:
+        return "it"
+    if english > italian:
+        return "en"
+    return "en"
 
 
 FAMILY_LABELS: Dict[str, Dict[str, str]] = {

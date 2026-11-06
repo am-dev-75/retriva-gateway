@@ -52,6 +52,9 @@ def _result(**overrides):
 def test_detect_language_and_fallback():
     assert detect_language("Esporta le aziende della campagna in Excel") == "it"
     assert detect_language("Export the campaign companies to Excel") == "en"
+    assert detect_language("Attiva acpver_1 e approva acpver_2.") == "it"
+    assert detect_language("Conferma il batch di import.") == "it"
+    assert detect_language("Crea una presentazione PowerPoint.") == "it"
     assert detect_language("") == "en"
     assert normalize_language("fr") == "en"
     assert normalize_language(None) == "en"
