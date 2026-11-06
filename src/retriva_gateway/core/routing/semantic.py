@@ -41,6 +41,10 @@ from retriva_gateway.core.routing.cards import (
     CapabilityCard,
     derive_cards,
 )
+from retriva_gateway.core.routing.messages import (
+    detect_language,
+    normalize_language,
+)
 from retriva_gateway.core.routing.metrics import routing_metrics
 from retriva_gateway.core.routing.schema import (
     SemanticRouteDecisionV2,
@@ -136,6 +140,9 @@ class SemanticRoute:
     requires_clarification: bool
     failure_category: str = ""
     reason_codes: Tuple[str, ...] = ()
+    #: Resolved response language: the router's SC2 language when present,
+    #: otherwise the deterministic hint language, otherwise English.
+    language: str = "en"
 
 
 #: Informational intents eligible for the semantic router (Spec 040 §6).
@@ -205,17 +212,9 @@ def hints_for(routed, context_record=None, *, message: str = "") -> SemanticHint
         last_family=record_family,
         workflow_context_present=context_present,
         pending_confirmation_present=pending,
-        language=_detect_language(message),
+        language=detect_language(message),
     )
 
-
-def _detect_language(message: str) -> str:
-    import re
-    marker = re.compile(
-        r"(?:come|cosa|quante|quanti|qual|perch|vorrei|posso|devo|"
-        r"aziende|campagna|campagne)|\u00e0|\u00e8|\u00e9|\u00ec|\u00f2|"
-        r"\u00f9", re.IGNORECASE)
-    return "it" if marker.search(message or "") else "en"
 
 
 def _card_payload(cards) -> list:
@@ -310,10 +309,12 @@ class CoreEndpointSemanticRouter(SemanticRouter):
                 from None
 
 
-def _fail(category: SemanticFailure) -> SemanticRoute:
+def _fail(category: SemanticFailure,
+          language: str = "en") -> SemanticRoute:
     return SemanticRoute(
         decision="CLARIFY", family=None, confidence=None,
-        requires_clarification=True, failure_category=category.value)
+        requires_clarification=True, failure_category=category.value,
+        language=normalize_language(language))
 
 
 def validate_semantic_decision(
@@ -351,7 +352,9 @@ async def route_semantic(
                               reason="router_disabled")
         return SemanticRoute(decision="CLARIFY", family=None,
                              confidence=None,
-                             requires_clarification=True)
+                             requires_clarification=True,
+                             language=normalize_language(
+                                 hints.language))
     if cards is None:
         cards = derive_cards()
     request = build_semantic_request(
@@ -368,7 +371,7 @@ async def route_semantic(
         _record_shadow(correlation_id, "CLARIFY", None, None,
                        exc.category.value, latency, route_served,
                        shadow)
-        return _fail(exc.category)
+        return _fail(exc.category, hints.language)
     except Exception:  # noqa: BLE001 — fail closed, no detail
         latency = time.perf_counter() - started
         routing_metrics().inc("router_failure_total",
@@ -378,7 +381,7 @@ async def route_semantic(
         _record_shadow(correlation_id, "CLARIFY", None, None,
                        SemanticFailure.ROUTER_UNAVAILABLE.value,
                        latency, route_served, shadow)
-        return _fail(SemanticFailure.ROUTER_UNAVAILABLE)
+        return _fail(SemanticFailure.ROUTER_UNAVAILABLE, hints.language)
     latency = time.perf_counter() - started
     try:
         decision = validate_semantic_decision(payload, cards=cards)
@@ -389,7 +392,7 @@ async def route_semantic(
         _record_shadow(correlation_id, "CLARIFY", None, None,
                        exc.category.value, latency, route_served,
                        shadow)
-        return _fail(exc.category)
+        return _fail(exc.category, hints.language)
 
     routing_metrics().observe_latency(latency)
     confidence = float(decision.confidence)
@@ -402,7 +405,8 @@ async def route_semantic(
                            decision.family.value, confidence,
                            SemanticFailure.ROUTER_BELOW_THRESHOLD.value,
                            latency, route_served, shadow)
-            return _fail(SemanticFailure.ROUTER_BELOW_THRESHOLD)
+            return _fail(SemanticFailure.ROUTER_BELOW_THRESHOLD,
+                         hints.language)
         routing_metrics().inc("router_decision_total", decision="FAMILY")
         _record_shadow(correlation_id, "FAMILY",
                        decision.family.value, confidence, "", latency,
@@ -410,7 +414,8 @@ async def route_semantic(
         return SemanticRoute(
             decision="FAMILY", family=decision.family.value,
             confidence=confidence, requires_clarification=False,
-            reason_codes=tuple(r.value for r in decision.reason_codes))
+            reason_codes=tuple(r.value for r in decision.reason_codes),
+            language=normalize_language(decision.language))
     if decision.decision.value == "RAG":
         if confidence < config.min_confidence:
             routing_metrics().inc(
@@ -419,21 +424,24 @@ async def route_semantic(
             _record_shadow(correlation_id, "CLARIFY", None, confidence,
                            SemanticFailure.ROUTER_BELOW_THRESHOLD.value,
                            latency, route_served, shadow)
-            return _fail(SemanticFailure.ROUTER_BELOW_THRESHOLD)
+            return _fail(SemanticFailure.ROUTER_BELOW_THRESHOLD,
+                         hints.language)
         routing_metrics().inc("router_decision_total", decision="RAG")
         _record_shadow(correlation_id, "RAG", None, confidence, "",
                        latency, route_served, shadow)
         return SemanticRoute(
             decision="RAG", family=None, confidence=confidence,
             requires_clarification=False,
-            reason_codes=tuple(r.value for r in decision.reason_codes))
+            reason_codes=tuple(r.value for r in decision.reason_codes),
+            language=normalize_language(decision.language))
     routing_metrics().inc("router_decision_total", decision="CLARIFY")
     _record_shadow(correlation_id, "CLARIFY", None, confidence, "",
                    latency, route_served, shadow)
     return SemanticRoute(
         decision="CLARIFY", family=None, confidence=confidence,
         requires_clarification=True,
-        reason_codes=tuple(r.value for r in decision.reason_codes))
+        reason_codes=tuple(r.value for r in decision.reason_codes),
+        language=normalize_language(decision.language))
 
 
 # ---------------------------------------------------------------------------

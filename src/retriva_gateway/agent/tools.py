@@ -135,6 +135,9 @@ class ToolContext:
     #: the import intent guard to resolve a definite anaphor ("il batch")
     #: and to bind row decisions to the already-staged batch.
     import_batch_context: Optional[Dict[str, Any]] = None
+    #: Resolved response language for deterministic user-facing agent-loop
+    #: strings (en/it; unsupported values fall back to en).
+    language: str = "en"
 
 
 class ToolExecutionError(Exception):

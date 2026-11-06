@@ -80,7 +80,7 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
             routing_metrics().inc(
                 "routing_decision_total", route="REFUSE_STREAM",
                 source="deterministic")
-            return _streaming_refusal(family, corr_id)
+            return _streaming_refusal(family, corr_id, request.message)
         if decision is StreamingDecision.STREAM_CLARIFY:
             # 7.3: workflow-adjacent ambiguity — neutral streamed
             # clarification (no classifier call, no retrieval, no
@@ -90,7 +90,7 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
             routing_metrics().inc(
                 "routing_decision_total", route="STREAM_CLARIFY",
                 source="deterministic")
-            return _streaming_clarification(corr_id, engine_result)
+            return _streaming_clarification(corr_id, engine_result, request.message)
         # 7.1 / non-adjacent ambiguity: the unchanged cited SSE RAG
         # passthrough below.
         return None
@@ -178,7 +178,7 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
         return JSONResponse(content={
             "id": f"msg_{datetime.datetime.now().timestamp()}",
             "role": "assistant",
-            "content": routed.clarification,
+            "content": _localized_clarification(routed, request.message),
             "timestamp": datetime.datetime.now().isoformat(),
             "citations": [],
         })
@@ -239,7 +239,8 @@ _IMPORT_CONTEXT_HINT = re.compile(
 _STREAM_REFUSAL_REASON = "streaming_workflow_command"
 
 
-def _streaming_refusal(family, corr_id: str) -> JSONResponse:
+def _streaming_refusal(family, corr_id: str,
+                       message: str = "") -> JSONResponse:
     """7.2 (Spec 001 C5): the typed 409 with the machine-readable
     retry contract.  No SSE starts; no tool; the Gateway performs no
     automatic retry; the body never contains the raw message, tool
@@ -247,10 +248,7 @@ def _streaming_refusal(family, corr_id: str) -> JSONResponse:
     principal identity, or internal details."""
     detail = {
         "code": "workflow_stream_unsupported",
-        "message": (
-            "Workflow operations require a non-streaming request. "
-            "Resend the same request without streaming to run the "
-            "operation."),
+        "message": _streaming_refusal_text(message),
         "retry": {
             "mode": "non_streaming",
             "action": "resend_without_stream",
@@ -265,7 +263,15 @@ def _streaming_refusal(family, corr_id: str) -> JSONResponse:
     return JSONResponse(status_code=409, content={"detail": detail})
 
 
-def _streaming_clarification(corr_id: str, result):
+def _streaming_refusal_text(message: str) -> str:
+    from retriva_gateway.core.routing.messages import (
+        detect_language,
+        template,
+    )
+    return template(detect_language(message), "streaming_refusal")
+
+
+def _streaming_clarification(corr_id: str, result, message: str = ""):
     """7.3 (Spec 001): the neutral streamed clarification — SSE opens,
     emits the deterministic clarification text, closes.  No classifier
     call, no retrieval, no tools, no execution; no new SSE event types
@@ -275,7 +281,10 @@ def _streaming_clarification(corr_id: str, result):
         build_clarification,
     )
 
-    text = build_clarification(result)
+    from retriva_gateway.core.routing.messages import detect_language
+
+    text = build_clarification(
+        result, language=detect_language(message))
 
     async def _generator():
         first = {"id": f"chatcmpl-clarify-{corr_id}",
@@ -345,7 +354,7 @@ async def _resolve_classification(eligible, corr_id):
         return JSONResponse(content={
             "id": f"msg_{datetime.datetime.now().timestamp()}",
             "role": "assistant",
-            "content": routed.clarification,
+            "content": _localized_clarification(routed, eligible.message),
             "timestamp": datetime.datetime.now().isoformat(),
             "citations": [],
         })
@@ -402,7 +411,7 @@ async def _resolve_classification(eligible, corr_id):
         return JSONResponse(content={
             "id": f"msg_{datetime.datetime.now().timestamp()}",
             "role": "assistant",
-            "content": routed.clarification,
+            "content": _localized_clarification(routed, eligible.message),
             "timestamp": datetime.datetime.now().isoformat(),
             "citations": [],
         })
@@ -549,6 +558,8 @@ async def _agent_chat(request: ChatRequest, corr_id: str, *,
         claimed_confirmation=claimed,
         user_message=request.message or "",
     )
+    from retriva_gateway.core.routing.messages import detect_language
+    ctx.language = detect_language(request.message or "")
     # Trusted session import context: resolve the staged campaign-history
     # batch for this session so a natural follow-up approval can continue
     # the governed review/approve/commit flow without restating opaque
@@ -578,17 +589,23 @@ async def _agent_chat(request: ChatRequest, corr_id: str, *,
         )
     except AgentLoopError as e:
         if legacy_error_body:
-            return JSONResponse(status_code=503, content={
-                "detail": (
-                    f"Candidate qualification cannot be executed from this chat: "
-                    f"{e}. I will not simulate scores or Web Research results."
-                )
-            })
-        return JSONResponse(status_code=503, content={
-            "detail": (
-                f"The requested workflow cannot be executed from this chat: "
-                f"{e}. I will not simulate or guess workflow results."
+            from retriva_gateway.core.routing.messages import (
+                detect_language,
+                template,
             )
+            return JSONResponse(status_code=503, content={
+                "detail": template(
+                    detect_language(request.message), "qualification_error",
+                    error=str(e))
+            })
+        from retriva_gateway.core.routing.messages import (
+            detect_language,
+            template,
+        )
+        return JSONResponse(status_code=503, content={
+            "detail": template(
+                detect_language(request.message), "agent_error",
+                error=str(e))
         })
     except Exception as e:  # noqa: BLE001
         logger.exception(f"[{corr_id}] agent loop failed")
@@ -638,20 +655,27 @@ def _transform_citations(core_sources: list) -> list:
 
 
 #: Closed, capability-aware deterministic clarification templates for
-#: the semantic router.  Free-form model text never executes.
-_ROUTER_CLARIFY = (
-    "I can answer that from the knowledge base or from a read-only "
-    "Company Intelligence workflow, but I could not choose a safe data "
-    "plane. Please rephrase, or name the campaign or workflow family."
-)
-_ROUTER_CLARIFY_FAILURE = (
-    "I could not safely determine which data source should answer that. "
-    "No tool was executed and no data was changed. Please rephrase the "
-    "request."
-)
+#: the semantic router are localized in core/routing/messages.py and
+#: rendered by ``router_clarify``/``build_clarification``.  Free-form
+#: model text never executes.
 
 
-def _deterministic_outcome(routed, corr_id: str):
+def _localized_clarification(routed, message: str) -> str:
+    """Re-render a deterministic clarify in the user's language."""
+    from retriva_gateway.core.routing.clarifications import (
+        build_clarification,
+    )
+    from retriva_gateway.core.routing.messages import detect_language
+
+    result = getattr(routed, "engine_result", None)
+    if result is None:
+        return routed.clarification
+    return build_clarification(
+        result, tuple(routed.decision.reason_codes),
+        language=detect_language(message))
+
+
+def _deterministic_outcome(routed, corr_id: str, message: str = ""):
     """The unchanged deterministic route outcome (used by shadow)."""
     decision = routed.decision
     if routed.route.value == "AGENT_LOOP":
@@ -671,7 +695,7 @@ def _deterministic_outcome(routed, corr_id: str):
         return JSONResponse(content={
             "id": f"msg_{datetime.datetime.now().timestamp()}",
             "role": "assistant",
-            "content": routed.clarification,
+            "content": _localized_clarification(routed, message),
             "timestamp": datetime.datetime.now().isoformat(),
             "citations": [],
         })
@@ -727,14 +751,26 @@ async def _resolve_semantic(request: ChatRequest, eligible, corr_id: str):
         f"confidence={result.confidence if result.confidence is not None else '-'} "
         f"failure={result.failure_category or '-'} shadow={shadow}")
     if shadow:
-        return _deterministic_outcome(eligible.routed, corr_id)
+        return _deterministic_outcome(
+            eligible.routed, corr_id, eligible.message)
     if result.decision == "RAG":
         return None
     if result.decision == "FAMILY":
         return await _agent_chat(
             request, corr_id, read_only_only=True)
-    content = (_ROUTER_CLARIFY_FAILURE if result.failure_category
-               else _ROUTER_CLARIFY)
+    from retriva_gateway.core.routing.messages import (
+        detect_language,
+        normalize_language,
+    )
+    from retriva_gateway.core.routing.clarifications import router_clarify
+
+    language = normalize_language(
+        result.language or hints.language
+        or detect_language(eligible.message))
+    action = "EXPLICIT_ACTION_VERB" in result.reason_codes
+    content = router_clarify(
+        language, failure=bool(result.failure_category), action=action,
+        family=result.family or hints.workflow_family_hint)
     return JSONResponse(content={
         "id": f"msg_{datetime.datetime.now().timestamp()}",
         "role": "assistant",
