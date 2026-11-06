@@ -210,7 +210,7 @@ class TestToolInventory:
     def test_inventory_and_closed_schemas(self):
         tools = build_campaign_governance_tools()
         names = {t.name for t in tools}
-        assert len(names) == len(tools) == 33
+        assert len(names) == len(tools) == 34
         assert CONSEQUENTIAL_TOOLS <= names
         for tool in tools:
             assert tool.parameters["additionalProperties"] is False

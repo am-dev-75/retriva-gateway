@@ -1485,6 +1485,48 @@ async def _cg_approve_import(args, ctx):
     return result
 
 
+
+async def _cg_campaign_company_stats(args, ctx):
+    """Read-only per-campaign company/addressed aggregate.
+
+    Counts the campaign's canonical memberships and ADDRESSED members
+    from the canonical campaign service.  Exact within the service's
+    bounded companies listing; the result is explicitly marked
+    truncated at that bound instead of claiming an exact total.
+    """
+    _cg_require(args, "campaign_code")
+    code = str(args["campaign_code"]).strip()
+    rows = await _cg_call("GET", f"/{_cg_seg(code)}/companies")
+    if not isinstance(rows, list):
+        rows = []
+    addressed = sum(
+        1 for row in rows
+        if isinstance(row, dict)
+        and (str(row.get("status") or "").upper() == "ADDRESSED"
+             or row.get("addressed_at")))
+    status_counts: Dict[str, int] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("status") or "UNKNOWN").upper()
+        status_counts[status] = status_counts.get(status, 0) + 1
+    truncated = len(rows) >= 2000
+    summary = (
+        f"Campaign {code}: {len(rows)} member companies, "
+        f"{addressed} addressed.")
+    if truncated:
+        summary += (" The listing hit its 2000-row bound; counts are "
+                    "lower bounds.")
+    return {
+        "campaign_code": code,
+        "memberships": len(rows),
+        "addressed": addressed,
+        "status_counts": status_counts,
+        "truncated": truncated,
+        "chat_summary": summary,
+    }
+
+
 async def _cg_commit_import(args, ctx):
     _cg_require(args, "batch_id", "idempotency_key")
     _require_campaign_import_intent(
@@ -1811,6 +1853,16 @@ def build_campaign_governance_tools() -> List[ToolDefinition]:
             parameters=_cg_schema({"batch_id": str_p, "status": str_p},
                                   ["batch_id"]),
             execute=_cg_rows),
+        ToolDefinition(
+            name="get_campaign_company_stats",
+            description="Read-only aggregate for ONE campaign: member "
+                        "company count, addressed company count, and "
+                        "status counts. Use for questions like 'how "
+                        "many companies did we address in campaign X'.",
+            parameters=_cg_schema({
+                "campaign_code": str_p,
+            }, ["campaign_code"]),
+            execute=_cg_campaign_company_stats),
         ToolDefinition(
             name="review_campaign_history_row",
             description="Record ONE row decision (select_match, "

@@ -69,6 +69,11 @@ METRIC_NAMES = frozenset({
     "rag_route_total",
     "classifier_bypass_total",
     "regional_policy_rejection_total",
+    # Spec 040 Phase C semantic router (content-free).
+    "router_decision_total",
+    "router_failure_total",
+    "router_latency",
+    "router_bypass_total",
 })
 
 #: Closed label names per metric family.
@@ -83,6 +88,10 @@ LABEL_NAMES: Dict[str, Tuple[str, ...]] = {
     "rag_route_total": (),
     "classifier_bypass_total": ("reason",),
     "regional_policy_rejection_total": (),
+    "router_decision_total": ("decision",),
+    "router_failure_total": ("category",),
+    "router_latency": (),
+    "router_bypass_total": ("reason",),
 }
 
 #: Closed bypass-reason vocabulary (runtime realization of the contract in
@@ -91,6 +100,31 @@ LABEL_NAMES: Dict[str, Tuple[str, ...]] = {
 #: label carries no message content, intent names outside this closed enum,
 #: resource/tenant/principal/session/KB identifiers, correlation IDs, raw
 #: error data, or classifier/provider output.
+#: Closed semantic-router decision values (Spec 040 SC3).
+ROUTER_DECISION_VALUES = frozenset({"RAG", "FAMILY", "CLARIFY"})
+
+#: Closed typed router failure categories (Spec 040 SC5).  Content-free;
+#: unknown values are rejected fail-closed.
+ROUTER_FAILURE_VALUES = frozenset({
+    "router_timeout",
+    "router_unavailable",
+    "router_invalid_output",
+    "router_schema_mismatch",
+    "router_unknown_family",
+    "router_below_threshold",
+})
+
+#: Closed router bypass reasons (Spec 040 SC5).
+ROUTER_BYPASS_VALUES = frozenset({
+    "router_disabled",
+    "router_flag_off",
+    "mode_off",
+    "streaming",
+    "deterministic_terminal",
+    "out_of_band",
+    "not_applicable",
+})
+
 BYPASS_REASON_VALUES = frozenset({
     "streaming",
     "deterministic_terminal",
@@ -135,6 +169,24 @@ class RoutingMetrics:
             if reason not in BYPASS_REASON_VALUES:
                 raise ValueError(
                     f"classifier_bypass_total reason {reason!r} not in "
+                    f"closed vocabulary")
+        if metric == "router_decision_total":
+            decision = labels.get("decision")
+            if decision not in ROUTER_DECISION_VALUES:
+                raise ValueError(
+                    f"router_decision_total decision {decision!r} not in "
+                    f"closed vocabulary")
+        if metric == "router_failure_total":
+            category = labels.get("category")
+            if category not in ROUTER_FAILURE_VALUES:
+                raise ValueError(
+                    f"router_failure_total category {category!r} not in "
+                    f"closed vocabulary")
+        if metric == "router_bypass_total":
+            reason = labels.get("reason")
+            if reason not in ROUTER_BYPASS_VALUES:
+                raise ValueError(
+                    f"router_bypass_total reason {reason!r} not in "
                     f"closed vocabulary")
         key = (metric, tuple(sorted(labels.items())))
         with self._lock:

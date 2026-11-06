@@ -140,6 +140,15 @@ class Settings(BaseSettings):
     # Per-attempt HTTP timeout for the classification call.
     AGENT_INTENT_CLASSIFIER_HTTP_TIMEOUT_SECONDS: float = 35.0
 
+    # --- Catalog-driven semantic router (Spec 040 Phase C; SC3) ---
+    # Safe by default: off.  Distinct authority from the Phase D
+    # classifier, so the two capabilities roll back independently.
+    AGENT_SEMANTIC_ROUTER_ENABLED: bool = False
+    AGENT_SEMANTIC_ROUTER_MIN_CONFIDENCE: float = 0.85
+    AGENT_SEMANTIC_ROUTER_FAMILY_MIN_CONFIDENCE: float = 0.85
+    AGENT_SEMANTIC_ROUTER_HTTP_TIMEOUT_SECONDS: float = 35.0
+    AGENT_SEMANTIC_ROUTER_MAX_INPUT_CHARS: int = 2000
+
     # --- Workflow-context registry (Spec 001 Phase C; addendum D-5) ---
     # Process-global, startup-validated bounds — they cannot vary by
     # tenant, principal, session, KB, request, metadata, message,
@@ -213,6 +222,29 @@ class Settings(BaseSettings):
             raise ValueError(
                 "AGENT_INTENT_CLASSIFIER_HTTP_TIMEOUT_SECONDS must be "
                 "positive")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_semantic_router_policy(self) -> "Settings":
+        """Startup validation of the Spec 040 semantic-router flags
+        (SC3): thresholds within [0.50, 1.00], FAMILY >= MIN, positive
+        timeout/input bound.  Fails startup on any violation."""
+        for name in ("AGENT_SEMANTIC_ROUTER_MIN_CONFIDENCE",
+                     "AGENT_SEMANTIC_ROUTER_FAMILY_MIN_CONFIDENCE"):
+            if not 0.50 <= getattr(self, name) <= 1.00:
+                raise ValueError(f"{name} must be within [0.50, 1.00]")
+        if (self.AGENT_SEMANTIC_ROUTER_FAMILY_MIN_CONFIDENCE
+                < self.AGENT_SEMANTIC_ROUTER_MIN_CONFIDENCE):
+            raise ValueError(
+                "AGENT_SEMANTIC_ROUTER_FAMILY_MIN_CONFIDENCE must be "
+                ">= AGENT_SEMANTIC_ROUTER_MIN_CONFIDENCE")
+        if self.AGENT_SEMANTIC_ROUTER_HTTP_TIMEOUT_SECONDS <= 0:
+            raise ValueError(
+                "AGENT_SEMANTIC_ROUTER_HTTP_TIMEOUT_SECONDS must be "
+                "positive")
+        if self.AGENT_SEMANTIC_ROUTER_MAX_INPUT_CHARS <= 0:
+            raise ValueError(
+                "AGENT_SEMANTIC_ROUTER_MAX_INPUT_CHARS must be positive")
         return self
 
 settings = Settings()

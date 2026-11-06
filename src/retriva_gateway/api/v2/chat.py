@@ -127,6 +127,15 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
         principal_id=get_principal().id)
     routed = route_non_streaming(request.message or "", routing=routing)
     decision = routed.decision
+    # Spec 040 Phase C: when enabled, the semantic router supersedes the
+    # Phase D advisory window on its exact input band.  Safety outcomes
+    # and out-of-band turns keep the deterministic behavior below.
+    if settings.AGENT_SEMANTIC_ROUTER_ENABLED:
+        from retriva_gateway.core.routing.semantic import in_semantic_band
+        if in_semantic_band(routed):
+            return _SemanticEligible(
+                routed=routed, message=request.message or "", key=key)
+        routing_metrics().inc("router_bypass_total", reason="out_of_band")
     # Phase D (Spec 001): eligible deterministic ambiguity only, and
     # only when the (advisory, untrusted) classifier is enabled.  The
     # SINGLE authorized call site lives in the endpoint's
@@ -197,6 +206,17 @@ class _ClassifierEligible:
     only when the classifier is ENABLED and mode is shadow/active (the
     legacy/off path never constructs it); the async endpoint resolves
     it through the SINGLE authorized call site."""
+
+    def __init__(self, *, routed, message, key):
+        self.routed = routed
+        self.message = message
+        self.key = key
+
+
+class _SemanticEligible:
+    """Spec 040 Phase C internal marker: a deterministic outcome inside
+    the semantic-router input band.  Resolved by the async endpoint
+    through the SINGLE semantic call site; shadow records only."""
 
     def __init__(self, *, routed, message, key):
         self.routed = routed
@@ -488,7 +508,8 @@ async def _classify_and_apply(message, routed, routing, corr_id):
 
 async def _agent_chat(request: ChatRequest, corr_id: str, *,
                       legacy_error_body: bool = False,
-                      claimed=None, resolved=None) -> JSONResponse:
+                      claimed=None, resolved=None,
+                      read_only_only: bool = False) -> JSONResponse:
     """Run the bounded agent loop (async; called from the chat endpoint).
 
     ``legacy_error_body`` preserves the exact legacy qualification-
@@ -553,6 +574,7 @@ async def _agent_chat(request: ChatRequest, corr_id: str, *,
                 None if settings.AGENT_INTENT_ROUTER_MODE == "off"
                 else get_workflow_context_registry()),
             resolved_reference=resolved,
+            read_only_only=read_only_only,
         )
     except AgentLoopError as e:
         if legacy_error_body:
@@ -614,6 +636,114 @@ def _transform_citations(core_sources: list) -> list:
     return citations
 
 
+
+#: Closed, capability-aware deterministic clarification templates for
+#: the semantic router.  Free-form model text never executes.
+_ROUTER_CLARIFY = (
+    "I can answer that from the knowledge base or from a read-only "
+    "Company Intelligence workflow, but I could not choose a safe data "
+    "plane. Please rephrase, or name the campaign or workflow family."
+)
+_ROUTER_CLARIFY_FAILURE = (
+    "I could not safely determine which data source should answer that. "
+    "No tool was executed and no data was changed. Please rephrase the "
+    "request."
+)
+
+
+def _deterministic_outcome(routed, corr_id: str):
+    """The unchanged deterministic route outcome (used by shadow)."""
+    decision = routed.decision
+    if routed.route.value == "AGENT_LOOP":
+        logger.info(
+            f"[{corr_id}] Chat routing: deterministic pipeline → agent "
+            f"loop (intent={decision.intent.value}, "
+            f"reasons={[r.value for r in decision.reason_codes]})")
+        if routed.claimed is not None or routed.resolved is not None:
+            return _AgentAdmission(
+                claimed=routed.claimed, resolved=routed.resolved)
+        return _AGENT_SENTINEL
+    if routed.route.value == "CLARIFY":
+        logger.info(
+            f"[{corr_id}] Chat routing: deterministic pipeline → "
+            f"clarification (intent={decision.intent.value}, "
+            f"reasons={[r.value for r in decision.reason_codes]})")
+        return JSONResponse(content={
+            "id": f"msg_{datetime.datetime.now().timestamp()}",
+            "role": "assistant",
+            "content": routed.clarification,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "citations": [],
+        })
+    return None
+
+
+async def _resolve_semantic(request: ChatRequest, eligible, corr_id: str):
+    """The SINGLE semantic-router call site (Spec 040 SC3).
+
+    Shadow: record diagnostics only and serve the deterministic outcome.
+    Active: RAG falls through, FAMILY enters the read-only loop, and
+    every other decision/failure returns a closed clarify template.
+    """
+    from retriva_gateway.core.routing import (
+        get_workflow_context_registry,
+        routing_metrics,
+    )
+    from retriva_gateway.core.routing.pipeline import (
+        classification_context_hints,
+    )
+    from retriva_gateway.core.routing.semantic import (
+        CoreEndpointSemanticRouter,
+        SemanticHints,
+        hints_for,
+        route_semantic,
+        semantic_config_from_settings,
+    )
+
+    config = semantic_config_from_settings()
+    context = classification_context_hints(
+        get_workflow_context_registry(), eligible.key)
+    base = hints_for(eligible.routed, message=eligible.message)
+    hints = SemanticHints(
+        ambiguity_class=base.ambiguity_class,
+        workflow_family_hint=context["workflow_family_hint"],
+        last_routed_data_plane=base.last_routed_data_plane,
+        last_family=context["workflow_family_hint"],
+        workflow_context_present=context["workflow_context_present"],
+        pending_confirmation_present=context[
+            "pending_confirmation_present"],
+        language=base.language,
+    )
+    router = CoreEndpointSemanticRouter(
+        timeout_seconds=float(config.timeout_seconds))
+    shadow = settings.AGENT_INTENT_ROUTER_MODE == "shadow"
+    result = await route_semantic(
+        eligible.message, hints=hints, router=router, config=config,
+        correlation_id=corr_id, shadow=shadow,
+        route_served=eligible.routed.route.value)
+    logger.info(
+        f"[{corr_id}] semantic_router decision={result.decision} "
+        f"family={result.family or '-'} "
+        f"confidence={result.confidence if result.confidence is not None else '-'} "
+        f"failure={result.failure_category or '-'} shadow={shadow}")
+    if shadow:
+        return _deterministic_outcome(eligible.routed, corr_id)
+    if result.decision == "RAG":
+        return None
+    if result.decision == "FAMILY":
+        return await _agent_chat(
+            request, corr_id, read_only_only=True)
+    content = (_ROUTER_CLARIFY_FAILURE if result.failure_category
+               else _ROUTER_CLARIFY)
+    return JSONResponse(content={
+        "id": f"msg_{datetime.datetime.now().timestamp()}",
+        "role": "assistant",
+        "content": content,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "citations": [],
+    })
+
+
 @router.post("/chat")
 async def chat(request: ChatRequest):
     corr_id = get_correlation_id() or "unknown"
@@ -629,6 +759,13 @@ async def chat(request: ChatRequest):
     # (generic family-neutral 503 body) and may return a typed
     # clarification instead of entering the loop.
     agent_result = _run_agent_mode(request, corr_id)
+    if isinstance(agent_result, _SemanticEligible):
+        agent_result = await _resolve_semantic(
+            request, agent_result, corr_id)
+        if agent_result is None:
+            pass
+        else:
+            return agent_result
     if isinstance(agent_result, _ClassifierEligible):
         # Phase D: the SINGLE authorized classifier call site (async —
         # this function is async; _run_agent_mode stays synchronous).

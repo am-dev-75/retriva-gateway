@@ -733,11 +733,20 @@ _STATUS_QUESTION_ANCHORS = re.compile(
 # APPROVED campaigns, not an approval command.
 _CAMPAIGN_COUNT_CUES = re.compile(
     r"(?:"
-    r"\bhow\s+many\b[^\n]{0,80}?\bcampaigns?\b"
-    r"|\bnumber\s+of\b[^\n]{0,40}?\bcampaigns?\b"
-    r"|\bcount\s+of\b[^\n]{0,40}?\bcampaigns?\b"
+    # The campaign noun must be the object of the count cue.  A window
+    # like "how many ... campaign" over-matched the incident question
+    # "how many companies did we address in campaign X" (and its
+    # Italian form), producing a false CAMPAIGN_COUNT.  Narrowing only
+    # removes the false positive; no new vocabulary is introduced.
+    r"\bhow\s+many\s+(?:of\s+(?:our|the)\s+)?(?:outreach\s+)?"
+    r"campaigns?\b"
+    r"|\bnumber\s+of\s+(?:our\s+|the\s+)?(?:outreach\s+)?"
+    r"campaigns?\b"
+    r"|\bcount\s+of\s+(?:our\s+|the\s+)?(?:outreach\s+)?"
+    r"campaigns?\b"
     r"|\bcampaigns?\s+(?:count|total)\b"
-    r"|\bquant[ie]\b[^\n]{0,60}?\bcampagn[ae]\b"
+    r"|\bquant[ie]\s+(?:delle?\s+(?:nostre|ns)\s+)?"
+    r"(?:outreach\s+)?campagn[ae]\b"
     r")"
 )
 

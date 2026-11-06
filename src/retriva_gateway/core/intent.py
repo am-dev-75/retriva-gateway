@@ -98,10 +98,17 @@ _CRM_WORKFLOW = re.compile(
 # words (completed/done/finished) are handled by the agent prompt, which
 # maps them to the COMPLETED campaign status.
 _CAMPAIGN_COUNT = re.compile(
-    r"\bhow\s+many\b[^\n]{0,80}\bcampaigns?\b"
-    r"|\bnumber\s+of\s+(?:outreach\s+)?campaigns?\b"
+    # Count the campaign noun itself, not a noun merely near it: the
+    # old 80-char window false-matched "how many companies ... in
+    # campaign X".  This is a narrowing of the existing cue, not a new
+    # vocabulary (Spec 040 D-4 freeze).
+    r"\bhow\s+many\s+(?:of\s+(?:our|the)\s+)?(?:outreach\s+)?"
+    r"campaigns?\b"
+    r"|\bnumber\s+of\s+(?:our\s+|the\s+)?(?:outreach\s+)?"
+    r"campaigns?\b"
     r"|\bcampaigns?\s+(?:count|total)\b"
-    r"|\bquant[ie]\s+(?:outreach\s+)?campagn[ae]\b",
+    r"|\bquant[ie]\s+(?:delle?\s+(?:nostre|ns)\s+)?"
+    r"(?:outreach\s+)?campagn[ae]\b",
     re.IGNORECASE)
 
 

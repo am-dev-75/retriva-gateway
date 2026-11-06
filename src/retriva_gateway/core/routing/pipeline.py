@@ -42,7 +42,7 @@ therefore the permanent Phase B behavior.  Streaming is NOT handled here
 (Phase E); ``chat.py`` keeps the legacy streaming path in every mode.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 from retriva_gateway.config import settings
@@ -113,6 +113,10 @@ class PhaseBChatRoute:
     clarification: Optional[str] = None
     claimed: Optional[ClaimedConfirmationContext] = None
     resolved: Optional[ResolvedReference] = None
+    #: The raw deterministic engine result (Spec 040 Phase C): the
+    #: semantic-router band needs the pre-routing AMBIGUOUS class, which
+    #: the pipeline may have already rendered as CLARIFICATION_REQUIRED.
+    engine_result: Optional["DeterministicResult"] = None
 
 
 def route_non_streaming(message: str,
@@ -130,7 +134,7 @@ def route_non_streaming(message: str,
     registry (clarify, execute nothing, write nothing).
     """
     result = _ENGINE.classify(message)
-    routed = _to_route(result)
+    routed = replace(_to_route(result), engine_result=result)
     if routing is None:
         return routed
     return _phase_c(routed, result, message, routing)

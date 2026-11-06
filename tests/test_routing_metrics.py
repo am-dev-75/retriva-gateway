@@ -45,6 +45,11 @@ EXPECTED_METRICS = {
     "rag_route_total",
     "classifier_bypass_total",
     "regional_policy_rejection_total",
+    # Spec 040 Phase C semantic router (content-free).
+    "router_decision_total",
+    "router_failure_total",
+    "router_latency",
+    "router_bypass_total",
     # NOTE: classifier_latency is the bounded numeric ring, not a
     # counted family; it is exercised via observe_latency/snapshot.
 }

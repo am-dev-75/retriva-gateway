@@ -49,6 +49,7 @@ from retriva_gateway.core.routing.metrics import routing_metrics
 from retriva_gateway.core.routing.policy import (
     shadow_diagnostics_ring,
 )
+from retriva_gateway.core.routing.semantic import semantic_shadow_ring
 
 router = APIRouter(prefix="/internal/routing", tags=["internal"])
 
@@ -73,6 +74,7 @@ async def routing_status(
     metrics = routing_metrics().snapshot()
     registry = get_workflow_context_registry().snapshot()
     ring = shadow_diagnostics_ring().summary()
+    semantic_ring = semantic_shadow_ring().summary()
     # Content-free registry snapshot: counts and the last purge time
     # only — never any record content.
     registry_summary = {
@@ -107,5 +109,14 @@ async def routing_status(
         "metrics": metrics,
         "workflow_context_registry": registry_summary,
         "shadow_diagnostics": ring,
+        "semantic_shadow_diagnostics": semantic_ring,
+        "semantic_router": {
+            "enabled": bool(settings.AGENT_SEMANTIC_ROUTER_ENABLED),
+            "min_confidence": float(
+                settings.AGENT_SEMANTIC_ROUTER_MIN_CONFIDENCE),
+            "family_min_confidence": float(
+                settings.AGENT_SEMANTIC_ROUTER_FAMILY_MIN_CONFIDENCE),
+            "transport": "core-deployment-global",
+        },
         "classifier": classifier_status,
     })

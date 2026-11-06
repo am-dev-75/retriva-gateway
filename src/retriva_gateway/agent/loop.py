@@ -159,6 +159,7 @@ campaign records, no individual recipients, no consent records):
     campaign tools (`create_campaign`, `list_campaigns`, `get_campaign`,
     `analyze_campaign_audience`, `approve_campaign_audience`,
     `commit_campaign_audience`, `import_campaign_company_history`,
+    `get_campaign_company_stats`,
     `review_campaign_history_row`, `approve_campaign_history_batch`,
     `commit_campaign_history_batch`, `get_campaign_history_receipt`,
     `get_company_campaign_history`, `mark_company_addressed`,
@@ -168,6 +169,10 @@ campaign records, no individual recipients, no consent records):
     `status`; map done/finished/completed to `status="COMPLETED"`) and
     report the returned `count` together with the matching campaigns.
     Never answer a campaign count from the knowledge base or estimate it.
+    For "how many companies did we address in campaign X" (or the Italian
+    equivalent), call `get_campaign_company_stats` with the campaign code
+    and report the returned `addressed` (and `memberships`) from that
+    tool; never answer it from the knowledge base.
     You never generate SQL, never write campaign data to the knowledge
     base, and never trigger company qualification from a campaign
     import.
@@ -318,8 +323,14 @@ async def _execute_tool(
     call: Dict[str, Any],
     ctx: ToolContext,
     tool_timeout: float,
+    read_only_only: bool = False,
 ) -> Dict[str, Any]:
     """Validate and execute one tool call with trusted context."""
+    if read_only_only and tool.destructive:
+        return {"error": {
+            "code": "tool_not_allowed",
+            "message": "This tool is not available on a read-only route.",
+        }}
     args = call["args"]
     schema_err = _validate_against_schema(args, tool.parameters)
     if schema_err:
@@ -409,6 +420,7 @@ async def run_agent_loop(
     tool_timeout_s: Optional[float] = None,
     context_registry: Optional["object"] = None,
     resolved_reference: Optional["object"] = None,
+    read_only_only: bool = False,
 ) -> AgentLoopResult:
     """Run the bounded tool-calling loop and return the final message.
 
@@ -442,6 +454,17 @@ async def run_agent_loop(
     max_iterations = settings.AGENT_MAX_TOOL_ITERATIONS
     tool_timeout = float(settings.AGENT_TOOL_TIMEOUT_SECONDS)
     allowed = settings.AGENT_TOOL_ALLOWLIST or None
+    if read_only_only:
+        # Spec 040 SC3 structural invariant: a router-routed (semantic
+        # FAMILY) turn can only ever see/execute read-only tools.  This
+        # is the primary proof; _execute_tool re-checks below.
+        read_only_names = {
+            name for name in registry.names()
+            if registry.get(name) is not None
+            and registry.get(name).destructive is False
+        }
+        allowed = (read_only_names if allowed is None
+                   else set(allowed) & read_only_names)
 
     tools_schema = registry.openai_schema(allowed)
     if not tools_schema:
