@@ -7,6 +7,9 @@
 - **Owner authorization:** Gate D PASSED 2026-11-06. The owner reviewed the
   shadow evidence and authorized active rollout in the controlled
   environment. This record formalizes that decision in the governance pack.
+  Owner's words (2026-11-06): *“We can enable the hybrid intent
+  detector/router. Retriva is still used by selected users in a controlled
+  environment so it is safe to do that.”*
 - **Registry:** Spec 040 remains `accepted`; the registry has no
   `implemented`/`complete` status in its accepted vocabulary, so the
   implementation is recorded here rather than by a status change.

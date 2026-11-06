@@ -29,8 +29,10 @@
   incident classified FAMILY/CAMPAIGN at confidence 1.0 while the served
   route stayed CLARIFY; 20/20 decision accuracy; zero destructive
   executions; zero router-routed tool calls; zero shadow route changes.
-- **Gate D (2026-11-06):** PASSED. The owner reviewed the shadow evidence
-  package (20/20 router decision accuracy, zero destructive executions,
+- **Gate D (2026-11-06):** PASSED. Owner authorization, verbatim:
+  “We can enable the hybrid intent detector/router. Retriva is still used
+  by selected users in a controlled environment so it is safe to do that.”
+  The owner reviewed the shadow evidence package (20/20 router decision accuracy, zero destructive executions,
   zero router-routed tool calls, zero shadow route changes; incident
   question FAMILY/CAMPAIGN at confidence 1.0) and authorized active rollout
   in a controlled environment.
