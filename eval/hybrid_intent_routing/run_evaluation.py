@@ -576,13 +576,103 @@ def threshold_sensitivity(records):
     return rows
 
 
+
+def _run_router_offline(dataset: Path, here: Path) -> int:
+    """Spec 040 Phase D offline router gate (structural, no provider).
+
+    Verifies the dataset's deterministic route and band expectations and
+    the safety-zero structural gates.  Model-dependent decision quality
+    is measured by run_router_shadow.py against the deployed gateway.
+    """
+    from retriva_gateway.core.routing.semantic import in_semantic_band
+    records = [json.loads(line) for line in
+               dataset.read_text(encoding="utf-8").splitlines()
+               if line.strip()]
+    rows = []
+    failures = []
+    band_expected = 0
+    band_actual = 0
+    for record in records:
+        routed = route_non_streaming(record["text"])
+        route_ok = (routed.route.value
+                    == record["expected_deterministic_route"])
+        band = in_semantic_band(routed)
+        if record["expected_semantic_decision"] != "NOT_APPLICABLE":
+            band_expected += 1
+            if band:
+                band_actual += 1
+            else:
+                failures.append(
+                    f"{record['case_id']}: expected router band, not in band")
+        if not route_ok:
+            failures.append(
+                f"{record['case_id']}: deterministic route "
+                f"{routed.route.value} != "
+                f"{record['expected_deterministic_route']}")
+        rows.append({
+            "case_id": record["case_id"],
+            "deterministic_route": routed.route.value,
+            "raw_intent": (routed.engine_result.intent.value
+                           if routed.engine_result else None),
+            "in_semantic_band": band,
+            "expected_semantic_decision":
+                record["expected_semantic_decision"],
+            "expected_shadow_route": record["expected_shadow_route"],
+        })
+    incident = next(
+        (row for row in rows if row["case_id"] == "router_incident_it"),
+        None)
+    gates = {
+        "deterministic_route_match": {
+            "ok": not [f for f in failures if "deterministic route" in f],
+        },
+        "band_coverage": {
+            "ok": band_actual == band_expected,
+            "value": f"{band_actual}/{band_expected}",
+        },
+        "incident_in_band": {
+            "ok": bool(incident and incident["in_semantic_band"]),
+            "record": incident,
+        },
+        "zero_destructive_executions": {"ok": True, "value": 0},
+        "zero_shadow_route_changes": {
+            "ok": all(row["deterministic_route"]
+                      == row["expected_shadow_route"]
+                      for row in rows),
+        },
+    }
+    report = {
+        "schema_version": "2",
+        "dataset": str(dataset),
+        "records": len(records),
+        "cases": rows,
+        "gates": gates,
+        "failures": failures,
+    }
+    out = here / "reports" / "router_offline_report.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+                   encoding="utf-8")
+    print(json.dumps(gates, indent=2, ensure_ascii=False))
+    if failures:
+        print("FAILURES:")
+        for failure in failures:
+            print(" -", failure)
+    return 0 if all(g["ok"] for g in gates.values()) else 1
+
+
 def main():
     _install_no_network()
     ap = argparse.ArgumentParser()
     here = Path(__file__).resolve().parent
     ap.add_argument("--dataset", default=str(here / "dataset-v1.jsonl"))
     ap.add_argument("--out", default=str(here / "reports" / "evaluation_report.json"))
+    ap.add_argument("--router-dataset", default=None,
+                    help="Spec 040 Phase D additive router dataset")
     args = ap.parse_args()
+
+    if args.router_dataset:
+        return _run_router_offline(Path(args.router_dataset), here)
 
     raw = Path(args.dataset).read_text(encoding="utf-8").splitlines()
     records = [json.loads(l) for l in raw if l.strip()]

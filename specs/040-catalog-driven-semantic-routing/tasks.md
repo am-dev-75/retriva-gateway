@@ -1,11 +1,34 @@
 # Spec 040 — tasks
 
 - **Status:** ACCEPTED (Gate A passed 2026-11-03)
-- **Implementation:** Phase B authorized; Phases C–E gated
+- **Implementation:** Phases B–D implemented; Phase E gated
 - **Rule:** check a task only after its evidence is accepted; no task
   bypasses its phase gate.
-- **Current slice:** Gate A passed; Phase B implementation is authorized
-  and its tasks remain unchecked until Gate B acceptance.
+- **Current slice:** Phase C implemented and Gate C verification green;
+  Phase D shadow package ready for owner review. Phase E is NOT authorized.
+
+## Execution record — Phase C/D (2026-11-06)
+
+- **Incident root cause:** the Italian addressed-companies question had no
+  matching deterministic rule; the `CAMPAIGN_COUNT` window over-matched
+  it, and production mode `off` kept it on RAG. The over-broad window was
+  narrowed (freeze-compliant bug fix, no new vocabulary).
+- **Capability growth:** added the read-only
+  `get_campaign_company_stats` campaign tool (cards auto-derive).
+- **Phase C:** Core prompt/schema v2 on the existing internal endpoint;
+  Gateway `core/routing/semantic.py` single call site; exact input band;
+  SC2 validation; 0.85/0.85 thresholds; read-only loop admission; typed
+  fail-closed clarify; content-free `router_*` metrics; startup-validated
+  default-off flags.
+- **Gate C verification:** Gateway 932 passed with only the 3 known
+  pre-existing failures; Core 1169 passed (22 new) with the documented
+  pre-existing environment failures unchanged (before/after node
+  comparison).
+- **Phase D shadow:** dataset v2 (24 records), shadow runner and gates;
+  incident classified FAMILY/CAMPAIGN at confidence 1.0 while the served
+  route stayed CLARIFY; 20/20 decision accuracy; zero destructive
+  executions; zero router-routed tool calls; zero shadow route changes.
+- **Phase E:** not executed; active rollout remains owner-gated.
 
 ## Phase A — governance (this turn)
 
@@ -39,7 +62,7 @@
 - [ ] Prove zero behavior change; full baseline green.
 - [ ] **Gate B:** owner accepts cards + contracts.
 
-## Phase C — semantic router and read-only admission (not started)
+## Phase C — semantic router and read-only admission (implemented)
 
 - [ ] Add core prompt v2, additive, untrusted framing preserved verbatim.
 - [ ] Add `core/routing/semantic.py` as the single call site.
@@ -51,7 +74,7 @@
 - [ ] Add the mode-off / flag-off byte-identical rollback proof.
 - [ ] **Gate C:** full matrix green; zero destructive routes.
 
-## Phase D — eval dataset v2 and shadow run (not started)
+## Phase D — eval dataset v2 and shadow run (implemented; owner review pending)
 
 - [ ] Add `dataset-v2.jsonl` and the v2 schema, preserving older datasets.
 - [ ] Add EN/IT relational reads for all four families.

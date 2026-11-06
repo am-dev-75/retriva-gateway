@@ -1,0 +1,227 @@
+{
+  "schema_version": "2",
+  "dataset": "eval/hybrid_intent_routing/dataset-v2.jsonl",
+  "records": 24,
+  "cases": [
+    {
+      "case_id": "router_incident_it",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "router_incident_en",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "router_incident_it_2",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "router_incident_en_2",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "router_incident_membership_en",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "router_acp_en",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "router_acp_it",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "router_acp_versions_en",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "router_qualification_en",
+      "deterministic_route": "AGENT_LOOP",
+      "raw_intent": "QUALIFICATION_REQUEST",
+      "in_semantic_band": false,
+      "expected_semantic_decision": "NOT_APPLICABLE",
+      "expected_shadow_route": "AGENT_LOOP"
+    },
+    {
+      "case_id": "router_qualification_it",
+      "deterministic_route": "AGENT_LOOP",
+      "raw_intent": "QUALIFICATION_REQUEST",
+      "in_semantic_band": false,
+      "expected_semantic_decision": "NOT_APPLICABLE",
+      "expected_shadow_route": "AGENT_LOOP"
+    },
+    {
+      "case_id": "router_company_import_en",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "router_company_import_it",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "polysemy_doc_en",
+      "deterministic_route": "RAG",
+      "raw_intent": "WORKFLOW_DOCUMENTATION",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "RAG",
+      "expected_shadow_route": "RAG"
+    },
+    {
+      "case_id": "polysemy_doc_it",
+      "deterministic_route": "RAG",
+      "raw_intent": "WORKFLOW_DOCUMENTATION",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "RAG",
+      "expected_shadow_route": "RAG"
+    },
+    {
+      "case_id": "polysemy_create_en",
+      "deterministic_route": "RAG",
+      "raw_intent": "WORKFLOW_DOCUMENTATION",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "RAG",
+      "expected_shadow_route": "RAG"
+    },
+    {
+      "case_id": "stopgap_campaign_count_en",
+      "deterministic_route": "AGENT_LOOP",
+      "raw_intent": "CAMPAIGN_COUNT",
+      "in_semantic_band": false,
+      "expected_semantic_decision": "NOT_APPLICABLE",
+      "expected_shadow_route": "AGENT_LOOP"
+    },
+    {
+      "case_id": "stopgap_campaign_count_it",
+      "deterministic_route": "AGENT_LOOP",
+      "raw_intent": "CAMPAIGN_COUNT",
+      "in_semantic_band": false,
+      "expected_semantic_decision": "NOT_APPLICABLE",
+      "expected_shadow_route": "AGENT_LOOP"
+    },
+    {
+      "case_id": "followup_it",
+      "deterministic_route": "RAG",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "RAG"
+    },
+    {
+      "case_id": "followup_en",
+      "deterministic_route": "RAG",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "RAG"
+    },
+    {
+      "case_id": "ooc_weather",
+      "deterministic_route": "RAG",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "CLARIFY",
+      "expected_shadow_route": "RAG"
+    },
+    {
+      "case_id": "ooc_invoices_it",
+      "deterministic_route": "RAG",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "CLARIFY",
+      "expected_shadow_route": "RAG"
+    },
+    {
+      "case_id": "adversarial_rag",
+      "deterministic_route": "RAG",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "CLARIFY",
+      "expected_shadow_route": "RAG"
+    },
+    {
+      "case_id": "adversarial_tool",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "CLARIFY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "adversarial_embedded",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    }
+  ],
+  "gates": {
+    "deterministic_route_match": {
+      "ok": true
+    },
+    "band_coverage": {
+      "ok": true,
+      "value": "20/20"
+    },
+    "incident_in_band": {
+      "ok": true,
+      "record": {
+        "case_id": "router_incident_it",
+        "deterministic_route": "CLARIFY",
+        "raw_intent": "AMBIGUOUS",
+        "in_semantic_band": true,
+        "expected_semantic_decision": "FAMILY",
+        "expected_shadow_route": "CLARIFY"
+      }
+    },
+    "zero_destructive_executions": {
+      "ok": true,
+      "value": 0
+    },
+    "zero_shadow_route_changes": {
+      "ok": true
+    }
+  },
+  "failures": []
+}

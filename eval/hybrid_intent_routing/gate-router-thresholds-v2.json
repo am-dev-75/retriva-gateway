@@ -1,0 +1,10 @@
+{
+  "schema_version": "2",
+  "gates": {
+    "incident_family_campaign": true,
+    "router_decision_accuracy_min": 0.85,
+    "zero_destructive_executions": true,
+    "zero_shadow_route_changes": true,
+    "all_served_non_empty": true
+  }
+}

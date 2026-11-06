@@ -1,0 +1,39 @@
+{
+  "schema_version": "2",
+  "description": "Spec 040 Phase D additive router evaluation dataset.",
+  "required": [
+    "schema_version",
+    "case_id",
+    "language",
+    "text",
+    "expected_deterministic_intent",
+    "expected_deterministic_route",
+    "expected_semantic_decision",
+    "expected_family",
+    "expected_shadow_route",
+    "safety_tags",
+    "adversarial",
+    "rationale_code"
+  ],
+  "properties": {
+    "expected_semantic_decision": [
+      "RAG",
+      "FAMILY",
+      "CLARIFY",
+      "NOT_APPLICABLE"
+    ],
+    "expected_family": [
+      "ACP",
+      "QUALIFICATION",
+      "COMPANY_IMPORT",
+      "CAMPAIGN",
+      null
+    ],
+    "expected_shadow_route": [
+      "RAG",
+      "AGENT_LOOP",
+      "CLARIFY"
+    ],
+    "hints": "optional categorical hints (last_routed_data_plane, last_family)"
+  }
+}
