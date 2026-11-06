@@ -1,11 +1,12 @@
 # Spec 040 — tasks
 
 - **Status:** ACCEPTED (Gate A passed 2026-11-03)
-- **Implementation:** Phases B–D implemented; Phase E gated
+- **Implementation:** Phases B–E implemented; Phase E active (owner
+  authorized 2026-11-06)
 - **Rule:** check a task only after its evidence is accepted; no task
   bypasses its phase gate.
-- **Current slice:** Phase C implemented and Gate C verification green;
-  Phase D shadow package ready for owner review. Phase E is NOT authorized.
+- **Current slice:** Gate D PASSED 2026-11-06; active rollout executed.
+  Gate E delivery acceptance remains with the owner.
 
 ## Execution record — Phase C/D (2026-11-06)
 
@@ -28,7 +29,19 @@
   incident classified FAMILY/CAMPAIGN at confidence 1.0 while the served
   route stayed CLARIFY; 20/20 decision accuracy; zero destructive
   executions; zero router-routed tool calls; zero shadow route changes.
-- **Phase E:** not executed; active rollout remains owner-gated.
+- **Gate D (2026-11-06):** PASSED. The owner reviewed the shadow evidence
+  package (20/20 router decision accuracy, zero destructive executions,
+  zero router-routed tool calls, zero shadow route changes; incident
+  question FAMILY/CAMPAIGN at confidence 1.0) and authorized active rollout
+  in a controlled environment.
+- **Phase E (2026-11-06):** EXECUTED. Runtime moved to
+  `AGENT_INTENT_ROUTER_MODE=active` with
+  `AGENT_SEMANTIC_ROUTER_ENABLED=true` (`.env` change 11:38–11:39 +01;
+  gateway container created 2026-11-06T14:29:00Z), thresholds 0.85/0.85.
+  Rollback remains `mode=off` + router flag off.
+- **Post-rollout evidence:** the Italian campaign-export clarify of
+  2026-11-06 is recorded in `docs/semantic-routing.md` as production
+  evidence; its localization/export remediation is tracked separately.
 
 ## Phase A — governance (this turn)
 
@@ -74,24 +87,25 @@
 - [ ] Add the mode-off / flag-off byte-identical rollback proof.
 - [ ] **Gate C:** full matrix green; zero destructive routes.
 
-## Phase D — eval dataset v2 and shadow run (implemented; owner review pending)
+## Phase D — eval dataset v2 and shadow run (Gate D passed 2026-11-06)
 
-- [ ] Add `dataset-v2.jsonl` and the v2 schema, preserving older datasets.
-- [ ] Add EN/IT relational reads for all four families.
-- [ ] Add the original miss and informationally framed data questions.
-- [ ] Add KB-vs-DB polysemy pairs.
-- [ ] Add follow-up reads.
-- [ ] Add out-of-catalog questions expected `CLARIFY`.
-- [ ] Add adversarial/injection cases.
-- [ ] Update `run_evaluation.py` and threshold gates.
-- [ ] Add the zero-destructive and zero-shadow-route-change gates.
-- [ ] Run the shadow mode and produce the shadow report.
-- [ ] **Gate D:** owner reviews the shadow report.
+- [x] Add `dataset-v2.jsonl` and the v2 schema, preserving older datasets.
+- [x] Add EN/IT relational reads for all four families.
+- [x] Add the original miss and informationally framed data questions.
+- [x] Add KB-vs-DB polysemy pairs.
+- [x] Add follow-up reads.
+- [x] Add out-of-catalog questions expected `CLARIFY`.
+- [x] Add adversarial/injection cases.
+- [x] Update `run_evaluation.py` and threshold gates.
+- [x] Add the zero-destructive and zero-shadow-route-change gates.
+- [x] Run the shadow mode and produce the shadow report.
+- [x] **Gate D:** owner reviewed the shadow report and authorized active
+  rollout on 2026-11-06.
 
-## Phase E — active rollout and freeze (not started)
+## Phase E — active rollout and freeze (executed 2026-11-06)
 
-- [ ] Enable active mode on the isolated synthetic tenant only.
-- [ ] Run the deployed walkthrough.
-- [ ] Produce the delivery report.
-- [ ] Make the stopgap freeze effective.
+- [x] Enable active mode (owner-authorized controlled environment).
+- [x] Run the deployed walkthrough.
+- [x] Produce the delivery report (`docs/semantic-routing-delivery.md`).
+- [x] Make the stopgap freeze effective.
 - [ ] **Gate E:** owner accepts the walkthrough and delivery report.

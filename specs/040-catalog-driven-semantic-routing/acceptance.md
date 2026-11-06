@@ -110,13 +110,22 @@ Gate C requires all of the above plus owner acceptance.
    - clarify rate below the out-of-catalog ceiling.
 4. The shadow run is on the isolated synthetic tenant; `cust_0007` is
    untouched.
-5. The owner reviews the shadow report.
+5. The owner reviewed the shadow report.
 
-Gate D requires all of the above plus owner acceptance. No active rollout.
+**Gate D result (2026-11-06): PASSED.** The owner accepted the shadow
+evidence (20/20 decision accuracy; zero destructive executions; zero
+router-routed tool calls; zero shadow route changes; incident
+FAMILY/CAMPAIGN at confidence 1.0) and authorized active rollout.
 
 ## 6. Phase E acceptance — active rollout
 
-1. Active mode is enabled on the isolated synthetic tenant only.
+**Phase E result (2026-11-06): EXECUTED.** The runtime was moved to
+`AGENT_INTENT_ROUTER_MODE=active` with `AGENT_SEMANTIC_ROUTER_ENABLED=true`
+(`.env` 11:38–11:39 +01; gateway created 2026-11-06T14:29:00Z), thresholds
+0.85/0.85. The delivery record is `docs/semantic-routing-delivery.md`.
+Gate E owner acceptance remains pending.
+
+1. Active mode is enabled (owner-authorized controlled environment).
 2. Deployed walkthrough:
    - "How many outreach campaigns have we done?" -> "1 COMPLETED campaign
      (2026-CRA-IT)" from the campaign data path, not RAG;
@@ -127,7 +136,8 @@ Gate D requires all of the above plus owner acceptance. No active rollout.
 4. The stopgap freeze is effective.
 5. `cust_0007` remains untouched.
 
-Gate E requires all of the above plus owner acceptance.
+Gate E requires all of the above plus owner acceptance; the delivery
+report and walkthrough are complete and awaiting that acceptance.
 
 ## 7. Rollback acceptance
 
