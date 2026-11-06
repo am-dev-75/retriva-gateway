@@ -510,6 +510,27 @@ class TestEmptyFinalAnswerHardening:
         assert result.tool_calls_executed == []
 
     @pytest.mark.asyncio
+    async def test_empty_final_italian_fallback_is_italian(self):
+        from retriva_gateway.agent.loop import run_agent_loop
+        from retriva_gateway.agent.tools import (
+            ToolContext,
+            build_default_tool_registry,
+        )
+
+        registry = build_default_tool_registry()
+        ctx = ToolContext(session_id="s", kb_id="k", language="it",
+                          user_message="Attiva acpver_1 e approva acpver_2.")
+        with patch(
+            "retriva_gateway.agent.loop.core_client.chat_completions",
+            new=AsyncMock(return_value=_llm_response(content="")),
+        ):
+            result = await run_agent_loop(
+                user_message=ctx.user_message, registry=registry,
+                ctx=ctx, kb_ids=["k"])
+        assert "Non sono riuscito" in result.content
+        assert "nessun dato è stato modificato" in result.content
+
+    @pytest.mark.asyncio
     async def test_empty_final_after_successful_tool_summarizes_result(self):
         from retriva_gateway.agent.loop import run_agent_loop
         from retriva_gateway.agent.tools import ToolContext
