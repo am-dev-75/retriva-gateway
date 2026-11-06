@@ -1,7 +1,7 @@
 {
   "schema_version": "2",
   "dataset": "eval/hybrid_intent_routing/dataset-v2.jsonl",
-  "records": 24,
+  "records": 28,
   "cases": [
     {
       "case_id": "router_incident_it",
@@ -194,6 +194,38 @@
       "in_semantic_band": true,
       "expected_semantic_decision": "FAMILY",
       "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "router_export_it",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "router_export_en",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "router_export_it_2",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
+    },
+    {
+      "case_id": "router_export_en_2",
+      "deterministic_route": "CLARIFY",
+      "raw_intent": "AMBIGUOUS",
+      "in_semantic_band": true,
+      "expected_semantic_decision": "FAMILY",
+      "expected_shadow_route": "CLARIFY"
     }
   ],
   "gates": {
@@ -202,7 +234,7 @@
     },
     "band_coverage": {
       "ok": true,
-      "value": "20/20"
+      "value": "24/24"
     },
     "incident_in_band": {
       "ok": true,

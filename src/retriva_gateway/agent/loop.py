@@ -159,7 +159,7 @@ campaign records, no individual recipients, no consent records):
     campaign tools (`create_campaign`, `list_campaigns`, `get_campaign`,
     `analyze_campaign_audience`, `approve_campaign_audience`,
     `commit_campaign_audience`, `import_campaign_company_history`,
-    `get_campaign_company_stats`,
+    `get_campaign_company_stats`, `export_campaign_companies`,
     `review_campaign_history_row`, `approve_campaign_history_batch`,
     `commit_campaign_history_batch`, `get_campaign_history_receipt`,
     `get_company_campaign_history`, `mark_company_addressed`,
@@ -173,6 +173,11 @@ campaign records, no individual recipients, no consent records):
     equivalent), call `get_campaign_company_stats` with the campaign code
     and report the returned `addressed` (and `memberships`) from that
     tool; never answer it from the knowledge base.
+    For "export the companies of campaign X to Excel" (or the Italian
+    equivalent), call `export_campaign_companies` with the campaign code,
+    then report the company count, artifact id, and download path returned
+    by the tool. The export is read-only: it creates a session artifact
+    and never writes canonical campaign/organization data.
     You never generate SQL, never write campaign data to the knowledge
     base, and never trigger company qualification from a campaign
     import.
@@ -327,9 +332,10 @@ async def _execute_tool(
 ) -> Dict[str, Any]:
     """Validate and execute one tool call with trusted context."""
     if read_only_only and tool.destructive:
+        from retriva_gateway.core.routing.messages import template
         return {"error": {
             "code": "tool_not_allowed",
-            "message": "This tool is not available on a read-only route.",
+            "message": template(ctx.language, "tool_not_available"),
         }}
     args = call["args"]
     schema_err = _validate_against_schema(args, tool.parameters)
@@ -338,8 +344,12 @@ async def _execute_tool(
     try:
         return await asyncio.wait_for(tool.execute(args, ctx), timeout=tool_timeout)
     except asyncio.TimeoutError:
-        return {"error": {"code": "tool_timeout",
-                          "message": f"Tool {tool.name} timed out after {tool_timeout}s."}}
+        from retriva_gateway.core.routing.messages import template
+        return {"error": {
+            "code": "tool_timeout",
+            "message": template(
+                ctx.language, "tool_timeout", name=tool.name,
+                seconds=tool_timeout)}}
     except ToolExecutionError as e:
         return {"error": {"code": e.code, "message": e.message}}
     except Exception:  # noqa: BLE001 — tool boundary
@@ -364,26 +374,22 @@ _EMPTY_FINAL_NO_TOOLS = (
 def _empty_final_fallback(
         executed: List[Dict[str, Any]],
         last_result: Optional[Dict[str, Any]],
-        finish_reason: str = "") -> str:
-    """Truthful, deterministic text for an empty model final answer."""
+        finish_reason: str = "",
+        language: str = "en") -> str:
+    """Truthful, deterministic, localized text for an empty final answer."""
+    from retriva_gateway.core.routing.messages import template
     if not executed:
         if finish_reason == "length":
-            return (
-                "The model reached its response-length limit before it "
-                "produced a final answer, so no tool was executed and no "
-                "data was changed. Please retry the request or split it "
-                "into a smaller step."
-            )
-        return _EMPTY_FINAL_NO_TOOLS
+            return template(language, "loop_length")
+        return template(language, "loop_no_tools")
     last = executed[-1]
     name = str(last.get("tool") or "the tool")
     result = last_result if isinstance(last_result, dict) else {}
     summary = result.get("chat_summary")
     if isinstance(summary, str) and summary.strip():
-        return (
-            f"The `{name}` step completed: {summary.strip()} "
-            "No additional narrative was generated."
-        )
+        return template(
+            language, "loop_tool_ok", name=name,
+            summary=summary.strip())
     error = result.get("error")
     if isinstance(error, dict):
         code = str(error.get("code") or "tool_error").strip()
@@ -391,20 +397,12 @@ def _empty_final_fallback(
         detail = f" ({code})" if code else ""
         if message:
             detail += f": {message}"
-        return (
-            f"I attempted `{name}`, but it failed{detail}. "
-            "No further action was taken."
-        )
+        return template(
+            language, "loop_tool_error", name=name, detail=detail)
     if last.get("ok"):
-        return (
-            f"The `{name}` step completed successfully, but no final "
-            "summary was generated. Ask me for the current state to "
-            "continue."
-        )
-    return (
-        f"`{name}` did not complete, and no final summary was generated. "
-        "No further action was taken."
-    )
+        return template(
+            language, "loop_tool_success_no_summary", name=name)
+    return template(language, "loop_tool_failed", name=name)
 
 
 async def run_agent_loop(
@@ -588,17 +586,18 @@ async def run_agent_loop(
             tool = registry.get(name)
             call_sig = (name, json.dumps(call["args"], sort_keys=True))
             if tool is None or (allowed is not None and name not in allowed):
-                result = {"error": {"code": "tool_not_allowed",
-                                    "message": f"Tool {name!r} is not available."}}
+                from retriva_gateway.core.routing.messages import template
+                result = {"error": {
+                    "code": "tool_not_allowed",
+                    "message": template(
+                        ctx.language, "tool_unavailable", name=name)}}
             elif call_sig in seen_calls:
                 # Recursion protection: identical repeated call.
+                from retriva_gateway.core.routing.messages import template
                 result = {"error": {
                     "code": "repeated_call",
-                    "message": (
-                        f"Tool {name!r} was already called with identical "
-                        "arguments. Use the previous result; do not repeat "
-                        "the same call."
-                    ),
+                    "message": template(
+                        ctx.language, "tool_repeated", name=name),
                 }}
             else:
                 seen_calls.add(call_sig)
@@ -663,18 +662,18 @@ async def run_agent_loop(
             })
     else:
         stopped_reason = "max_iterations"
-        final_content = (
-            "The qualification conversation reached the tool-call limit "
-            f"({max_iterations} iterations) before a final answer was "
-            "produced. Please ask for the current job status to continue."
-        )
+        from retriva_gateway.core.routing.messages import template
+        final_content = template(
+            ctx.language, "iteration_limit",
+            max_iterations=max_iterations)
 
     # Harden the user-visible answer: a model final message with empty
     # content and no tool calls must never reach the client as an empty
     # assistant message.  The fallback is deterministic and truthful.
     if not final_content.strip():
         final_content = _empty_final_fallback(
-            executed, last_result, final_finish_reason)
+            executed, last_result, final_finish_reason,
+            ctx.language)
         logger.warning(
             f"[{corr_id}] agent_empty_final_answer "
             f"executed={len(executed)}")

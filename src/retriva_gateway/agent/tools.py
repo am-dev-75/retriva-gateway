@@ -36,7 +36,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Awaitable, Dict, List, Optional
+from typing import Any, Callable, Awaitable, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from loguru import logger
@@ -239,6 +239,19 @@ async def _crm_request(method: str, path: str, **kwargs) -> Dict[str, Any]:
             message,
             http_status=status,
         )
+
+
+async def _crm_request_bytes(
+        method: str, path: str, **kwargs) -> Tuple[bytes, Dict[str, str]]:
+    """Call Core's ingestion API and return raw bytes + response headers."""
+    import httpx
+    try:
+        resp = await core_client._request(
+            method, core_client.ingestion_base_url, path, **kwargs)
+        return resp.content, dict(resp.headers)
+    except httpx.HTTPStatusError as e:
+        status, code, message = _crm_typed_error(e.response)
+        raise ToolExecutionError(code, message, http_status=status)
 
 
 async def _tool_qualify_candidates(args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
@@ -1472,6 +1485,65 @@ async def _cg_row_decision(args, ctx):
 
 
 
+
+async def _cg_export_campaign_companies(args, ctx):
+    """Export campaign companies to an XLSX session artifact (read-only).
+
+    Reads the canonical campaign data through the CRM export endpoint and
+    stores the generated file in the chat session's artifact store.  No
+    canonical organization/campaign row is written and no campaign data is
+    ingested into the knowledge base.
+    """
+    _cg_require(args, "campaign_code")
+    code = str(args["campaign_code"]).strip()
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", code):
+        raise ToolExecutionError(
+            "invalid_campaign_code",
+            "campaign_code must be a campaign code such as 2026-CRA-IT.")
+    xlsx, headers = await _crm_request_bytes(
+        "GET",
+        f"/api/v2/crm/campaigns/{_cg_seg(code)}/companies/report.xlsx")
+    count = headers.get("x-campaign-companies-count") or "?"
+    try:
+        resp = await core_client._request(
+            "POST", core_client.ingestion_base_url,
+            f"/api/v2/sessions/{_cg_seg(ctx.session_id)}/artifacts",
+            files={"file": (
+                f"campaign-companies-{code}.xlsx", xlsx,
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet")},
+            data={
+                "artifact_kind": "campaign_export",
+                "metadata": json.dumps({"campaign_code": code}),
+            })
+        meta = resp.json()
+    except Exception as exc:  # noqa: BLE001 — typed boundary below
+        raise ToolExecutionError(
+            "artifact_store_failed",
+            "The export was generated but could not be stored as a "
+            "session artifact.") from exc
+    artifact_id = str(meta.get("artifact_id") or "")
+    if not artifact_id:
+        raise ToolExecutionError(
+            "artifact_store_failed",
+            "The session artifact store returned no artifact id.")
+    download_path = (
+        f"/api/v2/sessions/{ctx.session_id}/artifacts/"
+        f"{artifact_id}/content")
+    return {
+        "campaign_code": code,
+        "companies": count,
+        "artifact_id": artifact_id,
+        "filename": meta.get("filename"),
+        "media_type": meta.get("media_type"),
+        "size": len(xlsx),
+        "download_path": download_path,
+        "chat_summary": (
+            f"Exported {count} companies of campaign {code} to Excel "
+            f"(artifact {artifact_id}). Download: {download_path}"),
+    }
+
+
 async def _cg_approve_import(args, ctx):
     _cg_require(args, "batch_id")
     _require_campaign_import_intent(
@@ -1856,6 +1928,16 @@ def build_campaign_governance_tools() -> List[ToolDefinition]:
             parameters=_cg_schema({"batch_id": str_p, "status": str_p},
                                   ["batch_id"]),
             execute=_cg_rows),
+        ToolDefinition(
+            name="export_campaign_companies",
+            description="Export the companies of ONE named campaign to an "
+                        "XLSX session artifact (read-only: no canonical "
+                        "data change and no knowledge-base ingestion).",
+            parameters=_cg_schema({
+                "campaign_code": str_p,
+            }, ["campaign_code"]),
+            execute=_cg_export_campaign_companies,
+            destructive=False),
         ToolDefinition(
             name="get_campaign_company_stats",
             description="Read-only aggregate for ONE campaign: member "

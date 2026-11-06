@@ -211,7 +211,7 @@ def test_campaign_governance_health_is_bounded():
     assert response.status_code == 200
     body = response.json()
     assert body["campaign_proxy_registered"] is True
-    assert body["campaign_tool_count"] == 34
+    assert body["campaign_tool_count"] == 35
     assert body["campaign_tools_ok"] is True
     assert body["permission_vocabulary_expected"] == "final_v1"
     assert body["interim_mapping_expected_absent"] is True
