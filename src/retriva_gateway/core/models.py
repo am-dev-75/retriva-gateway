@@ -63,6 +63,14 @@ class ChatRequest(BaseModel):
     # Attachment IDs the model may reference (must belong to session_id).
     # Empty = no attachments available to the agent.
     attachment_ids: Optional[List[str]] = None
+    # --- Per-turn routing override (optional; additive) -------------------
+    # When true, the turn is forced onto the Company Intelligence
+    # (agent-loop) plane AFTER the deterministic safety layer has run
+    # unchanged: any terminal deterministic outcome still wins. RAG-style
+    # turns enter the loop with read-only tool admission (destructive=False);
+    # consequential commands keep their existing command/confirmation
+    # semantics. Absent/false preserves the current behavior byte-identically.
+    force_deterministic: bool = False
 
 class SearchRequest(BaseModel):
     query: str

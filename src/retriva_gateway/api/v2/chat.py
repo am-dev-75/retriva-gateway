@@ -30,6 +30,26 @@ from retriva_gateway.core.routing.metrics import routing_metrics
 router = APIRouter(tags=["chat"])
 
 
+def _build_routing_context(request: ChatRequest, corr_id: str):
+    """Build the server-only trusted routing context for one turn."""
+    from retriva_gateway.core.context import get_principal
+    from retriva_gateway.core.routing import (
+        TrustedRoutingContext,
+        get_workflow_context_registry,
+    )
+    from retriva_gateway.core.routing.context import WorkflowContextKey
+
+    key = WorkflowContextKey(
+        tenant_id=settings.DEFAULT_TENANT_ID,
+        session_id=request.session_id or f"sess_{corr_id}",
+        kb_id=request.kb_ids[0] if request.kb_ids else "default")
+    routing = TrustedRoutingContext(
+        registry=get_workflow_context_registry(),
+        key=key,
+        principal_id=get_principal().id)
+    return routing, key
+
+
 def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse]:
     """Decide whether this request should run the tool-calling agent loop.
 
@@ -60,6 +80,13 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
             logger.warning(f"[{corr_id}] agent mode requested with stream=True; using plain chat")
             return None
         return _AGENT_SENTINEL
+    if getattr(request, "force_deterministic", False):
+        # User-facing routing override: run the deterministic safety
+        # layer first and keep every terminal outcome; only non-terminal
+        # turns are forced onto the Company Intelligence plane.  The
+        # override is non-streaming only (streaming keeps its existing
+        # policy), so a streaming request falls through below.
+        return _forced_agent_route(request, corr_id)
     if request.stream:
         # Spec 001 §Streaming policy (Phase E): mode off bypasses this
         # gate and preserves legacy streaming EXACTLY.  In shadow and
@@ -108,23 +135,12 @@ def _run_agent_mode(request: ChatRequest, corr_id: str) -> Optional[JSONResponse
         return None
     # New deterministic pipeline (shadow/active; Phase B subset +
     # Phase C typed workflow-context participation).
-    from retriva_gateway.core.context import get_principal
     from retriva_gateway.core.routing import (
-        TrustedRoutingContext,
         classifier_bypass_reason,
         eligible_for_classification,
-        get_workflow_context_registry,
         route_non_streaming,
     )
-    from retriva_gateway.core.routing.context import WorkflowContextKey
-    key = WorkflowContextKey(
-        tenant_id=settings.DEFAULT_TENANT_ID,
-        session_id=request.session_id or f"sess_{corr_id}",
-        kb_id=request.kb_ids[0] if request.kb_ids else "default")
-    routing = TrustedRoutingContext(
-        registry=get_workflow_context_registry(),
-        key=key,
-        principal_id=get_principal().id)
+    routing, key = _build_routing_context(request, corr_id)
     routed = route_non_streaming(request.message or "", routing=routing)
     decision = routed.decision
     # Spec 040 Phase C: when enabled, the semantic router supersedes the
@@ -198,6 +214,77 @@ class _AgentAdmission:
     def __init__(self, *, claimed=None, resolved=None):
         self.claimed = claimed
         self.resolved = resolved
+
+
+#: Marker for a user-forced turn that reached the agent loop through the
+#: read-only admission subset (destructive=False), matching semantic
+#: FAMILY routing.  Constructed only by ``_forced_agent_route``.
+_FORCED_READ_ONLY_AGENT = object()
+
+
+def _forced_agent_route(request: ChatRequest, corr_id: str):
+    """User-facing routing override (Company Intelligence plane).
+
+    The deterministic safety layer runs FIRST and unchanged: its terminal
+    CLARIFY outcomes are returned verbatim, and consequential commands
+    keep the existing agent command/confirmation semantics (never downgraded
+    to read-only).  Only non-terminal, non-consequential turns are forced
+    into the agent loop with read-only admission.  The override is
+    non-streaming only; a streaming request falls through to the existing
+    streaming policy.
+    """
+    if request.stream:
+        return None
+    from retriva_gateway.core.routing import route_non_streaming
+
+    if settings.AGENT_INTENT_ROUTER_MODE == "off":
+        # Mode off keeps its rollback invariant: the deterministic
+        # safety layer runs without constructing or reading the Phase C
+        # workflow-context registry.
+        routed = route_non_streaming(request.message or "")
+    else:
+        routing, _key = _build_routing_context(request, corr_id)
+        routed = route_non_streaming(request.message or "", routing=routing)
+    safety_route = routed.route.value
+    decision = routed.decision
+
+    if safety_route == "CLARIFY":
+        # Terminal safety outcome: keep the existing deterministic
+        # clarification (guards/vetoes were authoritative).
+        served_route = "CLARIFY"
+        outcome = JSONResponse(content={
+            "id": f"msg_{datetime.datetime.now().timestamp()}",
+            "role": "assistant",
+            "content": _localized_clarification(routed, request.message),
+            "timestamp": datetime.datetime.now().isoformat(),
+            "citations": [],
+        })
+    elif safety_route == "AGENT_LOOP" and (
+            bool(getattr(routed.engine_result,
+                         "consequential_operations", ()) or ())
+            or routed.claimed is not None
+            or routed.resolved is not None):
+        # A write/command turn keeps the normal (non-read-only) command
+        # and confirmation semantics; the override never loosens or
+        # bypasses them.
+        served_route = "AGENT_LOOP"
+        outcome = _AgentAdmission(
+            claimed=routed.claimed, resolved=routed.resolved)
+    else:
+        # Informational, ambiguous-non-adjacent, or safe-workflow turn:
+        # force the Company Intelligence plane with read-only admission.
+        served_route = "AGENT_LOOP"
+        outcome = _FORCED_READ_ONLY_AGENT
+
+    routing_metrics().inc(
+        "routing_decision_total", route=served_route,
+        source="forced_override")
+    logger.info(
+        f"[{corr_id}] Chat routing: forced override "
+        f"(served_route={served_route}, safety_route={safety_route}, "
+        f"intent={decision.intent.value}, "
+        f"reasons={[r.value for r in decision.reason_codes]})")
+    return outcome
 
 
 class _ClassifierEligible:
@@ -817,6 +904,13 @@ async def chat(request: ChatRequest):
         return await _agent_chat(
             request, corr_id,
             legacy_error_body=(settings.AGENT_INTENT_ROUTER_MODE == "off"))
+    if agent_result is _FORCED_READ_ONLY_AGENT:
+        # User-forced Company Intelligence turn: same read-only admission
+        # subset used by semantic FAMILY routing (destructive tools filtered
+        # out at execution time).
+        return await _agent_chat(
+            request, corr_id, legacy_error_body=False,
+            read_only_only=True)
     if isinstance(agent_result, _AgentAdmission):
         # Phase C: agent-loop admission carrying the server-only
         # claimed execution context and/or the ordinary resolved
