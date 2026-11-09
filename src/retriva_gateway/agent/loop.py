@@ -224,6 +224,13 @@ campaign records, no individual recipients, no consent records):
     DO_NOT_CONTACT_REQUESTED, tell the user a GLOBAL exclusion proposal
     needs their explicit approval — never create the exclusion
     silently, and never send outreach.
+19b. A campaign-history import request must NOT call `create_campaign`.
+    `import_campaign_company_history` stages the file and the commit
+    creates or adopts the IMPORTED_HISTORICAL campaign; creating a
+    separate NATIVE DRAFT with the same normalized code makes the
+    commit fail with a typed origin conflict. Use `create_campaign`
+    only for a standalone native campaign request that is not importing
+    a history file.
 
 PostgreSQL ACP workflow (Average Customer Profile; separate workflow
 from qualification, import and campaigns — a PostgreSQL business
@@ -580,6 +587,10 @@ async def run_agent_loop(
 
         messages.append({"role": "assistant", "content": content or "",
                          "tool_calls": message.get("tool_calls")})
+
+        if any(call["name"] == "import_campaign_company_history"
+               for call in tool_calls):
+            ctx.historical_import_in_turn = True
 
         for call in tool_calls:
             name = call["name"]

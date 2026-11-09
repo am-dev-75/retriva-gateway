@@ -138,6 +138,11 @@ class ToolContext:
     #: Resolved response language for deterministic user-facing agent-loop
     #: strings (en/it; unsupported values fall back to en).
     language: str = "en"
+    #: Trusted loop flag: this assistant turn requested a campaign-history
+    #: import.  Set by the loop (never model-supplied); prevents the model
+    #: from creating a separate native campaign that would collide with
+    #: the import's IMPORTED_HISTORICAL campaign identity.
+    historical_import_in_turn: bool = False
 
 
 class ToolExecutionError(Exception):
@@ -801,7 +806,9 @@ def build_crm_tools() -> List[ToolDefinition]:
                 "Presence in a campaign list NEVER implies the company "
                 "was addressed. Analysis stages only and never commits: "
                 "review, approve, and commit are separate explicit "
-                "operations."
+                "operations. Do NOT call create_campaign for the same "
+                "campaign: the import commit creates or adopts the "
+                "IMPORTED_HISTORICAL campaign."
             ),
             parameters={
                 "type": "object",
@@ -2876,6 +2883,14 @@ async def _tool_commit_company_import(
 async def _tool_create_campaign(
         args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
     """create_campaign: create a DRAFT campaign."""
+    if ctx.historical_import_in_turn:
+        raise ToolExecutionError(
+            "campaign_history_import_no_create",
+            "Do not create a separate campaign for a campaign-history "
+            "import. import_campaign_company_history stages the file; "
+            "the import commit creates (or adopts an empty DRAFT) "
+            "campaign with origin=IMPORTED_HISTORICAL. Continue with "
+            "the import and its review/commit workflow.")
     code = (args.get("campaign_code") or "").strip()
     name = (args.get("name") or "").strip()
     if not code or not name:
